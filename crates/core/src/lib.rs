@@ -8,6 +8,7 @@
 
 pub mod dto;
 pub mod kdbx;
+pub mod merge;
 pub mod model;
 pub mod totp;
 
