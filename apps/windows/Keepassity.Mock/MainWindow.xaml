@@ -473,6 +473,40 @@
                                 </StackPanel>
                             </Border>
 
+                            <!-- custom fields -->
+                            <Border Style="{StaticResource Card}" Padding="20,16">
+                                <StackPanel Spacing="12">
+                                    <TextBlock Text="CUSTOM FIELDS" Style="{StaticResource SectionLabel}" />
+                                    <Grid ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Recovery email" FontSize="12.5"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock x:Name="DetailRecovery" Grid.Column="1" Text="alex.recovery@proton.me"
+                                                   Style="{StaticResource FieldValue}" />
+                                        <Button Grid.Column="2" Style="{StaticResource IconButton}"
+                                                Click="CopyRecoveryButton_Click" ToolTipService.ToolTip="Copy recovery email">
+                                            <FontIcon Glyph="&#xE8C8;" FontSize="13" />
+                                        </Button>
+                                    </Grid>
+                                    <Grid ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Recovery codes" FontSize="12.5"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="Stored offline · 8 codes"
+                                                   Style="{StaticResource FieldValue}" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
                             <!-- tags + metadata -->
                             <StackPanel Spacing="10">
                                 <StackPanel Orientation="Horizontal" Spacing="6">

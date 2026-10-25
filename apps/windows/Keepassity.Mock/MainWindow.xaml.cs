@@ -28,6 +28,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         Title = "keepassity — UI Prototype";
         AppWindow.MoveAndResize(new RectInt32(28, 40, 1650, 970));
+        ApplyTitleBarTheme();
 
         TrySetMica();
 
@@ -59,6 +60,25 @@ public sealed partial class MainWindow : Window
         {
             // Mica is unavailable on some Windows builds; the app remains usable.
         }
+    }
+
+    private void ApplyTitleBarTheme()
+    {
+        var titleBar = AppWindow.TitleBar;
+        var background = Color.FromArgb(255, 28, 30, 36);
+        var foreground = Color.FromArgb(255, 245, 247, 250);
+        titleBar.BackgroundColor = background;
+        titleBar.InactiveBackgroundColor = background;
+        titleBar.ForegroundColor = foreground;
+        titleBar.InactiveForegroundColor = Color.FromArgb(255, 170, 176, 188);
+        titleBar.ButtonBackgroundColor = Color.FromArgb(0, 0, 0, 0);
+        titleBar.ButtonInactiveBackgroundColor = Color.FromArgb(0, 0, 0, 0);
+        titleBar.ButtonForegroundColor = foreground;
+        titleBar.ButtonInactiveForegroundColor = Color.FromArgb(255, 170, 176, 188);
+        titleBar.ButtonHoverBackgroundColor = Color.FromArgb(255, 48, 52, 62);
+        titleBar.ButtonHoverForegroundColor = foreground;
+        titleBar.ButtonPressedBackgroundColor = Color.FromArgb(255, 64, 70, 84);
+        titleBar.ButtonPressedForegroundColor = foreground;
     }
 
     private void SeedMockData()
@@ -265,17 +285,22 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void CopyRecoveryButton_Click(object sender, RoutedEventArgs e)
+    {
+        CopyText("alex.recovery@proton.me", "Recovery email copied");
+    }
+
     private void CopyTotpButton_Click(object sender, RoutedEventArgs e)
     {
         CopyText(TotpCode.Text.Replace(" ", string.Empty), "One-time code copied");
     }
 
-    private static void CopyText(string text, string label)
+    private void CopyText(string text, string label)
     {
         var package = new DataPackage();
         package.SetText(text);
         Clipboard.SetContent(package);
-        _ = label;
+        ShowToast(label, InfoBarSeverity.Success);
     }
 
     private async void OpenUrlButton_Click(object sender, RoutedEventArgs e)
