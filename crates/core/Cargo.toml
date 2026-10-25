@@ -9,6 +9,9 @@ description = "KDBX / crypto / merge / sync-decision / TOTP. No IO, no network, 
 
 [dependencies]
 # Keep the dependency set minimal; new dependencies require review.
+# serde/serde_json: model + DTO serialization and canonical dump (whitelist).
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 
 [lints.rust]
 unsafe_code = "forbid"
