@@ -21,6 +21,9 @@ pub use constants::{
     FILE_VERSION_3_1, FILE_VERSION_4_0, FILE_VERSION_4_1, FILE_VERSION_CRITICAL_MASK,
     HeaderFieldId, InnerHeaderFieldId, KDBX_SIGNATURE_1, KDBX_SIGNATURE_2, VariantFieldType,
 };
-pub use kdbx::{Credentials, CredentialsBuilder, KdbxFile, read_kdbx, read_kdbx_bytes, write_kdbx, write_kdbx_bytes};
+pub use kdbx::{
+    Credentials, CredentialsBuilder, KdbxFile, read_kdbx, read_kdbx_bytes, write_kdbx,
+    write_kdbx_bytes,
+};
 pub use types::{Compression, KdbxVersion};
 pub use variant_map::{VariantValue, read_variant_map, write_variant_map};

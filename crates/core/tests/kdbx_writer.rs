@@ -27,9 +27,8 @@ fn stripped(mut db: keepassity_core::model::Database) -> keepassity_core::model:
 #[test]
 fn reseal_kdbx4_aes_roundtrip() {
     let bytes = read(&fixture("test_db_kdbx4_with_password_aes.kdbx"));
-    let original = stripped(
-        keepassity_core::kdbx::reader::parse(&bytes, "demopass").expect("read original"),
-    );
+    let original =
+        stripped(keepassity_core::kdbx::reader::parse(&bytes, "demopass").expect("read original"));
     let resealed = keepassity_core::kdbx::writer::reseal(&bytes, "demopass").expect("reseal");
     let again = keepassity_core::kdbx::writer::reseal(&bytes, "demopass").expect("reseal again");
     assert_ne!(resealed, again, "fresh salt/seed must change every save");
@@ -47,9 +46,8 @@ fn reseal_kdbx4_aes_roundtrip() {
 #[test]
 fn reseal_kdbx41_features_roundtrip() {
     let bytes = read(&fixture("test_db_kdbx41_features.kdbx"));
-    let original = stripped(
-        keepassity_core::kdbx::reader::parse(&bytes, "demopass").expect("read original"),
-    );
+    let original =
+        stripped(keepassity_core::kdbx::reader::parse(&bytes, "demopass").expect("read original"));
     let resealed = keepassity_core::kdbx::writer::reseal(&bytes, "demopass").expect("reseal");
     let opened = stripped(
         keepassity_core::kdbx::reader::parse(&resealed, "demopass").expect("read resealed"),
@@ -69,8 +67,7 @@ fn reseal_rejects_bad_password_and_broken_data() {
 #[test]
 #[ignore = "requires KEEPASSITY_INTEROP_OUT"]
 fn write_resealed_fixture_for_interop() {
-    let output =
-        std::env::var("KEEPASSITY_INTEROP_OUT").expect("KEEPASSITY_INTEROP_OUT");
+    let output = std::env::var("KEEPASSITY_INTEROP_OUT").expect("KEEPASSITY_INTEROP_OUT");
     let bytes = read(&fixture("test_db_kdbx4_with_password_aes.kdbx"));
     let resealed = keepassity_core::kdbx::writer::reseal(&bytes, "demopass").expect("reseal");
     std::fs::write(&output, resealed).expect("write resealed fixture");
