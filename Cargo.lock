@@ -646,11 +646,13 @@ dependencies = [
 name = "keepassity-core"
 version = "0.1.0"
 dependencies = [
+ "hmac 0.12.1",
  "keepass",
  "keepassxcr",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha1",
+ "sha2 0.10.9",
 ]
 
 [[package]]

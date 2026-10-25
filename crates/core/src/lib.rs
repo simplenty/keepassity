@@ -9,6 +9,7 @@
 pub mod dto;
 pub mod kdbx;
 pub mod model;
+pub mod totp;
 
 /// FFI main version. Bump only with a breaking ABI change.
 pub const API_MAJOR: u32 = 1;

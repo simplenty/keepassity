@@ -194,7 +194,7 @@ pub enum TotpEncoder {
 }
 
 /// TOTP configuration DTO.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TotpConfig {
     /// SECRET: Base32 seed; never log.
     pub secret_base32: String,
@@ -215,6 +215,21 @@ pub struct TotpConfig {
     /// Steam/counter value (optional).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub counter: Option<u64>,
+}
+
+impl std::fmt::Debug for TotpConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TotpConfig")
+            .field("secret_base32", &"<redacted>")
+            .field("issuer", &self.issuer)
+            .field("account", &self.account)
+            .field("algorithm", &self.algorithm)
+            .field("digits", &self.digits)
+            .field("period", &self.period)
+            .field("encoder", &self.encoder)
+            .field("counter", &self.counter)
+            .finish()
+    }
 }
 
 /// TOTP code DTO.
