@@ -10,7 +10,13 @@
 //! this task establishes the byte-level write path and its verification.
 
 use crate::kdbx::detect_version;
+use crate::model::{Database, Entry, Group, Times, Uuid};
 use keepassxcr::format::{read_kdbx_bytes, write_kdbx_bytes};
+use keepassxcr::model::{
+    Attachment as BackendAttachment, Database as BackendDatabase,
+    DeletedObject as BackendDeletedObject, Entry as BackendEntry, Group as BackendGroup,
+    HistoryLimits as BackendHistoryLimits, Times as BackendTimes, Timestamp,
+};
 use keepassxcr::Credentials;
 use std::fmt;
 
@@ -65,6 +71,134 @@ pub fn reseal(bytes: &[u8], password: &str) -> Result<Vec<u8>, KdbxWriteError> {
         .map_err(|error| KdbxWriteError::Read(format!("{error:?}")))?;
     write_kdbx_bytes(&file, &credentials)
         .map_err(|error| KdbxWriteError::Write(format!("{error:?}")))
+}
+
+/// Serialise the core model to a new KDBX 4.0 file.
+///
+/// This is the write bridge used after merge/edit operations. The current
+/// mapping is intentionally limited to the data needed by the merge path
+/// (UUID/name/fields/tags/times/history/attachments/DeletedObjects); unknown
+/// raw XML, auto-type, icons and custom icons are not yet mapped, so callers
+/// must not treat this as a full-fidelity rewrite of arbitrary databases.
+pub fn write_model(db: &Database, password: &str) -> Result<Vec<u8>, KdbxWriteError> {
+    if password.is_empty() {
+        return Err(KdbxWriteError::Write(
+            "password required to encrypt".to_string(),
+        ));
+    }
+    let backend = to_backend(db);
+    let file = keepassxcr::KdbxFile::new(backend);
+    let credentials = Credentials::password(password);
+    write_kdbx_bytes(&file, &credentials)
+        .map_err(|error| KdbxWriteError::Write(format!("{error:?}")))
+}
+
+fn backend_uuid(uuid: Uuid) -> keepassxcr::Uuid {
+    keepassxcr::Uuid::from_bytes(*uuid.as_bytes())
+}
+
+fn backend_timestamp(text: &str) -> Timestamp {
+    Timestamp::parse(text).unwrap_or_else(Timestamp::now)
+}
+
+fn backend_times(times: &Times) -> BackendTimes {
+    BackendTimes {
+        creation: backend_timestamp(&times.creation),
+        last_modification: backend_timestamp(&times.last_modification),
+        last_access: backend_timestamp(&times.last_access),
+        expiry: backend_timestamp(&times.expiry),
+        expires: times.expires,
+        usage_count: times.usage_count,
+        location_changed: backend_timestamp(&times.location_changed),
+    }
+}
+
+fn to_backend(db: &Database) -> BackendDatabase {
+    let name = if db.meta.database_name.is_empty() {
+        "keepassity".to_string()
+    } else {
+        db.meta.database_name.clone()
+    };
+    let mut backend = BackendDatabase::new(name);
+    backend
+        .meta_mut()
+        .set_description(db.meta.database_description.clone());
+    backend
+        .meta_mut()
+        .set_recycle_bin_enabled(db.meta.recycle_bin_enabled);
+    backend.meta_mut().set_history_limits(BackendHistoryLimits {
+        max_items: db
+            .meta
+            .history_max_items
+            .clamp(i32::MIN as i64, i32::MAX as i64) as i32,
+        max_size: db.meta.history_max_size,
+    });
+    if let Some(uuid) = db.meta.recycle_bin_uuid {
+        backend
+            .meta_mut()
+            .load_recycle_bin(Some(backend_uuid(uuid)), Timestamp::now());
+    }
+    for item in &db.deleted_objects {
+        backend.deleted_objects_mut().push(BackendDeletedObject {
+            uuid: backend_uuid(item.uuid),
+            deletion_time: backend_timestamp(&item.deletion_time),
+        });
+    }
+    let root = backend.root_mut();
+    fill_backend_group(root, &db.root);
+    backend
+}
+
+fn fill_backend_group(backend: &mut BackendGroup, group: &Group) {
+    backend.set_uuid(backend_uuid(group.uuid));
+    backend.set_name(group.name.clone());
+    backend.set_tags(group.tags.join(";"));
+    *backend.times_mut() = backend_times(&group.times);
+    backend.set_previous_parent_group(group.previous_parent_group.map(backend_uuid));
+    for entry in &group.entries {
+        backend.entries_mut().push(to_backend_entry(entry));
+    }
+    for child in &group.groups {
+        let mut target = BackendGroup::with_uuid(backend_uuid(child.uuid), child.name.clone());
+        fill_backend_group(&mut target, child);
+        backend.groups_mut().push(target);
+    }
+}
+
+fn to_backend_entry(entry: &Entry) -> BackendEntry {
+    let mut backend = BackendEntry::with_uuid(
+        backend_uuid(entry.uuid),
+        entry.field("Title").unwrap_or("").to_string(),
+    );
+    backend.set_username(entry.field("UserName").unwrap_or("").to_string());
+    backend.set_password(entry.field("Password").unwrap_or("").to_string().into());
+    backend.set_url(entry.field("URL").unwrap_or("").to_string());
+    backend.set_notes(entry.field("Notes").unwrap_or("").to_string());
+    backend.set_tags(&entry.tags.join(";"));
+    *backend.times_mut() = backend_times(&entry.times);
+    backend.set_previous_parent_group(entry.previous_parent_group.map(backend_uuid));
+    for field in &entry.strings {
+        if matches!(
+            field.key.as_str(),
+            "Title" | "UserName" | "Password" | "URL" | "Notes"
+        ) {
+            continue;
+        }
+        backend.set_custom_field(field.key.clone(), field.value.clone(), field.protected);
+    }
+    for binary in &entry.binaries {
+        backend
+            .attachments_mut()
+            .push(BackendAttachment::with_protection(
+                binary.key.clone(),
+                binary.value.clone(),
+                binary.protected,
+            ));
+    }
+    for history in &entry.history {
+        backend.history_mut().push(to_backend_entry(history));
+    }
+    backend
 }
 
 /// Version that the backend uses for `KdbxFile::new` (new databases).

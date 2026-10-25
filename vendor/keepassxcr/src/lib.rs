@@ -77,4 +77,5 @@ pub use format::{Credentials, KdbxFile, read_kdbx, write_kdbx};
 pub use model::{Database, Entry, Group};
 
 pub use secrecy;
+pub use uuid::Uuid;
 pub use zeroize;
