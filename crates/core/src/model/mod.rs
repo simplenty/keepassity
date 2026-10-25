@@ -7,6 +7,7 @@
 //! for filling and consuming these fields; this module is IO-free.
 
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
@@ -457,6 +458,8 @@ pub struct Group {
     pub is_expanded: bool,
     /// Default auto-type enabled.
     pub default_auto_type: bool,
+    /// Default auto-type sequence for the group.
+    pub default_autotype_sequence: String,
     /// Auto-type enabled.
     pub enable_auto_type: bool,
     /// Searching enabled.
@@ -507,6 +510,16 @@ pub struct Database {
     /// Unknown database-level XML.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unknown: Vec<RawXml>,
+    /// Raw decrypted XML bytes (not serialized; may contain secrets).
+    ///
+    /// Kept so M1-02 does not lose data that the reader model does not map yet;
+    /// canonical dumps expose only its SHA-256, never the bytes.
+    #[serde(skip)]
+    pub raw_xml: Option<Vec<u8>>,
+    /// SHA-256 of [`Database::raw_xml`], included in canonical dumps as
+    /// evidence that unknown XML was preserved without leaking secrets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_xml_sha256: Option<String>,
 }
 
 impl Database {
@@ -515,13 +528,70 @@ impl Database {
     /// Keys are emitted in struct order; deterministic collections use
     /// `BTreeMap`/sorted keys. Structural order (groups/entries/strings) is kept
     /// because it is meaningful for KeePass display and round-trip fidelity.
+    ///
+    /// Secret values (protected strings, `Password`, TOTP seeds) are replaced by
+    /// `sha256:<hex>` so a dump can be compared/logged without leaking them.
     pub fn canonical_json(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string_pretty(self)
+        let mut value = serde_json::to_value(self)?;
+        redact_value(&mut value);
+        serde_json::to_string_pretty(&value)
     }
 
-    /// Canonical JSON value (useful for tests/tools).
+    /// Canonical JSON value (useful for tests/tools); secrets are redacted.
     pub fn canonical_value(&self) -> Result<serde_json::Value, serde_json::Error> {
-        serde_json::to_value(self)
+        let mut value = serde_json::to_value(self)?;
+        redact_value(&mut value);
+        Ok(value)
+    }
+}
+
+fn is_secret_key(key: &str) -> bool {
+    key == "Password"
+        || key == "otp"
+        || key == "TOTP Seed"
+        || key.starts_with("TimeOtp-Secret")
+        || key.ends_with("_secret")
+}
+
+fn redact_value(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                redact_value(item);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            let secret = map
+                .get("key")
+                .and_then(|key| key.as_str())
+                .is_some_and(is_secret_key)
+                || map
+                    .get("protected")
+                    .and_then(|flag| flag.as_bool())
+                    .unwrap_or(false);
+            if secret {
+                if let Some(serde_json::Value::String(text)) = map.get_mut("value") {
+                    let digest = sha2::Sha256::digest(text.as_bytes());
+                    let mut hex = String::with_capacity(digest.len() * 2);
+                    for byte in digest {
+                        hex.push_str(&format!("{byte:02x}"));
+                    }
+                    *text = format!("sha256:{hex}");
+                }
+                if let Some(serde_json::Value::String(text)) = map.get_mut("password_secret") {
+                    let digest = sha2::Sha256::digest(text.as_bytes());
+                    let mut hex = String::with_capacity(digest.len() * 2);
+                    for byte in digest {
+                        hex.push_str(&format!("{byte:02x}"));
+                    }
+                    *text = format!("sha256:{hex}");
+                }
+            }
+            for child in map.values_mut() {
+                redact_value(child);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -607,10 +677,13 @@ mod tests {
             },
             ..Database::default()
         };
-        let json = db.canonical_json().unwrap();
+        let json = serde_json::to_string(&db).unwrap();
         let back: Database = serde_json::from_str(&json).unwrap();
         assert_eq!(back, db);
         assert!(json.contains("PluginData"));
-        assert!(json.contains("\"format_version\": \"4.1\""));
+        assert!(json.contains("\"format_version\":\"4.1\""));
+        let canonical = db.canonical_json().unwrap();
+        assert!(!canonical.contains("\"secret\""));
+        assert!(canonical.contains("sha256:"));
     }
 }

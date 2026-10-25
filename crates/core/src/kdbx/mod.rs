@@ -5,6 +5,8 @@
 //! It exists so version detection and the write-backend contract live in one
 //! place instead of being duplicated by every harness.
 
+pub mod reader;
+
 /// KDBX file format version detected from the file header.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KdbxVersion {

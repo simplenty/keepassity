@@ -12,6 +12,11 @@ description = "KDBX / crypto / merge / sync-decision / TOTP. No IO, no network, 
 # serde/serde_json: model + DTO serialization and canonical dump (whitelist).
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+# keepass: established read path (MIT, whitelist). Used only for decryption
+# and the known model; core still performs no file IO.
+keepass = "=0.17.0"
+# sha2: raw-XML evidence hashes (whitelist).
+sha2 = "0.11.1"
 
 [lints.rust]
 unsafe_code = "forbid"

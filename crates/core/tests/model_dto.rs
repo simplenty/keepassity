@@ -160,6 +160,8 @@ fn full_database() -> Database {
             deletion_time: "2026-10-25T10:00:00Z".into(),
         }],
         unknown: vec![RawXml::new("DatabasePluginData")],
+        raw_xml: None,
+        raw_xml_sha256: None,
     }
 }
 
@@ -188,8 +190,13 @@ fn canonical_dump_covers_all_requirement_entities() {
         assert!(json.contains(expected), "canonical dump missing {expected}");
     }
 
-    let back: Database = serde_json::from_str(&json).expect("deserialize model");
-    assert_eq!(back, db);
+    // Canonical dumps redact secrets, so only check that the dump is valid JSON
+    // and keeps the structural sections; the raw (unredacted) serde round-trip
+    // is covered by the unit test in `model::tests`.
+    let back: serde_json::Value = serde_json::from_str(&json).expect("deserialize canonical dump");
+    assert!(back.get("meta").is_some());
+    assert!(back.get("root").is_some());
+    assert!(!json.contains("\"secret\""));
 }
 
 #[test]
