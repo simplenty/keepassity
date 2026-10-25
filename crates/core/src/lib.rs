@@ -10,6 +10,7 @@ pub mod dto;
 pub mod kdbx;
 pub mod merge;
 pub mod model;
+pub mod sync;
 pub mod totp;
 
 /// FFI main version. Bump only with a breaking ABI change.
