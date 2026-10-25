@@ -51,6 +51,21 @@ jobs:
         shell: pwsh
         run: ./tools/interop/verify.ps1 -FixturesOnly -KeepassXcPath keepassxc-cli
 
+  sync-matrix:
+    name: sync-matrix / ubuntu
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux build deps (hidapi/udev)
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+      - name: 18-scenario sync matrix
+        run: cargo test -p keepassity-core --test sync_matrix
+
   supply-chain:
     name: supply-chain
     runs-on: ubuntu-latest

@@ -209,6 +209,18 @@ impl SyncState {
         }
     }
 
+    /// Map an upload HTTP status to the state machine:
+    /// 412 uses the three back-offs; auth/quota/method errors are readable
+    /// Offline decisions (dirty retained, no automatic retry storm).
+    pub fn on_upload_http(&mut self, status: u16) -> SyncDecision {
+        match status {
+            412 => self.on_upload_412(),
+            401 | 403 => self.on_offline(format!("authentication failed (HTTP {status})")),
+            405 | 507 => self.on_offline(format!("server rejected upload (HTTP {status})")),
+            _ => self.on_offline(format!("upload failed (HTTP {status})")),
+        }
+    }
+
     /// Reset the conflict counter after a different failure/success path.
     pub fn reset_upload_conflicts(&mut self) {
         self.upload_conflicts = 0;
@@ -396,6 +408,18 @@ mod tests {
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
         assert_eq!(local_hash(b"abc").len(), 64);
+    }
+
+    #[test]
+    fn upload_http_errors_are_readable_and_keep_dirty() {
+        for status in [401, 403, 405, 507, 500] {
+            let mut state = clean_state();
+            state.mark_dirty();
+            let decision = state.on_upload_http(status);
+            assert_eq!(decision.action, SyncActionKind::Offline);
+            assert!(decision.reason.contains(&status.to_string()));
+            assert!(state.local_dirty, "HTTP {status} must keep dirty state");
+        }
     }
 
     #[test]
