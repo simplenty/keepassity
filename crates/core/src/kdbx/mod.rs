@@ -6,6 +6,7 @@
 //! place instead of being duplicated by every harness.
 
 pub mod reader;
+pub mod save;
 pub mod writer;
 
 /// KDBX file format version detected from the file header.
