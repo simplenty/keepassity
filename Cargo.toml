@@ -8,7 +8,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.99"
 license = "GPL-3.0-or-later"
-repository = "https://github.com/OWNER/keepassity"
+repository = "https://github.com/simplenty/keepassity"
 
 # Lints are declared per crate (core forbids unsafe; ffi must allow `no_mangle`).
 
