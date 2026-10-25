@@ -2,6 +2,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/core", "crates/ffi", "crates/cli"]
+exclude = ["vendor/keepassxcr"]
 
 [workspace.package]
 version = "0.1.0"

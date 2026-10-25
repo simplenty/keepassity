@@ -5,7 +5,7 @@
 | Component | Version | License | Usage | Notes |
 |---|---|---|---|---|
 | `keepass` | 0.17.0 | MIT | KDBX read path (CLI, independent verifier) | not shipped in the UI path |
-| `keepassxcr` | 0.3.1 | GPL-3.0-or-later | KDBX write backend (ADR-0002) | library-only build; not the CLI app |
+| `keepassxcr` | 0.3.1 (vendored fork) | GPL-3.0-or-later | KDBX write backend (ADR-0002); vendored under `vendor/keepassxcr` to expose a byte-level read/write API (Q11/D9) | library-only build; upstream project https://github.com/tynes/keepassxcr |
 | KeePassLib (KeePass 2.x, test-only) | 2.59.0 (managed source build) | GPL-2.0-or-later | Interop verification only; not shipped | build from official source; see `tools/interop/README.md` |
 | ZXing.Net | 0.16.x | Apache-2.0 | QR decode (UI layer, planned) | Compatible with GPL-3.0-or-later |
 | CommunityToolkit.Mvvm | 8.4.x | MIT | MVVM (planned) | |
