@@ -11,6 +11,8 @@
 use hmac::{Hmac, Mac};
 use std::fmt;
 
+pub mod fields;
+
 /// TOTP hash algorithm.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TotpAlgorithm {
@@ -97,6 +99,8 @@ pub enum TotpError {
     InvalidPeriod,
     /// Secret is not valid Base32.
     InvalidBase32,
+    /// otpauth/steam URI or field settings are malformed.
+    InvalidUri,
     /// HMAC could not be initialised.
     Hmac,
 }
@@ -108,6 +112,7 @@ impl fmt::Display for TotpError {
             Self::InvalidDigits(digits) => write!(f, "unsupported TOTP digits: {digits}"),
             Self::InvalidPeriod => write!(f, "TOTP period must be positive"),
             Self::InvalidBase32 => write!(f, "TOTP secret is not valid Base32"),
+            Self::InvalidUri => write!(f, "TOTP URI or settings are malformed"),
             Self::Hmac => write!(f, "cannot initialise TOTP HMAC"),
         }
     }
@@ -262,6 +267,26 @@ fn hmac_digest(algorithm: TotpAlgorithm, key: &[u8], message: &[u8]) -> Result<V
 /// must not silently block code generation.
 pub fn clock_skew_warning(now_unix: u64, reference_unix: u64) -> bool {
     now_unix.abs_diff(reference_unix) > 30
+}
+
+/// Encode bytes as RFC 4648 Base32 without padding.
+pub fn base32_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    let mut out = String::with_capacity((bytes.len() * 8).div_ceil(5));
+    let mut buffer: u32 = 0;
+    let mut bits: u32 = 0;
+    for byte in bytes {
+        buffer = (buffer << 8) | u32::from(*byte);
+        bits += 8;
+        while bits >= 5 {
+            bits -= 5;
+            out.push(ALPHABET[((buffer >> bits) & 0x1f) as usize] as char);
+        }
+    }
+    if bits > 0 {
+        out.push(ALPHABET[((buffer << (5 - bits)) & 0x1f) as usize] as char);
+    }
+    out
 }
 
 /// Decode RFC 4648 Base32 (case-insensitive, optional `=` padding, spaces and
