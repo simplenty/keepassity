@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/ffi", "crates/cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.99"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/OWNER/keepassity"
+
+# Lints are declared per crate (core forbids unsafe; ffi must allow `no_mangle`).

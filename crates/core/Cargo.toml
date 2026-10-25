@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "keepassity-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "KDBX / crypto / merge / sync-decision / TOTP. No IO, no network, no platform API."
+
+[dependencies]
+# Keep the dependency set minimal; new dependencies require review.
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

@@ -1,0 +1,29 @@
+# build artifacts
+/target/
+/dist/
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+
+# secrets / real databases (never commit)
+*.kdbx
+!tests/fixtures/**/*.kdbx
+!tests/fixtures/*.kdbx
+*.key
+*.pem
+*.pfx
+*.p12
+.env
+secrets/
+
+# local secret handoff files (never commit)
+*-pw.txt
+*.pw.txt
+*.password
+*.passwd
+
+# local state / temp
+*.tmp
+tmp/

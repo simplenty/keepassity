@@ -1,0 +1,25 @@
+# Files and directories that may appear in the public repository.
+# One glob per line, relative to the repository root; '#' starts a comment.
+# Any git-tracked path that does not match this file fails scripts/check-public.ps1.
+README.md
+LICENSE
+NOTICE
+THIRD-PARTY-LICENSES.md
+SECURITY.md
+CONTRIBUTING.md
+CHANGELOG.md
+Cargo.toml
+Cargo.lock
+rust-toolchain.toml
+deny.toml
+.gitignore
+.gitattributes
+.editorconfig
+public.allowlist
+.github/workflows/ci.yml
+crates/**
+apps/**
+tools/**
+tests/**
+docs/compatibility.md
+scripts/check-public.ps1

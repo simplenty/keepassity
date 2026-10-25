@@ -1,0 +1,8 @@
+[toolchain]
+# Verified on 2026-10-25: rustc 1.99.1 / cargo 1.99.1 (stable-x86_64-pc-windows-msvc).
+# Channel kept as "stable" to avoid forcing a rustup download of an exact version;
+# the MSRV floor is declared in Cargo.toml ([workspace.package] rust-version).
+# Update this comment together with .github/workflows/ci.yml.
+channel = "stable"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
