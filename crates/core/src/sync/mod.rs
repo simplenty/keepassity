@@ -7,9 +7,11 @@
 //! Conflict. Servers without ETag fall back to SHA-256/size/mtime and set
 //! `degraded`.
 
-use crate::merge::{merge, MergeReport};
+use crate::merge::{merge, MergeConflict, MergeReport};
 use crate::model::Database;
 use sha2::{Digest, Sha256};
+
+pub mod conflict;
 
 /// What the caller should do next.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -220,6 +222,8 @@ pub struct SyncMergeResult {
     pub database: Database,
     /// Merge counters.
     pub report: MergeReport,
+    /// Per-item conflict details for the three-way UI.
+    pub conflicts: Vec<MergeConflict>,
     /// There are same-mtime conflicts that need UI resolution.
     pub has_conflicts: bool,
 }
@@ -228,9 +232,11 @@ pub struct SyncMergeResult {
 pub fn merge_for_sync(local: &Database, remote: &Database) -> SyncMergeResult {
     let (database, report) = merge(local, remote);
     let has_conflicts = report.conflicts > 0;
+    let conflicts = report.conflict_items.clone();
     SyncMergeResult {
         database,
         report,
+        conflicts,
         has_conflicts,
     }
 }

@@ -25,7 +25,7 @@
 //! the M1-01 acceptance criterion names; M2-05 should reconcile the schema via
 //! an ADR before the FFI field-name smoke test is frozen.
 
-use crate::model::{Entry, Group, Times, Uuid};
+use crate::model::{xml_datetime_to_unix, Entry, Group, Times, Uuid};
 use serde::{Deserialize, Serialize};
 
 /// Summary row used by `list_entries`/`search`.
@@ -333,6 +333,21 @@ pub struct ConflictItem {
     pub remote_modified_unix: Option<i64>,
     /// Conflicting field names.
     pub fields: Vec<String>,
+}
+
+impl From<&crate::merge::MergeConflict> for ConflictItem {
+    fn from(conflict: &crate::merge::MergeConflict) -> Self {
+        Self {
+            uuid: conflict.uuid.to_hex(),
+            kind: match conflict.kind {
+                crate::merge::ConflictKind::Entry => ConflictKind::Entry,
+                crate::merge::ConflictKind::Group => ConflictKind::Group,
+            },
+            local_modified_unix: xml_datetime_to_unix(&conflict.local_modified),
+            remote_modified_unix: xml_datetime_to_unix(&conflict.remote_modified),
+            fields: conflict.fields.clone(),
+        }
+    }
 }
 
 /// Backup record.

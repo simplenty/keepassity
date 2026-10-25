@@ -9,6 +9,30 @@
 use crate::model::{Database, DeletedObject, Entry, Group, Times, Uuid};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// What kind of object conflicts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConflictKind {
+    /// Entry conflict.
+    Entry,
+    /// Group conflict.
+    Group,
+}
+
+/// One conflict item for the three-way UI and sync status.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MergeConflict {
+    /// Conflicting object UUID.
+    pub uuid: Uuid,
+    /// Entry or group.
+    pub kind: ConflictKind,
+    /// Local LastModificationTime text.
+    pub local_modified: String,
+    /// Remote LastModificationTime text.
+    pub remote_modified: String,
+    /// Differing field names (`Title`, `Tags`, ...).
+    pub fields: Vec<String>,
+}
+
 /// Merge counters for sync status / logs. No secret values.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MergeReport {
@@ -26,6 +50,8 @@ pub struct MergeReport {
     pub deleted_skipped: usize,
     /// Same-mtime content conflicts (winner is deterministic; loser kept in History).
     pub conflicts: usize,
+    /// Conflict details for the three-way UI.
+    pub conflict_items: Vec<MergeConflict>,
     /// Entries whose parent group changed.
     pub moved: usize,
 }
@@ -110,6 +136,23 @@ pub fn merge(local: &Database, remote: &Database) -> (Database, MergeReport) {
                 report.groups_updated += 1;
             }
         }
+        if both {
+            if let (Some(left), Some(right)) = (a.groups.get(uuid), b.groups.get(uuid)) {
+                if timestamp(&left.times.last_modification)
+                    == timestamp(&right.times.last_modification)
+                    && group_fingerprint(left) != group_fingerprint(right)
+                {
+                    report.conflicts += 1;
+                    report.conflict_items.push(MergeConflict {
+                        uuid: *uuid,
+                        kind: ConflictKind::Group,
+                        local_modified: left.times.last_modification.clone(),
+                        remote_modified: right.times.last_modification.clone(),
+                        fields: group_diff_fields(left, right),
+                    });
+                }
+            }
+        }
         if !a.groups.contains_key(uuid) || !b.groups.contains_key(uuid) {
             report.groups_added += 1;
         }
@@ -147,6 +190,13 @@ pub fn merge(local: &Database, remote: &Database) -> (Database, MergeReport) {
                     (left, right)
                 } else {
                     report.conflicts += 1;
+                    report.conflict_items.push(MergeConflict {
+                        uuid: *uuid,
+                        kind: ConflictKind::Entry,
+                        local_modified: left.times.last_modification.clone(),
+                        remote_modified: right.times.last_modification.clone(),
+                        fields: entry_diff_fields(left, right),
+                    });
                     if left_fp >= right_fp {
                         (left, right)
                     } else {
@@ -435,6 +485,64 @@ fn fingerprint(entry: &Entry) -> String {
     clean.times = Times::default();
     clean.previous_parent_group = None;
     serde_json::to_string(&clean).unwrap_or_default()
+}
+
+fn group_fingerprint(group: &Group) -> String {
+    let mut clean = group.clone();
+    clean.groups.clear();
+    clean.entries.clear();
+    clean.times = Times::default();
+    clean.previous_parent_group = None;
+    serde_json::to_string(&clean).unwrap_or_default()
+}
+
+fn entry_diff_fields(left: &Entry, right: &Entry) -> Vec<String> {
+    let mut fields = BTreeSet::new();
+    let mut keys = BTreeSet::new();
+    keys.extend(left.strings.iter().map(|field| field.key.clone()));
+    keys.extend(right.strings.iter().map(|field| field.key.clone()));
+    for key in keys {
+        let left_value = left.strings.iter().find(|field| field.key == key);
+        let right_value = right.strings.iter().find(|field| field.key == key);
+        if left_value.map(|field| &field.value) != right_value.map(|field| &field.value)
+            || left_value.map(|field| field.protected) != right_value.map(|field| field.protected)
+        {
+            fields.insert(key);
+        }
+    }
+    if left.tags != right.tags {
+        fields.insert("Tags".to_string());
+    }
+    if left.auto_type != right.auto_type {
+        fields.insert("AutoType".to_string());
+    }
+    if left.binaries != right.binaries {
+        fields.insert("Attachments".to_string());
+    }
+    if fields.is_empty() {
+        fields.insert("<metadata>".to_string());
+    }
+    fields.into_iter().collect()
+}
+
+fn group_diff_fields(left: &Group, right: &Group) -> Vec<String> {
+    let mut fields = Vec::new();
+    if left.name != right.name {
+        fields.push("Name".to_string());
+    }
+    if left.notes != right.notes {
+        fields.push("Notes".to_string());
+    }
+    if left.tags != right.tags {
+        fields.push("Tags".to_string());
+    }
+    if left.icon_id != right.icon_id {
+        fields.push("Icon".to_string());
+    }
+    if fields.is_empty() {
+        fields.push("<metadata>".to_string());
+    }
+    fields
 }
 
 fn snapshot_eq(left: &Entry, right: &Entry) -> bool {
