@@ -23,6 +23,9 @@ hmac = "0.12.1"
 # Vendored keepassxcr 0.3.1 (Q11/D9): byte-level read/write API, no CLI/YubiKey UX.
 keepassxcr = { path = "../../vendor/keepassxcr", default-features = false }
 
+[dev-dependencies]
+proptest = "1"
+
 [lints.rust]
 unsafe_code = "forbid"
 

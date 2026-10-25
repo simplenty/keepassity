@@ -87,7 +87,6 @@ fn classify_error(message: &str) -> (i32, &'static str) {
     } else if lower.contains("password")
         || lower.contains("credential")
         || lower.contains("invalid key")
-        || lower.contains("cannot open kdbx")
     {
         (3, "AUTH")
     } else if lower.contains("cannot open")

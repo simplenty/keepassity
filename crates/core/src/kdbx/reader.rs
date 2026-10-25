@@ -25,25 +25,41 @@ use std::io::Cursor;
 /// Error returned by the KDBX reader.
 #[derive(Debug)]
 pub enum KdbxReadError {
+    /// Wrong password/key (or a key-like failure).
+    BadPassword,
+    /// Corrupt/truncated data, bad HMAC, or unparsable content.
+    Corrupt(String),
+    /// Unsupported KDBX version or format feature.
+    Unsupported(String),
     /// Header is missing/unknown.
     Header(String),
-    /// Decryption/KDF/format failure.
-    Open(String),
-    /// XML extraction failure.
-    Xml(String),
 }
 
 impl fmt::Display for KdbxReadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::BadPassword => write!(f, "bad password or key (database could not be decrypted)"),
+            Self::Corrupt(message) => write!(f, "corrupt KDBX database: {message}"),
+            Self::Unsupported(message) => write!(f, "unsupported KDBX database: {message}"),
             Self::Header(message) => write!(f, "invalid KDBX header: {message}"),
-            Self::Open(message) => write!(f, "cannot open KDBX: {message}"),
-            Self::Xml(message) => write!(f, "cannot extract KDBX XML: {message}"),
         }
     }
 }
 
 impl std::error::Error for KdbxReadError {}
+
+fn classify_open_error(error: &impl fmt::Debug) -> KdbxReadError {
+    let raw = format!("{error:?}");
+    if raw.contains("IncorrectKey") || raw.contains("EmptyKey") {
+        KdbxReadError::BadPassword
+    } else if raw.contains("UnsupportedVersion") || raw.contains("VersionParse") {
+        KdbxReadError::Unsupported(raw)
+    } else if raw.contains("UnexpectedEof") {
+        KdbxReadError::Corrupt("unexpected end of file".to_string())
+    } else {
+        KdbxReadError::Corrupt(raw)
+    }
+}
 
 /// Parse a KDBX byte buffer into the core model.
 ///
@@ -54,17 +70,27 @@ pub fn parse(bytes: &[u8], password: &str) -> Result<Database, KdbxReadError> {
     let header = bytes
         .get(..12)
         .ok_or_else(|| KdbxReadError::Header("shorter than 12 bytes".to_string()))?;
-    let version = detect_version(header).map_err(|e| KdbxReadError::Header(e.to_string()))?;
+    let version = detect_version(header).map_err(|error| match error {
+        crate::kdbx::KdbxHeaderError::TooShort => {
+            KdbxReadError::Corrupt("header shorter than 12 bytes".to_string())
+        }
+        crate::kdbx::KdbxHeaderError::BadSignature => {
+            KdbxReadError::Corrupt("not a KDBX file (bad signature)".to_string())
+        }
+        crate::kdbx::KdbxHeaderError::UnknownVersion(version) => {
+            KdbxReadError::Unsupported(format!("unknown KDBX version word 0x{version:08X}"))
+        }
+    })?;
 
     let mut model_cursor = Cursor::new(bytes);
     let key = DatabaseKey::new().with_password(password);
-    let kp = KpDatabase::open(&mut model_cursor, key)
-        .map_err(|e| KdbxReadError::Open(format!("{e:?}")))?;
+    let kp =
+        KpDatabase::open(&mut model_cursor, key).map_err(|error| classify_open_error(&error))?;
 
     let mut xml_cursor = Cursor::new(bytes);
     let xml_key = DatabaseKey::new().with_password(password);
     let xml = KpDatabase::get_xml(&mut xml_cursor, xml_key)
-        .map_err(|e| KdbxReadError::Xml(format!("{e:?}")))?;
+        .map_err(|error| classify_open_error(&error))?;
     let xml_hash = {
         let digest = Sha256::digest(&xml);
         let mut out = String::with_capacity(digest.len() * 2);
