@@ -740,6 +740,7 @@ name = "keepassity-ffi"
 version = "0.1.0"
 dependencies = [
  "keepassity-core",
+ "serde_json",
 ]
 
 [[package]]

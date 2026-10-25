@@ -66,6 +66,35 @@ jobs:
       - name: 18-scenario sync matrix
         run: cargo test -p keepassity-core --test sync_matrix
 
+  ffi:
+    name: ffi / ubuntu
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Linux build deps (hidapi/udev)
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+      - name: build FFI library
+        run: cargo build -p keepassity-ffi --release
+      - name: C harness (all commands)
+        run: |
+          gcc crates/ffi/tests/kp_smoke.c -Icrates/ffi/include \
+            target/release/libkeepassity_ffi.a -o /tmp/kp_smoke -lpthread -ldl -lm
+          /tmp/kp_smoke tests/fixtures/keepass-rs/test_db_kdbx4_with_password_aes.kdbx demopass
+      - name: C# P/Invoke smoke (open/list/totp/save)
+        env:
+          KEEPASSITY_FFI_FIXTURE: ${{ github.workspace }}/tests/fixtures/keepass-rs/test_db_kdbx4_with_password_aes.kdbx
+          KEEPASSITY_FFI_PASSWORD: demopass
+          LD_LIBRARY_PATH: ${{ github.workspace }}/target/release
+        run: dotnet run --project tests/ffi-csharp -c Release
+
   supply-chain:
     name: supply-chain
     runs-on: ubuntu-latest

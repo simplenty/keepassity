@@ -12,6 +12,8 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 keepassity-core = { path = "../core" }
+# JSON is the sole FFI payload format (same serde_json family as core::dto).
+serde_json = "1"
 
 [lints.rust]
 # `#[no_mangle]` is required for the C ABI; this is the only crate allowed to use unsafe.
