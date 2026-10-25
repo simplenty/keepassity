@@ -26,12 +26,30 @@ jobs:
           toolchain: 1.99.1
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Linux build deps (hidapi/udev)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test
         run: cargo test --workspace
+
+  interop:
+    name: interop / ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@v2
+      - name: install keepassxc and build deps
+        run: sudo apt-get update && sudo apt-get install -y keepassxc libudev-dev pkg-config
+      - name: fixture round trip + keepassxc verification
+        shell: pwsh
+        run: ./tools/interop/verify.ps1 -FixturesOnly -KeepassXcPath keepassxc-cli
 
   supply-chain:
     name: supply-chain

@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! CLI harness: CI, interop, and acceptance checks. Not shipped with the app.
 //!
-//! `inspect` opens a KDBX file and prints a JSON summary (read-only).
+//! `inspect` prints a read-only JSON summary; `rewrite` exercises the KDBX
+//! write backend; `verify` compares two databases field by field.
+
+mod rewrite;
+mod verify;
 
 use keepass::{Database, DatabaseKey};
 use sha2::{Digest, Sha256};
@@ -18,29 +22,37 @@ fn main() {
                 keepassity_core::API_MAJOR
             );
         }
-        "inspect" => match run_inspect(&args) {
-            Ok(code) => std::process::exit(code),
-            Err(msg) => {
-                eprintln!("error: {msg}");
-                std::process::exit(1);
-            }
-        },
+        "inspect" => finish(run_inspect(&args)),
+        "rewrite" => finish(read_password(&args).and_then(|pw| rewrite::run(&args, &pw))),
+        "verify" => finish(read_password(&args).and_then(|pw| verify::run(&args, &pw))),
         other => {
             eprintln!("unknown command: {other}");
-            eprintln!("usage: keepassity-cli <version|inspect> <file.kdbx> [--password <pw>|--password-env VAR]");
+            eprintln!(
+                "usage: keepassity-cli <version|inspect|rewrite|verify> ...\n  inspect <file.kdbx>\n  rewrite <in.kdbx> <out.kdbx> [--change-title] [--title-suffix S] [--overwrite] [--emit-title-change]\n  verify <original.kdbx> <modified.kdbx> [--expect-title-old OLD --expect-title-new NEW]\n  password: --password <pw>, --password-env VAR, or KEEPASSITY_PASSWORD"
+            );
             std::process::exit(2);
         }
     }
 }
 
-fn arg_value(args: &[String], name: &str) -> Option<String> {
+fn finish(result: Result<i32, String>) -> ! {
+    match result {
+        Ok(code) => std::process::exit(code),
+        Err(message) => {
+            eprintln!("error: {message}");
+            std::process::exit(1);
+        }
+    }
+}
+
+pub(crate) fn arg_value(args: &[String], name: &str) -> Option<String> {
     args.iter()
         .position(|a| a == name)
         .and_then(|i| args.get(i + 1))
         .cloned()
 }
 
-fn read_password(args: &[String]) -> Result<String, String> {
+pub(crate) fn read_password(args: &[String]) -> Result<String, String> {
     if let Some(v) = arg_value(args, "--password") {
         return Ok(v);
     }

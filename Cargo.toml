@@ -11,3 +11,10 @@ license = "GPL-3.0-or-later"
 repository = "https://github.com/OWNER/keepassity"
 
 # Lints are declared per crate (core forbids unsafe; ffi must allow `no_mangle`).
+
+# hidapi (transitive: keepassxcr -> YubiKey support) fails to build with MSVC
+# `/Z7` in debug mode (C compiler D8050: debug record too long). We do not use
+# YubiKey support; disabling debug info for this C dependency keeps `cargo test`
+# working without changing the global debug profile.
+[profile.dev.package.hidapi]
+debug = false

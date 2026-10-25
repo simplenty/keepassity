@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>KeePassLibTool</AssemblyName>
+    <RootNamespace>KeePassLibTool</RootNamespace>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Build with the official managed KeePassLib:
+        dotnet build -c Release -p:KeePassLibPath=C:\path\to\KeePassLib.dll
+      KeePass 2.61.1 official binaries are NativeAOT and do not ship a managed
+      KeePassLib.dll, so the managed library must be built from the official
+      source release (KeePassLib_N48.csproj). This tool is test-only and never
+      ships with the app.
+    -->
+    <Reference Include="KeePassLib">
+      <HintPath Condition="'$(KeePassLibPath)' != ''">$(KeePassLibPath)</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

@@ -30,7 +30,7 @@ multi-database, mobile, macOS, Linux (Linux is planned for v1.x).
 | `crates/ffi` | C ABI + JSON bridge |
 | `crates/cli` | CLI harness for CI, interop and acceptance checks (not shipped with the app) |
 | `apps/windows` | WinUI 3 shell (planned) |
-| `tools/interop` | Test-only interop verification harness (planned) |
+| `tools/interop` | Test-only interop verification harness (KeePassLib + keepassxc-cli) |
 | `tests/fixtures` | Public KDBX test corpus (MIT, from keepass-rs) |
 | `docs/compatibility.md` | Compatibility matrix (only actually-tested states are listed) |
 
@@ -42,6 +42,15 @@ Toolchain: Rust stable, pinned in `rust-toolchain.toml`.
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+```
+
+## Testing
+
+`cargo test --workspace` covers the write closure on the public fixtures. For
+third-party interop (keepassxc-cli, optional KeePassLib):
+
+```powershell
+pwsh -File tools/interop/verify.ps1 -FixturesOnly
 ```
 
 The Windows shell (WinUI 3 / .NET) and installer are not buildable yet; their toolchain

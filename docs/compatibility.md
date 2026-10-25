@@ -6,9 +6,9 @@
 
 | Client | Can read files we write | We can read files it writes | Version | Status |
 |---|:--:|:--:|---|---|
-| KeePass 2.x (official) | not tested | not tested | 2.6x | planned |
-| KeePassLib (official C# library, test-only) | not tested | not tested | 2.61.x | planned for CI interop |
-| keepassxc-cli | not tested | not tested | distro build | planned for CI interop |
+| KeePass 2.x (official) | not tested | not tested | 2.61.x | manual check after the real-database round trip (planned) |
+| KeePassLib (official C# library, test-only) | tested on fixture rewrites (19/19; Twofish skipped) | not tested | 2.59.0 managed source build | local `tools/interop`; real database pending |
+| keepassxc-cli | tested on fixture rewrites (19/19) | not tested | 2.8.0 / distro build | local check + CI interop job |
 
 ## WebDAV servers
 

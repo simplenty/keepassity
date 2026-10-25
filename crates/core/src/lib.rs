@@ -6,6 +6,8 @@
 //! - the only cross-language surface is `crates/ffi`;
 //! - model is the single source of truth; UI never parses KDBX.
 
+pub mod kdbx;
+
 /// FFI main version. Bump only with a breaking ABI change.
 pub const API_MAJOR: u32 = 1;
 
