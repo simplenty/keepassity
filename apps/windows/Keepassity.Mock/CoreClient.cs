@@ -53,6 +53,17 @@ public sealed class CoreClient : IDisposable
     private static extern int kp_save(IntPtr handle, out IntPtr outBytes, out UIntPtr outLen);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int kp_sync_decide(IntPtr handle, byte[] remoteMetaJson,
+        int localDirty, out IntPtr outJson);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int kp_sync_merge(IntPtr handle, byte[] remote, UIntPtr len,
+        out IntPtr outBytes, out UIntPtr outLen, out IntPtr conflictsJson);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int kp_sync_commit(IntPtr handle, IntPtr etag, IntPtr sha256);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     private static extern void kp_string_free(IntPtr value);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -223,14 +234,13 @@ public sealed class CoreClient : IDisposable
             exclude_ambiguous = excludeAmbiguous,
         })).ConfigureAwait(false);
 
-    public async Task SaveAsync(string path)
+    public async Task<byte[]> SaveBytesAsync()
     {
-        byte[] bytes;
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
             EnsureOpen();
-            bytes = await Task.Run(() =>
+            return await Task.Run(() =>
             {
                 if (kp_save(_handle, out IntPtr pointer, out UIntPtr length) != 0 ||
                     pointer == IntPtr.Zero)
@@ -253,7 +263,11 @@ public sealed class CoreClient : IDisposable
         {
             _gate.Release();
         }
+    }
 
+    public async Task SaveAsync(string path)
+    {
+        byte[] bytes = await SaveBytesAsync().ConfigureAwait(false);
         string directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
         Directory.CreateDirectory(directory);
         string temp = Path.Combine(directory,
@@ -268,6 +282,120 @@ public sealed class CoreClient : IDisposable
             File.Move(temp, path);
         }
         DatabasePath = path;
+    }
+
+    public async Task<SyncDecisionDto> SyncDecideAsync(string remoteMetaJson, bool localDirty)
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            EnsureOpen();
+            return await Task.Run(() =>
+            {
+                if (kp_sync_decide(_handle, Utf8Z(remoteMetaJson), localDirty ? 1 : 0,
+                        out IntPtr output) != 0 || output == IntPtr.Zero)
+                {
+                    throw ParseError(LastError(), "sync decide");
+                }
+                try
+                {
+                    string json = Marshal.PtrToStringUTF8(output)
+                        ?? throw new CoreException("Internal", "sync decide returned null.");
+                    return JsonSerializer.Deserialize<SyncDecisionDto>(json, JsonOptions)
+                        ?? throw new CoreException("Internal", "sync decide returned empty JSON.");
+                }
+                finally
+                {
+                    kp_string_free(output);
+                }
+            }).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<SyncMergeResult> SyncMergeAsync(byte[] remote)
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            EnsureOpen();
+            return await Task.Run(() =>
+            {
+                if (kp_sync_merge(_handle, remote, (UIntPtr)remote.LongLength,
+                        out IntPtr bytesPointer, out UIntPtr bytesLength,
+                        out IntPtr conflictsPointer) != 0 ||
+                    bytesPointer == IntPtr.Zero || conflictsPointer == IntPtr.Zero)
+                {
+                    throw ParseError(LastError(), "sync merge");
+                }
+                try
+                {
+                    var bytes = new byte[checked((int)bytesLength.ToUInt64())];
+                    Marshal.Copy(bytesPointer, bytes, 0, bytes.Length);
+                    string conflictsJson = Marshal.PtrToStringUTF8(conflictsPointer)
+                        ?? "[]";
+                    List<SyncConflictDto> conflicts = JsonSerializer.Deserialize<List<SyncConflictDto>>(
+                        conflictsJson, JsonOptions) ?? new List<SyncConflictDto>();
+                    return new SyncMergeResult(bytes, conflicts);
+                }
+                finally
+                {
+                    kp_buffer_free(bytesPointer, bytesLength);
+                    kp_string_free(conflictsPointer);
+                }
+            }).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task SyncCommitAsync(string? etag, string? sha256)
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            EnsureOpen();
+            await Task.Run(() =>
+            {
+                IntPtr etagPointer = IntPtr.Zero;
+                IntPtr shaPointer = IntPtr.Zero;
+                try
+                {
+                    if (etag is not null)
+                    {
+                        etagPointer = Marshal.StringToCoTaskMemUTF8(etag);
+                    }
+                    if (sha256 is not null)
+                    {
+                        shaPointer = Marshal.StringToCoTaskMemUTF8(sha256);
+                    }
+                    if (kp_sync_commit(_handle, etagPointer, shaPointer) != 0)
+                    {
+                        throw ParseError(LastError(), "sync commit");
+                    }
+                }
+                finally
+                {
+                    if (etagPointer != IntPtr.Zero)
+                    {
+                        Marshal.FreeCoTaskMem(etagPointer);
+                    }
+                    if (shaPointer != IntPtr.Zero)
+                    {
+                        Marshal.FreeCoTaskMem(shaPointer);
+                    }
+                }
+            }).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     public async Task LockAsync()
@@ -473,3 +601,22 @@ public sealed class ErrorDto
     [JsonPropertyName("code")] public string? Code { get; set; }
     [JsonPropertyName("message")] public string? Message { get; set; }
 }
+
+public sealed class SyncDecisionDto
+{
+    [JsonPropertyName("action")] public string Action { get; set; } = "";
+    [JsonPropertyName("reason")] public string Reason { get; set; } = "";
+    [JsonPropertyName("degraded")] public bool Degraded { get; set; }
+    [JsonPropertyName("retry_after_ms")] public long? RetryAfterMs { get; set; }
+}
+
+public sealed class SyncConflictDto
+{
+    [JsonPropertyName("uuid")] public string Uuid { get; set; } = "";
+    [JsonPropertyName("kind")] public string Kind { get; set; } = "";
+    [JsonPropertyName("local_modified_unix")] public long? LocalModifiedUnix { get; set; }
+    [JsonPropertyName("remote_modified_unix")] public long? RemoteModifiedUnix { get; set; }
+    [JsonPropertyName("fields")] public List<string> Fields { get; set; } = new();
+}
+
+public sealed record SyncMergeResult(byte[] Bytes, List<SyncConflictDto> Conflicts);

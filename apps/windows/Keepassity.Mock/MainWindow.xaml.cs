@@ -5,6 +5,8 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using System.Collections.ObjectModel;
+using System.Security.Cryptography;
+using System.Text.Json;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.Storage.Pickers;
@@ -20,6 +22,9 @@ public sealed partial class MainWindow : Window
 
     private readonly CoreClient _core = new();
     private readonly AppSettingsStore _settingsStore = new();
+    private readonly SyncStateStore _syncStates = new();
+    private readonly CredentialStore _credentials = new();
+    private readonly SemaphoreSlim _syncGate = new(1, 1);
     private readonly DispatcherTimer _totpTimer = new();
     private readonly DispatcherTimer _toastTimer = new();
     private readonly DispatcherTimer _autoLockTimer = new();
@@ -35,6 +40,7 @@ public sealed partial class MainWindow : Window
     private EntryItem? _currentSummary;
     private string? _currentTotpCode;
     private string? _lastClipboardText;
+    private string? _masterPassword;
     private DateTimeOffset _lastActivity = DateTimeOffset.UtcNow;
     private CancellationTokenSource? _searchCts;
     private bool _passwordVisible;
@@ -234,6 +240,285 @@ public sealed partial class MainWindow : Window
         storyboard.Begin();
     }
 
+    // ---------------------------------------------------------------- sync
+
+    private bool IsSyncConfigured =>
+        !string.IsNullOrWhiteSpace(Settings.WebDavUrl) &&
+        !string.IsNullOrWhiteSpace(Settings.WebDavUsername);
+
+    private void SetSyncStatus(string text)
+    {
+        SyncNavItem.Content = text;
+    }
+
+    private async Task SyncAsync(bool startup = false)
+    {
+        if (!await _syncGate.WaitAsync(0))
+        {
+            return;
+        }
+        try
+        {
+            if (!_core.IsOpen || _dbPath is null)
+            {
+                return;
+            }
+            if (!IsSyncConfigured)
+            {
+                SetSyncStatus("Local only");
+                if (!startup)
+                {
+                    ShowToast("Configure WebDAV in Settings first.", InfoBarSeverity.Informational);
+                }
+                return;
+            }
+            string url = Settings.WebDavUrl!.Trim();
+            string username = Settings.WebDavUsername!.Trim();
+            string? password = _credentials.LoadPassword(url, username);
+            if (password is null)
+            {
+                SetSyncStatus("No credentials");
+                if (!startup)
+                {
+                    ShowToast("Set the WebDAV password in Settings.", InfoBarSeverity.Warning);
+                }
+                return;
+            }
+
+            SetSyncStatus("Syncing…");
+            SyncState state = _syncStates.Load(url, username, _dbPath);
+            if (!string.IsNullOrEmpty(state.Etag) || !string.IsNullOrEmpty(state.Sha256))
+            {
+                await _core.SyncCommitAsync(state.Etag, state.Sha256);
+            }
+            using var dav = new WebDavClient(url, username, password);
+            WebDavFileInfo? metadata = await dav.GetMetadataAsync();
+            if (metadata is null)
+            {
+                await UploadLocalAsync(dav, state, url, username);
+                return;
+            }
+
+            string remoteMeta = JsonSerializer.Serialize(new
+            {
+                etag = metadata.ETag,
+                size = metadata.Size,
+                modified_unix = metadata.ModifiedUnix,
+                reliability = metadata.ETag is null ? "degraded" : "full",
+            });
+            SyncDecisionDto decision = await _core.SyncDecideAsync(remoteMeta, state.LocalDirty);
+            switch (decision.Action)
+            {
+                case "up_to_date":
+                    state.Etag = metadata.ETag;
+                    state.Size = metadata.Size;
+                    state.RemoteModifiedUnix = metadata.ModifiedUnix;
+                    state.LocalDirty = false;
+                    state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                    await _core.SyncCommitAsync(state.Etag, state.Sha256);
+                    _syncStates.Save(url, username, _dbPath, state);
+                    SetSyncStatus(decision.Degraded ? "Synced (degraded)" : "Synced");
+                    break;
+                case "upload":
+                    await UploadLocalAsync(dav, state, url, username);
+                    break;
+                case "download":
+                    await DownloadRemoteAsync(dav, metadata, state, url, username);
+                    break;
+                case "download_and_merge":
+                case "conflict":
+                    await MergeRemoteAsync(dav, metadata, state, url, username);
+                    break;
+                case "retry":
+                    SetSyncStatus("Sync retry");
+                    break;
+                case "offline":
+                default:
+                    SetSyncStatus("Offline");
+                    if (!startup)
+                    {
+                        ShowToast($"Sync skipped: {decision.Reason}", InfoBarSeverity.Warning);
+                    }
+                    break;
+            }
+        }
+        catch (WebDavException ex)
+        {
+            SetSyncStatus(ex.Conflict ? "Conflict" : "Sync error");
+            if (!startup)
+            {
+                ShowToast(ex.Message, InfoBarSeverity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            SetSyncStatus("Sync error");
+            if (!startup)
+            {
+                ShowToast($"Sync failed: {ex.Message}", InfoBarSeverity.Error);
+            }
+        }
+        finally
+        {
+            _syncGate.Release();
+        }
+    }
+
+    private async Task UploadLocalAsync(WebDavClient dav, SyncState state, string url,
+        string username)
+    {
+        byte[] bytes = await _core.SaveBytesAsync();
+        await WriteLocalBytesAsync(_dbPath!, bytes);
+        string? etag;
+        try
+        {
+            etag = await dav.UploadAsync(bytes, state.Etag);
+        }
+        catch (WebDavException ex) when (ex.Conflict)
+        {
+            WebDavFileInfo? metadata = await dav.GetMetadataAsync();
+            if (metadata is null)
+            {
+                throw;
+            }
+            await MergeRemoteAsync(dav, metadata, state, url, username);
+            return;
+        }
+        string sha = Sha256Hex(bytes);
+        await _core.SyncCommitAsync(etag, sha);
+        state.Etag = etag;
+        state.Sha256 = sha;
+        state.Size = bytes.Length;
+        state.LocalDirty = false;
+        state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        _syncStates.Save(url, username, _dbPath!, state);
+        SetSyncStatus("Synced");
+    }
+
+    private async Task DownloadRemoteAsync(WebDavClient dav, WebDavFileInfo metadata,
+        SyncState state, string url, string username)
+    {
+        byte[] bytes = await dav.DownloadAsync();
+        await WriteLocalBytesAsync(_dbPath!, bytes);
+        await ReopenFromLocalAsync();
+        string sha = Sha256Hex(bytes);
+        await _core.SyncCommitAsync(metadata.ETag, sha);
+        state.Etag = metadata.ETag;
+        state.Sha256 = sha;
+        state.Size = bytes.Length;
+        state.RemoteModifiedUnix = metadata.ModifiedUnix;
+        state.LocalDirty = false;
+        state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        _syncStates.Save(url, username, _dbPath!, state);
+        SetSyncStatus("Synced");
+        ShowToast("Downloaded remote changes", InfoBarSeverity.Success);
+    }
+
+    private async Task MergeRemoteAsync(WebDavClient dav, WebDavFileInfo metadata,
+        SyncState state, string url, string username)
+    {
+        byte[] remote = await dav.DownloadAsync();
+        string? copyPath = CreateConflictCopy();
+        SyncMergeResult merged = await _core.SyncMergeAsync(remote);
+        await WriteLocalBytesAsync(_dbPath!, merged.Bytes);
+        string? etag = null;
+        try
+        {
+            etag = await dav.UploadAsync(merged.Bytes, metadata.ETag);
+        }
+        catch (WebDavException ex) when (ex.Conflict)
+        {
+            // Keep the merged local file; the next sync round will merge again.
+            state.LocalDirty = true;
+            _syncStates.Save(url, username, _dbPath!, state);
+            SetSyncStatus("Conflict");
+            ShowToast("Remote changed again; merged locally, will retry next sync.",
+                InfoBarSeverity.Warning);
+            await ReopenFromLocalAsync();
+            return;
+        }
+        string sha = Sha256Hex(merged.Bytes);
+        await _core.SyncCommitAsync(etag, sha);
+        state.Etag = etag;
+        state.Sha256 = sha;
+        state.Size = merged.Bytes.Length;
+        state.RemoteModifiedUnix = metadata.ModifiedUnix;
+        state.LocalDirty = false;
+        state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        _syncStates.Save(url, username, _dbPath!, state);
+        await ReopenFromLocalAsync();
+        SetSyncStatus("Merged");
+        string suffix = merged.Conflicts.Count == 0
+            ? string.Empty
+            : $" ({merged.Conflicts.Count} conflict(s))";
+        ShowToast($"Merged remote changes{suffix}; conflict copy: {Path.GetFileName(copyPath)}",
+            InfoBarSeverity.Warning);
+    }
+
+    private async Task ReopenFromLocalAsync()
+    {
+        if (_dbPath is null || string.IsNullOrEmpty(_masterPassword))
+        {
+            return;
+        }
+        await _core.OpenAsync(_dbPath, _masterPassword);
+        _selectedGroupUuid = null;
+        await ReloadVaultAsync(_currentFull?.Uuid);
+    }
+
+    private string? CreateConflictCopy()
+    {
+        if (_dbPath is null)
+        {
+            return null;
+        }
+        string directory = Path.GetDirectoryName(_dbPath)!;
+        string stem = Path.GetFileNameWithoutExtension(_dbPath);
+        string extension = Path.GetExtension(_dbPath);
+        string stamp = DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss");
+        string path = Path.Combine(directory, $"{stem} (conflict {stamp}){extension}");
+        int suffix = 1;
+        while (File.Exists(path))
+        {
+            path = Path.Combine(directory, $"{stem} (conflict {stamp}-{suffix++}){extension}");
+        }
+        File.Copy(_dbPath, path);
+        return path;
+    }
+
+    private static string Sha256Hex(byte[] bytes)
+        => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+
+    private static async Task WriteLocalBytesAsync(string path, byte[] bytes)
+    {
+        string directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        string temp = Path.Combine(directory,
+            $".{Path.GetFileName(path)}.keepassity-tmp-{Guid.NewGuid():N}");
+        await File.WriteAllBytesAsync(temp, bytes);
+        if (File.Exists(path))
+        {
+            File.Replace(temp, path, path + ".keepassity-bak", true);
+        }
+        else
+        {
+            File.Move(temp, path);
+        }
+    }
+
+    private void MarkLocalDirty()
+    {
+        if (_dbPath is null || !IsSyncConfigured)
+        {
+            return;
+        }
+        SyncState state = _syncStates.Load(Settings.WebDavUrl!.Trim(),
+            Settings.WebDavUsername!.Trim(), _dbPath);
+        state.LocalDirty = true;
+        _syncStates.Save(Settings.WebDavUrl!.Trim(), Settings.WebDavUsername!.Trim(), _dbPath,
+            state);
+        SetSyncStatus("Not synced");
+    }
+
     // ---------------------------------------------------------------- unlock
 
     private async void ChooseDatabaseButton_Click(object sender, RoutedEventArgs e)
@@ -294,6 +579,7 @@ public sealed partial class MainWindow : Window
         try
         {
             await _core.OpenAsync(_dbPath, MasterPassword.Password);
+            _masterPassword = MasterPassword.Password;
             _selectedGroupUuid = null;
             if (_dbPath is not null)
             {
@@ -303,6 +589,7 @@ public sealed partial class MainWindow : Window
             await ReloadVaultAsync(null);
             ShowMain();
             MasterPassword.Password = string.Empty;
+            _ = SyncAsync(startup: true);
         }
         catch (CoreException ex)
         {
@@ -342,6 +629,7 @@ public sealed partial class MainWindow : Window
         _totpTimer.Start();
         _autoLockTimer.Start();
         TouchActivity();
+        SetSyncStatus(IsSyncConfigured ? "Not synced" : "Local only");
         AnimateWorkspace();
         EntryList.Focus(FocusState.Programmatic);
     }
@@ -523,9 +811,13 @@ public sealed partial class MainWindow : Window
 
     private async void SyncStatusButton_Click(object sender, RoutedEventArgs e)
     {
-        ShowToast("Local database mode. Sync is not configured in this build.",
-            InfoBarSeverity.Informational);
-        await Task.CompletedTask;
+        if (!IsSyncConfigured)
+        {
+            ShowToast("Configure WebDAV in Settings first.", InfoBarSeverity.Informational);
+            SettingsButton_Click(this, new RoutedEventArgs());
+            return;
+        }
+        await SyncAsync();
     }
 
     private void NavView_ItemInvoked(NavigationView sender,
@@ -1144,7 +1436,7 @@ public sealed partial class MainWindow : Window
 
     // ------------------------------------------------------------ save/lock
 
-    private async Task SaveAsync(bool silent = false)
+    private async Task SaveAsync(bool silent = false, bool syncAfterSave = true)
     {
         if (_dbPath is null)
         {
@@ -1153,9 +1445,14 @@ public sealed partial class MainWindow : Window
         try
         {
             await _core.SaveAsync(_dbPath);
+            MarkLocalDirty();
             if (!silent)
             {
                 ShowToast("Saved", InfoBarSeverity.Success);
+            }
+            if (syncAfterSave && Settings.SyncOnSave && IsSyncConfigured)
+            {
+                _ = SyncAsync();
             }
         }
         catch (Exception ex)
@@ -1179,7 +1476,7 @@ public sealed partial class MainWindow : Window
         {
             if (_core.IsOpen)
             {
-                await SaveAsync(silent: true);
+                await SaveAsync(silent: true, syncAfterSave: false);
                 await _core.LockAsync();
             }
         }
@@ -1203,6 +1500,8 @@ public sealed partial class MainWindow : Window
         SearchBox.Visibility = Visibility.Collapsed;
         SearchBox.Text = string.Empty;
         MasterPassword.Password = string.Empty;
+        _masterPassword = null;
+        SetSyncStatus(IsSyncConfigured ? "Not synced" : "Local only");
         UpdateDatabasePath();
         _busy = false;
         MasterPassword.Focus(FocusState.Programmatic);
@@ -1248,6 +1547,29 @@ public sealed partial class MainWindow : Window
             Maximum = 240,
             SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
         };
+        var webdavUrl = new TextBox
+        {
+            Header = "WebDAV file URL",
+            Text = Settings.WebDavUrl ?? string.Empty,
+            PlaceholderText = "https://dav.example.com/keepassity.kdbx",
+        };
+        var webdavUser = new TextBox
+        {
+            Header = "WebDAV username",
+            Text = Settings.WebDavUsername ?? string.Empty,
+        };
+        var webdavPassword = new PasswordBox
+        {
+            Header = "WebDAV password (leave blank to keep the stored one)",
+            PasswordRevealMode = PasswordRevealMode.Peek,
+        };
+        var syncOnSave = new ToggleSwitch
+        {
+            Header = "Sync after saving changes",
+            OnContent = "On",
+            OffContent = "Off",
+            IsOn = Settings.SyncOnSave,
+        };
         theme.SelectionChanged += (_, _) =>
         {
             Settings.Theme = theme.SelectedIndex switch
@@ -1277,6 +1599,11 @@ public sealed partial class MainWindow : Window
                 _settingsStore.Save();
             }
         };
+        syncOnSave.Toggled += (_, _) =>
+        {
+            Settings.SyncOnSave = syncOnSave.IsOn;
+            _settingsStore.Save();
+        };
         var content = new StackPanel { Spacing = 14 };
         content.Children.Add(theme);
         content.Children.Add(clipboard);
@@ -1284,19 +1611,73 @@ public sealed partial class MainWindow : Window
         content.Children.Add(minutes);
         content.Children.Add(new TextBlock
         {
-            Text = "Sync, backups and credential settings are not implemented in this build.",
-            FontSize = 12,
+            Text = "WebDAV",
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Margin = new Thickness(0, 8, 0, 0),
+        });
+        content.Children.Add(webdavUrl);
+        content.Children.Add(webdavUser);
+        content.Children.Add(webdavPassword);
+        content.Children.Add(syncOnSave);
+        content.Children.Add(new TextBlock
+        {
+            Text = "The URL must point to the .kdbx file. The WebDAV password is stored " +
+                   "with Windows DPAPI, not in the plain settings file.",
+            FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
         });
         var dialog = new ContentDialog
         {
             Title = "Settings",
             Content = content,
-            CloseButtonText = "Done",
+            PrimaryButtonText = "Save",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Root.XamlRoot,
         };
-        await dialog.ShowAsync();
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+        string url = webdavUrl.Text.Trim();
+        if (url.Length > 0 &&
+            (!Uri.TryCreate(url, UriKind.Absolute, out Uri? parsed) ||
+             (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps)))
+        {
+            ShowToast("WebDAV URL must be an absolute http(s) file URL.", InfoBarSeverity.Error);
+            return;
+        }
+        string username = webdavUser.Text.Trim();
+        Settings.WebDavUrl = url.Length == 0 ? null : url;
+        Settings.WebDavUsername = username.Length == 0 ? null : username;
+        try
+        {
+            if (webdavPassword.Password.Length > 0)
+            {
+                if (string.IsNullOrEmpty(Settings.WebDavUrl) ||
+                    string.IsNullOrEmpty(Settings.WebDavUsername))
+                {
+                    ShowToast("Enter the WebDAV URL and username before the password.",
+                        InfoBarSeverity.Warning);
+                    return;
+                }
+                _credentials.SavePassword(Settings.WebDavUrl, Settings.WebDavUsername,
+                    webdavPassword.Password);
+            }
+            _settingsStore.Save();
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Cannot store WebDAV credential: {ex.Message}", InfoBarSeverity.Error);
+            return;
+        }
+        SetSyncStatus(IsSyncConfigured ? "Not synced" : "Local only");
+        if (IsSyncConfigured)
+        {
+            ShowToast("WebDAV settings saved. Syncing…", InfoBarSeverity.Informational);
+            _ = SyncAsync(startup: true);
+        }
     }
 
     private void ShowToast(string message, InfoBarSeverity severity)

@@ -10,6 +10,9 @@ public sealed class AppSettings
     public bool AutoLockEnabled { get; set; } = true;
     public int AutoLockMinutes { get; set; } = 15;
     public string? LastDatabasePath { get; set; }
+    public string? WebDavUrl { get; set; }
+    public string? WebDavUsername { get; set; }
+    public bool SyncOnSave { get; set; } = true;
 }
 
 public sealed class AppSettingsStore
@@ -23,10 +26,16 @@ public sealed class AppSettingsStore
 
     public AppSettingsStore()
     {
-        string directory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "keepassity");
-        Directory.CreateDirectory(directory);
+        string directory = AppDataPaths.Root;
+        try
+        {
+            Directory.CreateDirectory(directory);
+        }
+        catch
+        {
+            // Read-only fallback: settings still load if the file exists, and
+            // Save() below is best-effort.
+        }
         _path = Path.Combine(directory, "settings.json");
         Current = Load();
     }
