@@ -2373,6 +2373,21 @@ public sealed partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
         });
+        string appVersion = typeof(MainWindow).Assembly.GetName().Version?.ToString(3)
+            ?? "0.1.0";
+        content.Children.Add(new TextBlock
+        {
+            Text = "About",
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Margin = new Thickness(0, 8, 0, 0),
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = $"keepassity {appVersion} · local-first KeePass-compatible client",
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+        });
         var dialog = new ContentDialog
         {
             Title = "Settings",

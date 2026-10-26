@@ -24,3 +24,4 @@ vendor/**
 tests/**
 docs/compatibility.md
 scripts/check-public.ps1
+scripts/publish-windows.ps1
