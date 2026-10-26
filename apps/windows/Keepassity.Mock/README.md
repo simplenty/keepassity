@@ -41,13 +41,19 @@ real passwords in arguments.
 - Copy username/password/URL/custom field; password generation via core.
 - TOTP code display, period progress, set/remove through core dual-write fields.
 - Lock/unlock, light/dark theme, Mica/titlebar layout.
+- Settings persisted to `%LOCALAPPDATA%\keepassity\settings.json`: theme, clipboard
+  clearing, auto-lock enable/minutes, and the last opened database path.
+- Clipboard secrets are cleared after 30 seconds if they are still the current
+  clipboard text.
+- Auto-lock after the configured inactivity period (default 15 minutes); activity
+  from pointer or keyboard resets the timer.
 
 ## Not implemented yet
 
 - WebDAV sync (footer says “Local only” instead of pretending to sync).
 - Create-new-database and keyfile/challenge-response credentials.
-- Auto-lock timer, tray behaviour, history/attachment UI.
-- Recent-database list.
+- Tray behaviour, history/attachment UI.
+- Window position/size persistence.
 
 ## Notes
 

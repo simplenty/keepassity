@@ -19,8 +19,11 @@ public sealed partial class MainWindow : Window
     public ObservableCollection<EntryItem> Entries { get; } = new();
 
     private readonly CoreClient _core = new();
+    private readonly AppSettingsStore _settingsStore = new();
     private readonly DispatcherTimer _totpTimer = new();
     private readonly DispatcherTimer _toastTimer = new();
+    private readonly DispatcherTimer _autoLockTimer = new();
+    private readonly DispatcherTimer _clipboardTimer = new();
     private readonly List<GroupDto> _groupDtos = new();
     private readonly List<GroupDto> _selectableGroups = new();
     private readonly Dictionary<string, string> _groupNames = new();
@@ -31,19 +34,21 @@ public sealed partial class MainWindow : Window
     private EntryFullDto? _currentFull;
     private EntryItem? _currentSummary;
     private string? _currentTotpCode;
+    private string? _lastClipboardText;
+    private DateTimeOffset _lastActivity = DateTimeOffset.UtcNow;
     private CancellationTokenSource? _searchCts;
     private bool _passwordVisible;
     private bool _busy;
     private bool _suppressNav;
     private int _showGeneration;
 
+    private AppSettings Settings => _settingsStore.Current;
+
     public MainWindow()
     {
         InitializeComponent();
-        if (Environment.GetCommandLineArgs().Contains("--light"))
-        {
-            Root.RequestedTheme = ElementTheme.Light;
-        }
+        bool forceLight = Environment.GetCommandLineArgs().Contains("--light");
+        ApplyThemePreference(forceLight ? "Light" : Settings.Theme);
         Title = "keepassity";
         AppWindow.MoveAndResize(new RectInt32(28, 40, 1650, 970));
         ExtendsContentIntoTitleBar = true;
@@ -54,6 +59,12 @@ public sealed partial class MainWindow : Window
         TrySetMica();
         EntryList.ItemsSource = Entries;
         ParseArguments();
+        if (_dbPath is null &&
+            !string.IsNullOrWhiteSpace(Settings.LastDatabasePath) &&
+            File.Exists(Settings.LastDatabasePath))
+        {
+            _dbPath = Settings.LastDatabasePath;
+        }
         UpdateDatabasePath();
 
         _totpTimer.Interval = TimeSpan.FromSeconds(1);
@@ -64,7 +75,70 @@ public sealed partial class MainWindow : Window
             _toastTimer.Stop();
             Toast.IsOpen = false;
         };
+        _autoLockTimer.Interval = TimeSpan.FromSeconds(10);
+        _autoLockTimer.Tick += async (_, _) => await AutoLockTimer_Tick();
+        _clipboardTimer.Interval = TimeSpan.FromSeconds(30);
+        _clipboardTimer.Tick += async (_, _) => await ClearClipboardTimer_Tick();
+        Root.AddHandler(UIElement.PointerMovedEvent,
+            new PointerEventHandler((_, _) => TouchActivity()), true);
+        Root.AddHandler(UIElement.PointerPressedEvent,
+            new PointerEventHandler((_, _) => TouchActivity()), true);
+        Root.AddHandler(UIElement.KeyDownEvent,
+            new KeyEventHandler((_, _) => TouchActivity()), true);
         Root.Loaded += Root_Loaded;
+    }
+
+    private void ApplyThemePreference(string theme)
+    {
+        Root.RequestedTheme = theme switch
+        {
+            "Light" => ElementTheme.Light,
+            "Dark" => ElementTheme.Dark,
+            _ => ElementTheme.Default,
+        };
+    }
+
+    private void TouchActivity()
+    {
+        _lastActivity = DateTimeOffset.UtcNow;
+    }
+
+    private async Task AutoLockTimer_Tick()
+    {
+        if (!_core.IsOpen || _busy || !Settings.AutoLockEnabled)
+        {
+            return;
+        }
+        int minutes = Math.Clamp(Settings.AutoLockMinutes, 1, 240);
+        if (DateTimeOffset.UtcNow - _lastActivity >= TimeSpan.FromMinutes(minutes))
+        {
+            await LockVaultAsync();
+        }
+    }
+
+    private async Task ClearClipboardTimer_Tick()
+    {
+        string? expected = _lastClipboardText;
+        _lastClipboardText = null;
+        _clipboardTimer.Stop();
+        if (expected is null)
+        {
+            return;
+        }
+        try
+        {
+            DataPackageView content = Clipboard.GetContent();
+            if (content.Contains(StandardDataFormats.Text) &&
+                await content.GetTextAsync() == expected)
+            {
+                Clipboard.Clear();
+                ShowToast("Clipboard cleared", InfoBarSeverity.Informational);
+            }
+        }
+        catch
+        {
+            // Clipboard can be locked by another process; leave it alone.
+        }
     }
 
     private async void Root_Loaded(object sender, RoutedEventArgs e)
@@ -221,6 +295,11 @@ public sealed partial class MainWindow : Window
         {
             await _core.OpenAsync(_dbPath, MasterPassword.Password);
             _selectedGroupUuid = null;
+            if (_dbPath is not null)
+            {
+                Settings.LastDatabasePath = _dbPath;
+                _settingsStore.Save();
+            }
             await ReloadVaultAsync(null);
             ShowMain();
             MasterPassword.Password = string.Empty;
@@ -261,6 +340,8 @@ public sealed partial class MainWindow : Window
             ? "Vault"
             : Path.GetFileNameWithoutExtension(_dbPath);
         _totpTimer.Start();
+        _autoLockTimer.Start();
+        TouchActivity();
         AnimateWorkspace();
         EntryList.Focus(FocusState.Programmatic);
     }
@@ -674,7 +755,17 @@ public sealed partial class MainWindow : Window
         var package = new DataPackage();
         package.SetText(text);
         Clipboard.SetContent(package);
-        ShowToast(label, InfoBarSeverity.Success);
+        _lastClipboardText = text;
+        _clipboardTimer.Stop();
+        if (Settings.ClearClipboardAfter30Seconds)
+        {
+            _clipboardTimer.Start();
+            ShowToast($"{label} — clears in 30 seconds", InfoBarSeverity.Success);
+        }
+        else
+        {
+            ShowToast(label, InfoBarSeverity.Success);
+        }
     }
 
     private async void OpenUrlButton_Click(object sender, RoutedEventArgs e)
@@ -1075,6 +1166,9 @@ public sealed partial class MainWindow : Window
     }
 
     private async void LockButton_Click(object sender, RoutedEventArgs e)
+        => await LockVaultAsync();
+
+    private async Task LockVaultAsync()
     {
         if (_busy)
         {
@@ -1095,6 +1189,7 @@ public sealed partial class MainWindow : Window
             _busy = false;
             return;
         }
+        _autoLockTimer.Stop();
         _totpTimer.Stop();
         _currentFull = null;
         _currentSummary = null;
@@ -1124,27 +1219,72 @@ public sealed partial class MainWindow : Window
                 "Light",
                 "Dark",
             },
-            SelectedIndex = Root.RequestedTheme switch
+            SelectedIndex = Settings.Theme switch
             {
-                ElementTheme.Light => 1,
-                ElementTheme.Dark => 2,
+                "Light" => 1,
+                "Dark" => 2,
                 _ => 0,
             },
         };
+        var clipboard = new ToggleSwitch
+        {
+            Header = "Clear copied secrets after 30 seconds",
+            OnContent = "On",
+            OffContent = "Off",
+            IsOn = Settings.ClearClipboardAfter30Seconds,
+        };
+        var autoLock = new ToggleSwitch
+        {
+            Header = "Lock the vault after inactivity",
+            OnContent = "On",
+            OffContent = "Off",
+            IsOn = Settings.AutoLockEnabled,
+        };
+        var minutes = new NumberBox
+        {
+            Header = "Inactivity minutes before lock",
+            Value = Settings.AutoLockMinutes,
+            Minimum = 1,
+            Maximum = 240,
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
+        };
         theme.SelectionChanged += (_, _) =>
         {
-            Root.RequestedTheme = theme.SelectedIndex switch
+            Settings.Theme = theme.SelectedIndex switch
             {
-                1 => ElementTheme.Light,
-                2 => ElementTheme.Dark,
-                _ => ElementTheme.Default,
+                1 => "Light",
+                2 => "Dark",
+                _ => "System",
             };
+            ApplyThemePreference(Settings.Theme);
+            _settingsStore.Save();
+        };
+        clipboard.Toggled += (_, _) =>
+        {
+            Settings.ClearClipboardAfter30Seconds = clipboard.IsOn;
+            _settingsStore.Save();
+        };
+        autoLock.Toggled += (_, _) =>
+        {
+            Settings.AutoLockEnabled = autoLock.IsOn;
+            _settingsStore.Save();
+        };
+        minutes.ValueChanged += (_, _) =>
+        {
+            if (!double.IsNaN(minutes.Value))
+            {
+                Settings.AutoLockMinutes = Math.Clamp((int)minutes.Value, 1, 240);
+                _settingsStore.Save();
+            }
         };
         var content = new StackPanel { Spacing = 14 };
         content.Children.Add(theme);
+        content.Children.Add(clipboard);
+        content.Children.Add(autoLock);
+        content.Children.Add(minutes);
         content.Children.Add(new TextBlock
         {
-            Text = "Sync, backup and credential settings are not implemented in this build.",
+            Text = "Sync, backups and credential settings are not implemented in this build.",
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
