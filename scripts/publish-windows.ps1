@@ -45,8 +45,14 @@ $exe = Join-Path $output "Keepassity.Mock.exe"
 if (-not (Test-Path $exe)) {
     throw "Published executable is missing: $exe"
 }
+$launcher = Join-Path $output "Run keepassity.cmd"
+Set-Content -LiteralPath $launcher -Encoding Ascii -Value @(
+    "@echo off",
+    'start "" "%~dp0Keepassity.Mock.exe" --light'
+)
 Write-Host "published: $output"
 Write-Host "executable: $exe"
+Write-Host "fast launcher: $launcher"
 
 if ($Zip) {
     $archive = Join-Path $root "dist/keepassity-$Version-$Runtime.zip"
