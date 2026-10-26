@@ -25,8 +25,9 @@ apps/windows/Keepassity.Mock/bin/Debug/net8.0-windows10.0.19041.0/win-x64/Keepas
 2. Enter its master password.
 3. Browse groups/entries; use New, Edit, Move, Delete.
 4. `Edit TOTP` sets/removes TOTP; `Copy` works on passwords and codes.
-5. Changes are saved atomically to the same `.kdbx` (a `.keepassity-bak` backup
-   is written before replacement). Lock saves and closes the handle.
+5. Changes are saved atomically to the same `.kdbx`; a timestamped backup is
+   copied to `.keepassity\backups\<db>\` before every save. Lock saves and closes
+   the handle.
 
 For local UI testing only, `--db <path>` pre-fills the database, and the
 `KEEPASSITY_MOCK_PASSWORD` environment variable auto-unlocks the app. Do not put
@@ -42,7 +43,8 @@ real passwords in arguments.
 - TOTP code display, period progress, set/remove through core dual-write fields.
 - Lock/unlock, light/dark theme, Mica/titlebar layout.
 - Settings persisted to `%LOCALAPPDATA%\keepassity\settings.json`: theme, clipboard
-  clearing, auto-lock enable/minutes, and the last opened database path.
+  clearing, auto-lock enable/minutes, backup retention, and the last opened
+  database path.
 - Clipboard secrets are cleared after 30 seconds if they are still the current
   clipboard text.
 - Auto-lock after the configured inactivity period (default 15 minutes); activity
@@ -53,6 +55,11 @@ real passwords in arguments.
   depth 0 metadata, conditional GET/PUT with ETag/If-Match/If-None-Match, download,
   upload, and local merge with a timestamped conflict copy before overwriting.
   Baseline ETag/hash/dirty state is kept under `%LOCALAPPDATA%\keepassity\state\`.
+- **Backups**: every save (local or sync write) first copies the current database
+  to `.keepassity\backups\<db>\<timestamp>.kdbx`; the newest `BackupRetention`
+  copies are kept (default 20). The footer's Backups item lists them and restores
+  a selected backup after validating that it opens with the current password and
+  backing up the current file first.
 
 ## Not implemented yet
 

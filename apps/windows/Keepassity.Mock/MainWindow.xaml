@@ -186,6 +186,11 @@
                                 <FontIcon Glyph="&#xE895;" />
                             </NavigationViewItem.Icon>
                         </NavigationViewItem>
+                        <NavigationViewItem Content="Backups" Tag="backups" SelectsOnInvoked="False" UseSystemFocusVisuals="False">
+                            <NavigationViewItem.Icon>
+                                <FontIcon Glyph="&#xE777;" />
+                            </NavigationViewItem.Icon>
+                        </NavigationViewItem>
                         <NavigationViewItem Content="Lock" Tag="lock" SelectsOnInvoked="False" UseSystemFocusVisuals="False">
                             <NavigationViewItem.Icon>
                                 <FontIcon Glyph="&#xE72E;" />

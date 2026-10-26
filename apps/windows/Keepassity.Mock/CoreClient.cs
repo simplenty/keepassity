@@ -265,7 +265,7 @@ public sealed class CoreClient : IDisposable
         }
     }
 
-    public async Task SaveAsync(string path)
+    public async Task SaveAsync(string path, int backupRetention = 20)
     {
         byte[] bytes = await SaveBytesAsync().ConfigureAwait(false);
         string directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
@@ -275,6 +275,7 @@ public sealed class CoreClient : IDisposable
         await File.WriteAllBytesAsync(temp, bytes).ConfigureAwait(false);
         if (File.Exists(path))
         {
+            BackupService.CreateBackup(path, backupRetention, "save");
             File.Replace(temp, path, path + ".keepassity-bak", true);
         }
         else

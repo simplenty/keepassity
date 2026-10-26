@@ -13,6 +13,7 @@ public sealed class AppSettings
     public string? WebDavUrl { get; set; }
     public string? WebDavUsername { get; set; }
     public bool SyncOnSave { get; set; } = true;
+    public int BackupRetention { get; set; } = 20;
 }
 
 public sealed class AppSettingsStore

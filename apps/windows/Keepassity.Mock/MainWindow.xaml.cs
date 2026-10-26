@@ -489,7 +489,7 @@ public sealed partial class MainWindow : Window
     private static string Sha256Hex(byte[] bytes)
         => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
-    private static async Task WriteLocalBytesAsync(string path, byte[] bytes)
+    private async Task WriteLocalBytesAsync(string path, byte[] bytes)
     {
         string directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
         string temp = Path.Combine(directory,
@@ -497,6 +497,7 @@ public sealed partial class MainWindow : Window
         await File.WriteAllBytesAsync(temp, bytes);
         if (File.Exists(path))
         {
+            BackupService.CreateBackup(path, Settings.BackupRetention, "sync");
             File.Replace(temp, path, path + ".keepassity-bak", true);
         }
         else
@@ -517,6 +518,77 @@ public sealed partial class MainWindow : Window
         _syncStates.Save(Settings.WebDavUrl!.Trim(), Settings.WebDavUsername!.Trim(), _dbPath,
             state);
         SetSyncStatus("Not synced");
+    }
+
+    private async Task ShowBackupsAsync()
+    {
+        if (_dbPath is null || _core.IsOpen == false)
+        {
+            return;
+        }
+        List<BackupEntry> backups = BackupService.ListBackups(_dbPath);
+        if (backups.Count == 0)
+        {
+            ShowToast("No backups yet. They are created before each save.", InfoBarSeverity.Informational);
+            return;
+        }
+        var choices = new ComboBox
+        {
+            Header = "Backup",
+            ItemsSource = backups,
+            SelectedIndex = 0,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var content = new StackPanel { Spacing = 10 };
+        content.Children.Add(new TextBlock
+        {
+            Text = $"Restoring backs up the current database first. Keeping {Settings.BackupRetention} copies.",
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+        });
+        content.Children.Add(choices);
+        var dialog = new ContentDialog
+        {
+            Title = "Restore backup",
+            Content = content,
+            PrimaryButtonText = "Restore",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Root.XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary ||
+            choices.SelectedItem is not BackupEntry selected)
+        {
+            return;
+        }
+        if (string.IsNullOrEmpty(_masterPassword))
+        {
+            ShowToast("Unlock the vault before restoring a backup.", InfoBarSeverity.Warning);
+            return;
+        }
+        try
+        {
+            byte[] selectedBytes = await File.ReadAllBytesAsync(selected.Path);
+            using (var probe = new CoreClient())
+            {
+                await probe.OpenAsync(selected.Path, _masterPassword);
+                await probe.LockAsync();
+            }
+            await SaveAsync(silent: true, syncAfterSave: false);
+            BackupService.RestoreBytes(_dbPath, selectedBytes, Settings.BackupRetention);
+            await ReopenFromLocalAsync();
+            MarkLocalDirty();
+            ShowToast("Backup restored", InfoBarSeverity.Success);
+            if (IsSyncConfigured)
+            {
+                _ = SyncAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Restore failed: {ex.Message}", InfoBarSeverity.Error);
+        }
     }
 
     // ---------------------------------------------------------------- unlock
@@ -832,6 +904,9 @@ public sealed partial class MainWindow : Window
         {
             case "sync":
                 SyncStatusButton_Click(this, new RoutedEventArgs());
+                break;
+            case "backups":
+                _ = ShowBackupsAsync();
                 break;
             case "lock":
                 LockButton_Click(this, new RoutedEventArgs());
@@ -1444,7 +1519,7 @@ public sealed partial class MainWindow : Window
         }
         try
         {
-            await _core.SaveAsync(_dbPath);
+            await _core.SaveAsync(_dbPath, Settings.BackupRetention);
             MarkLocalDirty();
             if (!silent)
             {
@@ -1547,6 +1622,14 @@ public sealed partial class MainWindow : Window
             Maximum = 240,
             SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
         };
+        var retention = new NumberBox
+        {
+            Header = "Backup copies to keep",
+            Value = Settings.BackupRetention,
+            Minimum = 1,
+            Maximum = 200,
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
+        };
         var webdavUrl = new TextBox
         {
             Header = "WebDAV file URL",
@@ -1599,6 +1682,14 @@ public sealed partial class MainWindow : Window
                 _settingsStore.Save();
             }
         };
+        retention.ValueChanged += (_, _) =>
+        {
+            if (!double.IsNaN(retention.Value))
+            {
+                Settings.BackupRetention = Math.Clamp((int)retention.Value, 1, 200);
+                _settingsStore.Save();
+            }
+        };
         syncOnSave.Toggled += (_, _) =>
         {
             Settings.SyncOnSave = syncOnSave.IsOn;
@@ -1609,6 +1700,7 @@ public sealed partial class MainWindow : Window
         content.Children.Add(clipboard);
         content.Children.Add(autoLock);
         content.Children.Add(minutes);
+        content.Children.Add(retention);
         content.Children.Add(new TextBlock
         {
             Text = "WebDAV",
