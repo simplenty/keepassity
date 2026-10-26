@@ -4,7 +4,6 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using System.Collections.ObjectModel;
-using System.Numerics;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.System;
@@ -38,8 +37,6 @@ public sealed partial class MainWindow : Window
         Root.ActualThemeChanged += (_, _) => ApplyTitleBarTheme();
         SearchBox.Visibility = Visibility.Collapsed;
         TrySetMica();
-        WorkspacePanel.Shadow = new ThemeShadow();
-        WorkspacePanel.Translation = new Vector3(0, 0, 32);
 
         SeedMockData();
         EntryList.ItemsSource = Entries;
