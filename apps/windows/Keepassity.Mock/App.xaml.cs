@@ -16,7 +16,21 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        bool allowMultiple = Environment.GetCommandLineArgs()
+        string[] commandLine = Environment.GetCommandLineArgs();
+        int selfTestIndex = Array.IndexOf(commandLine, "--selftest");
+        if (selfTestIndex >= 0)
+        {
+            string database = selfTestIndex + 1 < commandLine.Length
+                ? commandLine[selfTestIndex + 1]
+                : string.Empty;
+            string report = Environment.GetEnvironmentVariable("KEEPASSITY_SELFTEST_REPORT")
+                ?? Path.Combine(Path.GetTempPath(), "keepassity-selftest.log");
+            ThreadPool.QueueUserWorkItem(_ =>
+                Environment.Exit(AppSelfTest.Run(database, report)));
+            return;
+        }
+
+        bool allowMultiple = commandLine
             .Any(argument => argument.Equals("--allow-multiple", StringComparison.OrdinalIgnoreCase));
         if (!allowMultiple)
         {

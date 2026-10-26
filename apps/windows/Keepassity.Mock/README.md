@@ -13,7 +13,9 @@ cargo build -p keepassity-ffi --release
 dotnet build apps/windows/Keepassity.Mock/Keepassity.Mock.csproj -c Debug
 ```
 
-The project copies `target/release/keepassity_ffi.dll` next to the app on build.
+The project copies `target/release/keepassity_ffi.dll` next to the app on build
+and builds self-contained for `win-x64` (the .NET and Windows App SDK runtimes are
+included in the output).
 
 ## Run
 
@@ -37,6 +39,19 @@ real passwords in arguments. A second normal launch activates the existing
 window; pass `--allow-multiple` for isolated test instances (e.g. conflict tests)
 and `--no-tray` when a test needs the close button to exit instead of hiding to
 the notification area.
+
+## Self-test
+
+The app can run a non-UI smoke test against a fixture copy:
+
+```powershell
+$env:KEEPASSITY_SELFTEST_PASSWORD = "fixture-password"
+$env:KEEPASSITY_SELFTEST_REPORT = "$PWD\selftest.log"
+& <app.exe> --selftest <fixture.kdbx>
+```
+
+It opens/list/saves/reopens a temporary copy, reads TOTP when present, and exits
+non-zero on failure. The report contains counts/status only, never secrets.
 
 ## Implemented in this slice
 
