@@ -7,167 +7,106 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    Title="keepassity — UI Prototype">
-
+    Title="keepassity">
 
     <Grid x:Name="Root" Background="Transparent">
-        <!-- ============================= UNLOCK ============================= -->
-        <Grid x:Name="UnlockRoot" Background="Transparent">
+        <Grid.Resources>
+            <Style x:Key="FieldLabel" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+            <Style x:Key="FieldValue" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            </Style>
+            <Style x:Key="IconButton" TargetType="Button">
+                <Setter Property="Width" Value="32" />
+                <Setter Property="Height" Value="32" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+            </Style>
+            <Style x:Key="ToolbarButton" TargetType="Button">
+                <Setter Property="Padding" Value="10,4" />
+                <Setter Property="FontSize" Value="12" />
+            </Style>
+            <Style x:Key="SectionLabel" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Style>
+        </Grid.Resources>
 
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Width="440" Spacing="24">
-                <StackPanel Spacing="10" HorizontalAlignment="Center">
-                    <Border Width="64" Height="64" CornerRadius="16"
-                            Background="{ThemeResource AccentFillColorDefaultBrush}"
-                            HorizontalAlignment="Center">
-                        <FontIcon Glyph="&#xE72E;" FontSize="30"
-                                  Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
-                    </Border>
-                    <TextBlock Text="keepassity" FontSize="30" FontWeight="SemiBold"
-                               HorizontalAlignment="Center" />
-                    <TextBlock Text="Your passwords. Your file. Your device."
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               HorizontalAlignment="Center" />
-                </StackPanel>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
 
-                <Border Style="{StaticResource Card}" Padding="28" CornerRadius="14">
-                    <StackPanel Spacing="18">
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="Unlock your vault" FontSize="20" FontWeight="SemiBold" />
-                            <TextBlock Text="Local-first KDBX password manager"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        </StackPanel>
-
-                        <InfoBar x:Name="UnlockError" IsOpen="False" Severity="Error"
-                                 Title="Cannot unlock" IsClosable="False" />
-
-                        <PasswordBox x:Name="MasterPassword" Header="Master password"
-                                     PlaceholderText="Enter master password"
-                                     PasswordRevealMode="Peek"
-                                     KeyDown="MasterPassword_KeyDown" />
-
-                        <Button x:Name="UnlockButton" Content="Unlock vault"
-                                HorizontalAlignment="Stretch" Height="42"
-                                Style="{StaticResource AccentButtonStyle}"
-                                Click="UnlockButton_Click" />
-
-                        <Grid>
-                            <HyperlinkButton Content="Open another database…" Padding="0"
-                                             HorizontalAlignment="Left" />
-                            <TextBlock Text="Prototype · any password works"
-                                       HorizontalAlignment="Right" VerticalAlignment="Center"
-                                       FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                        </Grid>
-                    </StackPanel>
-                </Border>
-
-                <Border Style="{StaticResource Card}" Padding="14,12">
-                    <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <Border Width="36" Height="36" CornerRadius="8"
-                                Background="{ThemeResource ControlFillColorDefaultBrush}">
-                            <FontIcon Glyph="&#xE8A5;" FontSize="18" />
-                        </Border>
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Personal.kdbx" FontSize="13" FontWeight="SemiBold" />
-                            <TextBlock Text="Last opened 2 minutes ago" FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        </StackPanel>
-                        <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="12"
-                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    </Grid>
-                </Border>
-
-                <TextBlock Text="This is a static UI prototype. No database is opened, decrypted, or stored."
-                           TextWrapping="Wrap" TextAlignment="Center" FontSize="12"
-                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-            </StackPanel>
-        </Grid>
-
-        <!-- ============================== MAIN ============================== -->
-        <Grid x:Name="MainRoot" Visibility="Collapsed">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="64" />
-                <RowDefinition Height="*" />
-                <RowDefinition Height="32" />
-            </Grid.RowDefinitions>
-
-            <!-- top bar -->
-            <Grid Grid.Row="0" Padding="20,0" Background="{ThemeResource LayerFillColorDefaultBrush}"
-                  BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+        <!-- Integrated title bar (window chrome + search in one surface). -->
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Padding="16,0,0,0"
+              Background="Transparent">
+            <Border x:Name="TitleBarDragArea" Background="Transparent" />
+            <Grid ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                    <Border Width="34" Height="34" CornerRadius="8"
-                            Background="{ThemeResource AccentFillColorDefaultBrush}">
-                        <FontIcon Glyph="&#xE72E;" FontSize="18"
-                                  Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
-                    </Border>
-                    <StackPanel VerticalAlignment="Center" Spacing="-1">
-                        <TextBlock Text="keepassity" FontSize="16" FontWeight="SemiBold" />
-                        <TextBlock Text="UI PROTOTYPE" FontSize="9" CharacterSpacing="120"
-                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                    </StackPanel>
-                </StackPanel>
+                <TextBlock Text="keepassity" FontSize="14" FontWeight="SemiBold"
+                           VerticalAlignment="Center" Margin="6,0,0,0" />
 
                 <AutoSuggestBox x:Name="SearchBox" Grid.Column="1" Width="360"
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
-                                PlaceholderText="Search entries…" TextChanged="SearchBox_TextChanged">
+                                PlaceholderText="Search" TextChanged="SearchBox_TextChanged">
                     <AutoSuggestBox.QueryIcon>
                         <FontIcon Glyph="&#xE721;" />
                     </AutoSuggestBox.QueryIcon>
                 </AutoSuggestBox>
+            </Grid>
+        </Grid>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <Button x:Name="SyncStatusButton" Style="{StaticResource GhostButton}"
-                            Click="SyncStatusButton_Click" ToolTipService.ToolTip="Sync status">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
-                            <FontIcon Glyph="&#xE895;" FontSize="14" />
-                            <TextBlock Text="Synced" FontSize="12" VerticalAlignment="Center" />
-                            <FontIcon Glyph="&#xE70D;" FontSize="9"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="NewEntryButton" Style="{StaticResource GhostButton}"
-                            Click="NewEntryButton_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xE710;" FontSize="14" />
-                            <TextBlock Text="New entry" FontSize="12" />
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="LockButton" Style="{StaticResource IconButton}" Click="LockButton_Click"
-                            AutomationProperties.Name="Lock vault"
-                            ToolTipService.ToolTip="Lock vault">
-                        <FontIcon Glyph="&#xE72E;" FontSize="15" />
-                    </Button>
-                    <Button x:Name="SettingsButton" Style="{StaticResource IconButton}" Click="SettingsButton_Click"
-                            AutomationProperties.Name="Settings"
-                            ToolTipService.ToolTip="Settings">
-                        <FontIcon Glyph="&#xE713;" FontSize="15" />
-                    </Button>
+        <Grid Grid.Row="1">
+            <!-- Unlock: plain form. -->
+            <Grid x:Name="UnlockRoot">
+                <StackPanel Width="360" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+                    <TextBlock Text="Unlock keepassity" FontSize="20" FontWeight="SemiBold" />
+                    <InfoBar x:Name="UnlockError" IsOpen="False" Severity="Error"
+                             Title="Cannot unlock" IsClosable="False" />
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Master password" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <PasswordBox x:Name="MasterPassword" PlaceholderText="Password"
+                                     PasswordRevealMode="Peek"
+                                     KeyDown="MasterPassword_KeyDown" />
+                    </StackPanel>
+                    <Button x:Name="UnlockButton" Content="Unlock"
+                            HorizontalAlignment="Stretch" Height="36"
+                            Style="{StaticResource AccentButtonStyle}"
+                            Click="UnlockButton_Click" />
+                    <Grid>
+                        <HyperlinkButton Content="Open another database…" Padding="0"
+                                         HorizontalAlignment="Left" />
+                        <TextBlock Text="Prototype: any password works"
+                                   HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   FontSize="11"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    </Grid>
+                    <TextBlock Text="Personal.kdbx · last opened 2 minutes ago"
+                               FontSize="11"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                 </StackPanel>
             </Grid>
 
-            <!-- three columns -->
-            <Grid Grid.Row="1">
+            <!-- Main: narrow left navigation + floating two-pane workspace. -->
+            <Grid x:Name="MainRoot" Visibility="Collapsed">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="228" />
-                    <ColumnDefinition Width="352" />
+                    <ColumnDefinition Width="232" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <!-- groups -->
-                <Grid Grid.Column="0" Padding="12,18,8,12"
-                      BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                      BorderThickness="0,0,1,0">
+                <!-- left navigation -->
+                <Grid Grid.Column="0" Padding="16,16,8,12">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -175,27 +114,10 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <TextBlock Text="VAULT" Style="{StaticResource SectionLabel}" Margin="10,0,0,10" />
-
-                    <Border Grid.Row="1" Style="{StaticResource Card}" Padding="10,9" Margin="4,0,4,16">
-                        <Grid ColumnSpacing="9">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <FontIcon Glyph="&#xE8A5;" FontSize="16"
-                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <StackPanel Grid.Column="1" Spacing="1">
-                                <TextBlock Text="Personal.kdbx" FontSize="12" FontWeight="SemiBold" />
-                                <TextBlock Text="KDBX 4.0 · local" FontSize="10"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                            </StackPanel>
-                            <Border Grid.Column="2" Width="8" Height="8" CornerRadius="4"
-                                    Background="{ThemeResource AccentFillColorDefaultBrush}"
-                                    VerticalAlignment="Center" />
-                        </Grid>
-                    </Border>
+                    <TextBlock Text="Personal.kdbx" FontSize="12" FontWeight="SemiBold"
+                               Margin="4,0,0,2" />
+                    <TextBlock Grid.Row="1" Text="Groups" Style="{StaticResource SectionLabel}"
+                               Margin="4,0,0,10" />
 
                     <ListView x:Name="GroupList" Grid.Row="2" SelectionMode="Single"
                               SelectionChanged="GroupList_SelectionChanged"
@@ -203,24 +125,20 @@
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem">
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                <Setter Property="Padding" Value="8,7" />
-                                <Setter Property="Margin" Value="2,1" />
-                                <Setter Property="CornerRadius" Value="7" />
+                                <Setter Property="Padding" Value="8,6" />
+                                <Setter Property="Margin" Value="0,0,0,1" />
                             </Style>
                         </ListView.ItemContainerStyle>
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="local:GroupItem">
-                                <Grid ColumnSpacing="10">
+                                <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="18" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <FontIcon Glyph="{x:Bind Glyph}" FontSize="14"
-                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    <TextBlock Grid.Column="1" Text="{x:Bind Name}" FontSize="13"
+                                    <TextBlock Text="{x:Bind Name}" FontSize="13"
                                                VerticalAlignment="Center" />
-                                    <TextBlock Grid.Column="2" Text="{x:Bind Count}" FontSize="11"
+                                    <TextBlock Grid.Column="1" Text="{x:Bind Count}" FontSize="11"
                                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                VerticalAlignment="Center" />
                                 </Grid>
@@ -228,361 +146,276 @@
                         </ListView.ItemTemplate>
                     </ListView>
 
-                    <StackPanel Grid.Row="3" Spacing="8" Margin="8,12,4,0">
-                        <TextBlock Text="QUICK ACCESS" Style="{StaticResource SectionLabel}" />
-                        <Button Style="{StaticResource GhostButton}" HorizontalContentAlignment="Left"
-                                Padding="8,6">
-                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                <FontIcon Glyph="&#xE734;" FontSize="13" />
-                                <TextBlock Text="Favorites" FontSize="12" />
+                    <!-- vault actions at bottom-left -->
+                    <StackPanel Grid.Row="3" Spacing="2" Margin="0,12,0,0">
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                Margin="0,0,0,8" />
+                        <Button x:Name="SyncStatusButton" Style="{StaticResource ToolbarButton}"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                Click="SyncStatusButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE895;" FontSize="13" />
+                                <TextBlock Text="Synced" FontSize="12" />
+                                <TextBlock Text="2 min ago" FontSize="11"
+                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                           Margin="4,0,0,0" />
                             </StackPanel>
                         </Button>
-                        <Button Style="{StaticResource GhostButton}" HorizontalContentAlignment="Left"
-                                Padding="8,6">
-                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                <FontIcon Glyph="&#xE8D7;" FontSize="13" />
-                                <TextBlock Text="TOTP codes" FontSize="12" />
+                        <Button x:Name="LockButton" Style="{StaticResource ToolbarButton}"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                Click="LockButton_Click" AutomationProperties.Name="Lock">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE72E;" FontSize="13" />
+                                <TextBlock Text="Lock" FontSize="12" />
                             </StackPanel>
                         </Button>
+                        <Button x:Name="SettingsButton" Style="{StaticResource ToolbarButton}"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                Click="SettingsButton_Click" AutomationProperties.Name="Settings">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE713;" FontSize="13" />
+                                <TextBlock Text="Settings" FontSize="12" />
+                            </StackPanel>
+                        </Button>
+                        <TextBlock Text="Personal.kdbx · KDBX 4.0" FontSize="10"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                   Margin="8,6,0,0" />
                     </StackPanel>
                 </Grid>
 
-                <!-- entry list -->
-                <Grid Grid.Column="1" Padding="16,18,16,10"
-                      BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                      BorderThickness="0,0,1,0">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
+                <!-- floating two-pane window, opens from the bottom-right -->
+                <Border x:Name="WorkspacePanel" Grid.Column="1"
+                        Margin="12,12,16,16" CornerRadius="8"
+                        Background="{ThemeResource LayerFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="330" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
 
-                    <Grid Margin="2,0,2,12">
-                        <StackPanel Spacing="1">
-                            <TextBlock x:Name="CurrentGroupTitle" Text="All entries" FontSize="22"
-                                       FontWeight="SemiBold" />
-                            <TextBlock x:Name="EntryCountText" Text="12 entries" FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        </StackPanel>
-                        <Button Style="{StaticResource IconButton}" HorizontalAlignment="Right"
-                                ToolTipService.ToolTip="Sort">
-                            <FontIcon Glyph="&#xE8CB;" FontSize="14" />
-                        </Button>
-                    </Grid>
+                        <!-- entry list -->
+                        <Grid Grid.Column="0" Padding="16,14,12,12"
+                              BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                              BorderThickness="0,0,1,0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
 
-                    <Border Grid.Row="1" Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"
-                            Margin="0,0,0,8" />
-
-                    <ListView x:Name="EntryList" Grid.Row="2" SelectionMode="Single"
-                              SelectionChanged="EntryList_SelectionChanged"
-                              Background="Transparent" Padding="0">
-                        <ListView.ItemContainerStyle>
-                            <Style TargetType="ListViewItem">
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                <Setter Property="Padding" Value="10,9" />
-                                <Setter Property="Margin" Value="0,1" />
-                                <Setter Property="CornerRadius" Value="8" />
-                            </Style>
-                        </ListView.ItemContainerStyle>
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="local:EntryItem">
-                                <Grid ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="38" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <Border Width="38" Height="38" CornerRadius="9"
-                                            Background="{x:Bind AvatarBrush}">
-                                        <TextBlock Text="{x:Bind Initial}" FontSize="14"
-                                                   FontWeight="SemiBold" HorizontalAlignment="Center"
-                                                   VerticalAlignment="Center"
-                                                   Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
-                                    </Border>
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                        <TextBlock Text="{x:Bind Title}" FontSize="13.5" FontWeight="SemiBold"
-                                                   TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{x:Bind Username}" FontSize="11.5"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                   TextTrimming="CharacterEllipsis" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="2" VerticalAlignment="Center"
-                                                HorizontalAlignment="Right" Spacing="2">
-                                        <FontIcon Glyph="&#xE8D7;" FontSize="12"
-                                                  Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
-                                                  Visibility="{x:Bind TotpVisibility}" />
-                                        <TextBlock Text="{x:Bind Tag}" FontSize="9"
-                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                   HorizontalAlignment="Right" />
-                                    </StackPanel>
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
-                </Grid>
-
-                <!-- detail -->
-                <Grid Grid.Column="2" Padding="28,22,28,16">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-
-                    <Grid Margin="0,0,0,16">
-                        <StackPanel Spacing="6">
-                            <StackPanel Orientation="Horizontal" Spacing="12">
-                                <Border Width="46" Height="46" CornerRadius="12"
-                                        Background="{ThemeResource AccentFillColorDefaultBrush}">
-                                    <TextBlock x:Name="DetailInitial" Text="G" FontSize="20"
-                                               FontWeight="SemiBold" HorizontalAlignment="Center"
-                                               VerticalAlignment="Center"
-                                               Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
-                                </Border>
-                                <StackPanel VerticalAlignment="Center" Spacing="1">
-                                    <TextBlock x:Name="DetailTitle" Text="GitHub" FontSize="26"
-                                               FontWeight="SemiBold" />
-                                    <TextBlock x:Name="DetailSubtitle" Text="github.com · Work"
-                                               FontSize="12"
+                            <Grid Margin="0,0,0,10">
+                                <StackPanel Spacing="1">
+                                    <TextBlock x:Name="CurrentGroupTitle" Text="All entries"
+                                               FontSize="18" FontWeight="SemiBold" />
+                                    <TextBlock x:Name="EntryCountText" Text="12 entries" FontSize="11"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 </StackPanel>
-                            </StackPanel>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right"
-                                    VerticalAlignment="Top">
-                            <Button Style="{StaticResource GhostButton}" Click="EditEntryButton_Click">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE70F;" FontSize="13" />
-                                    <TextBlock Text="Edit" FontSize="12" />
-                                </StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource IconButton}" Click="MoreButton_Click"
-                                    ToolTipService.ToolTip="More">
-                                <FontIcon Glyph="&#xE712;" FontSize="15" />
-                            </Button>
-                        </StackPanel>
-                    </Grid>
+                                <Button x:Name="NewEntryButton" Content="New"
+                                        Style="{StaticResource ToolbarButton}"
+                                        HorizontalAlignment="Right" VerticalAlignment="Center"
+                                        Click="NewEntryButton_Click" />
+                            </Grid>
 
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                        <StackPanel Spacing="14">
-                            <!-- credentials card -->
-                            <Border Style="{StaticResource Card}" Padding="20,16">
-                                <StackPanel Spacing="13">
-                                    <Grid ColumnSpacing="10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="110" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Text="Username" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                   FontSize="12.5" VerticalAlignment="Center" />
-                                        <TextBlock x:Name="DetailUsername" Grid.Column="1" Text="alex@example.com"
-                                                   Style="{StaticResource FieldValue}" />
-                                        <Button Grid.Column="2" Style="{StaticResource IconButton}"
-                                                Click="CopyUsernameButton_Click" ToolTipService.ToolTip="Copy username">
-                                            <FontIcon Glyph="&#xE8C8;" FontSize="13" />
-                                        </Button>
-                                    </Grid>
-                                    <Grid ColumnSpacing="10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="110" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Text="Password" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                   FontSize="12.5" VerticalAlignment="Center" />
-                                        <TextBlock x:Name="DetailPassword" Grid.Column="1" Text="••••••••••••"
-                                                   Style="{StaticResource FieldValue}" FontFamily="Consolas"
-                                                   FontSize="14" />
-                                        <Button x:Name="RevealPasswordButton" Grid.Column="2"
-                                                Style="{StaticResource GhostButton}"
-                                                Click="RevealPasswordButton_Click" ToolTipService.ToolTip="Reveal">
-                                            <FontIcon Glyph="&#xE890;" FontSize="13" />
-                                        </Button>
-                                        <Button Grid.Column="3" Style="{StaticResource IconButton}"
-                                                Click="CopyPasswordButton_Click" ToolTipService.ToolTip="Copy password">
-                                            <FontIcon Glyph="&#xE8C8;" FontSize="13" />
-                                        </Button>
-                                    </Grid>
-                                    <Grid ColumnSpacing="10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="110" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Text="Website" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                   FontSize="12.5" VerticalAlignment="Center" />
-                                        <TextBlock x:Name="DetailUrl" Grid.Column="1" Text="https://github.com"
-                                                   Style="{StaticResource FieldValue}"
-                                                   Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                                        <Button Grid.Column="2" Style="{StaticResource IconButton}"
-                                                Click="CopyUrlButton_Click" ToolTipService.ToolTip="Copy URL">
-                                            <FontIcon Glyph="&#xE8C8;" FontSize="13" />
-                                        </Button>
-                                        <Button Grid.Column="3" Style="{StaticResource IconButton}"
-                                                Click="OpenUrlButton_Click" ToolTipService.ToolTip="Open">
-                                            <FontIcon Glyph="&#xE8A7;" FontSize="13" />
-                                        </Button>
-                                    </Grid>
-                                </StackPanel>
-                            </Border>
+                            <Border Grid.Row="1" Height="1"
+                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                    Margin="0,0,0,4" />
 
-                            <!-- TOTP card -->
-                            <Border Style="{StaticResource Card}" Padding="20,16"
-                                    BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
-                                    BorderThickness="1,1,1,1">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="ONE-TIME PASSWORD" Style="{StaticResource SectionLabel}" />
-                                        <TextBlock x:Name="TotpCode" Text="428 913" FontSize="34"
-                                                   FontWeight="SemiBold" FontFamily="Consolas"
-                                                   CharacterSpacing="40" Margin="0,2,0,0" />
-                                        <TextBlock x:Name="TotpRemainingText" Text="Refreshes in 24s"
-                                                   FontSize="11"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" HorizontalAlignment="Right"
-                                                VerticalAlignment="Center" Spacing="8">
-                                        <ProgressBar x:Name="TotpProgress" Width="88" Height="3"
-                                                     Minimum="0" Maximum="30" Value="24"
-                                                     Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
-                                        <Button Style="{StaticResource GhostButton}" HorizontalAlignment="Right"
-                                                Click="CopyTotpButton_Click">
-                                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <FontIcon Glyph="&#xE8C8;" FontSize="12" />
-                                                <TextBlock Text="Copy code" FontSize="12" />
+                            <ListView x:Name="EntryList" Grid.Row="2" SelectionMode="Single"
+                                      SelectionChanged="EntryList_SelectionChanged"
+                                      Background="Transparent" Padding="0">
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                        <Setter Property="Padding" Value="8,7" />
+                                        <Setter Property="Margin" Value="0,0,0,1" />
+                                    </Style>
+                                </ListView.ItemContainerStyle>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="local:EntryItem">
+                                        <Grid ColumnSpacing="8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Spacing="1">
+                                                <TextBlock Text="{x:Bind Title}" FontSize="13"
+                                                           FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{x:Bind Username}" FontSize="11"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                           TextTrimming="CharacterEllipsis" />
                                             </StackPanel>
-                                        </Button>
+                                            <TextBlock Grid.Column="1" Text="TOTP" FontSize="10"
+                                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                       VerticalAlignment="Center"
+                                                       Visibility="{x:Bind TotpVisibility}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </Grid>
+
+                        <!-- detail -->
+                        <Grid Grid.Column="1" Padding="24,14,24,12">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <Grid Margin="0,0,0,14">
+                                <StackPanel Spacing="2">
+                                    <TextBlock x:Name="DetailTitle" Text="GitHub" FontSize="20"
+                                               FontWeight="SemiBold" />
+                                    <TextBlock x:Name="DetailSubtitle" Text="github.com · Work" FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="2" HorizontalAlignment="Right"
+                                            VerticalAlignment="Top">
+                                    <Button Style="{StaticResource ToolbarButton}" Click="MoveEntryButton_Click">Move</Button>
+                                    <Button Style="{StaticResource ToolbarButton}" Click="EditEntryButton_Click">Edit</Button>
+                                    <Button Style="{StaticResource ToolbarButton}" Click="DeleteEntryButton_Click">Delete</Button>
+                                </StackPanel>
+                            </Grid>
+
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                <StackPanel Spacing="14">
+                                    <!-- login fields -->
+                                    <StackPanel Spacing="0">
+                                        <Grid ColumnSpacing="8" Padding="0,10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="96" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Username" Style="{StaticResource FieldLabel}" />
+                                            <TextBlock x:Name="DetailUsername" Grid.Column="1"
+                                                       Text="alex@example.com" Style="{StaticResource FieldValue}" />
+                                            <Button Grid.Column="2" Style="{StaticResource IconButton}"
+                                                    Click="CopyUsernameButton_Click" ToolTipService.ToolTip="Copy">
+                                                <FontIcon Glyph="&#xE8C8;" FontSize="12" />
+                                            </Button>
+                                        </Grid>
+                                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                                        <Grid ColumnSpacing="8" Padding="0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="96" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Password" Style="{StaticResource FieldLabel}" />
+                                            <TextBlock x:Name="DetailPassword" Grid.Column="1"
+                                                       Text="••••••••••••" Style="{StaticResource FieldValue}"
+                                                       FontFamily="Consolas" />
+                                            <Button x:Name="RevealPasswordButton" Grid.Column="2"
+                                                    Style="{StaticResource IconButton}"
+                                                    Click="RevealPasswordButton_Click" ToolTipService.ToolTip="Show">
+                                                <FontIcon Glyph="&#xE890;" FontSize="12" />
+                                            </Button>
+                                            <Button Grid.Column="3" Style="{StaticResource IconButton}"
+                                                    Click="CopyPasswordButton_Click" ToolTipService.ToolTip="Copy">
+                                                <FontIcon Glyph="&#xE8C8;" FontSize="12" />
+                                            </Button>
+                                            <Button Grid.Column="4" Style="{StaticResource IconButton}"
+                                                    Click="GeneratePasswordButton_Click" ToolTipService.ToolTip="Generate">
+                                                <FontIcon Glyph="&#xE8D7;" FontSize="12" />
+                                            </Button>
+                                        </Grid>
+                                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                                        <Grid ColumnSpacing="8" Padding="0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="96" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Website" Style="{StaticResource FieldLabel}" />
+                                            <TextBlock x:Name="DetailUrl" Grid.Column="1"
+                                                       Text="https://github.com" Style="{StaticResource FieldValue}" />
+                                            <Button Grid.Column="2" Style="{StaticResource IconButton}"
+                                                    Click="CopyUrlButton_Click" ToolTipService.ToolTip="Copy">
+                                                <FontIcon Glyph="&#xE8C8;" FontSize="12" />
+                                            </Button>
+                                            <Button Grid.Column="3" Style="{StaticResource IconButton}"
+                                                    Click="OpenUrlButton_Click" ToolTipService.ToolTip="Open">
+                                                <FontIcon Glyph="&#xE8A7;" FontSize="12" />
+                                            </Button>
+                                        </Grid>
+                                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                                        <Grid ColumnSpacing="8" Padding="0,10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="96" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Tags" Style="{StaticResource FieldLabel}" />
+                                            <TextBlock x:Name="DetailTags" Grid.Column="1" Text="work · developer · 2FA"
+                                                       Style="{StaticResource FieldValue}"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </Grid>
                                     </StackPanel>
-                                </Grid>
-                            </Border>
 
-                            <!-- notes -->
-                            <Border Style="{StaticResource Card}" Padding="20,16">
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="NOTES" Style="{StaticResource SectionLabel}" />
-                                    <TextBlock x:Name="DetailNotes" TextWrapping="Wrap" FontSize="13"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                               Text="Personal account. Recovery codes are stored in the off-line backup." />
-                                </StackPanel>
-                            </Border>
-
-                            <!-- custom fields -->
-                            <Border Style="{StaticResource Card}" Padding="20,16">
-                                <StackPanel Spacing="12">
-                                    <TextBlock Text="CUSTOM FIELDS" Style="{StaticResource SectionLabel}" />
-                                    <Grid ColumnSpacing="10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="110" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Text="Recovery email" FontSize="12.5"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                   VerticalAlignment="Center" />
-                                        <TextBlock x:Name="DetailRecovery" Grid.Column="1" Text="alex.recovery@proton.me"
-                                                   Style="{StaticResource FieldValue}" />
-                                        <Button Grid.Column="2" Style="{StaticResource IconButton}"
-                                                Click="CopyRecoveryButton_Click" ToolTipService.ToolTip="Copy recovery email">
-                                            <FontIcon Glyph="&#xE8C8;" FontSize="13" />
-                                        </Button>
+                                    <!-- TOTP -->
+                                    <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                                    <Grid Padding="0,2">
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Text="One-time password" Style="{StaticResource SectionLabel}" />
+                                            <TextBlock x:Name="TotpCode" Text="428 913" FontSize="26"
+                                                       FontWeight="SemiBold" FontFamily="Consolas"
+                                                       CharacterSpacing="20" />
+                                            <TextBlock x:Name="TotpRemainingText" Text="Refreshes in 24s"
+                                                       FontSize="10"
+                                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Spacing="2"
+                                                    HorizontalAlignment="Right" VerticalAlignment="Center">
+                                            <Button Style="{StaticResource ToolbarButton}"
+                                                    Click="TotpSetupButton_Click">Edit TOTP</Button>
+                                            <Button Style="{StaticResource ToolbarButton}"
+                                                    Click="CopyTotpButton_Click">Copy</Button>
+                                        </StackPanel>
                                     </Grid>
-                                    <Grid ColumnSpacing="10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="110" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Text="Recovery codes" FontSize="12.5"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                   VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="1" Text="Stored offline · 8 codes"
-                                                   Style="{StaticResource FieldValue}" />
-                                    </Grid>
-                                </StackPanel>
-                            </Border>
 
-                            <!-- tags + metadata -->
-                            <StackPanel Spacing="10">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <TextBlock Text="TAGS" Style="{StaticResource SectionLabel}"
-                                               VerticalAlignment="Center" Margin="0,0,4,0" />
-                                    <Border Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                            CornerRadius="10" Padding="8,3">
-                                        <TextBlock Text="work" FontSize="11" />
-                                    </Border>
-                                    <Border Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                            CornerRadius="10" Padding="8,3">
-                                        <TextBlock Text="developer" FontSize="11" />
-                                    </Border>
-                                    <Border Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                            CornerRadius="10" Padding="8,3">
-                                        <TextBlock Text="2FA" FontSize="11" />
-                                    </Border>
-                                </StackPanel>
-                                <TextBlock Text="Added Sep 2, 2024  ·  Modified Oct 24, 2026  ·  Entry 7f3a…b91c"
-                                           FontSize="11"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                            </StackPanel>
-                        </StackPanel>
-                    </ScrollViewer>
+                                    <!-- custom fields -->
+                                    <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Custom fields" Style="{StaticResource SectionLabel}" />
+                                        <Grid ColumnSpacing="8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="96" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Recovery email" Style="{StaticResource FieldLabel}"
+                                                       FontSize="11" />
+                                            <TextBlock Grid.Column="1" Text="alex.recovery@proton.me"
+                                                       Style="{StaticResource FieldValue}" />
+                                            <Button Grid.Column="2" Style="{StaticResource IconButton}"
+                                                    Click="CopyRecoveryButton_Click" ToolTipService.ToolTip="Copy">
+                                                <FontIcon Glyph="&#xE8C8;" FontSize="12" />
+                                            </Button>
+                                        </Grid>
+                                    </StackPanel>
 
-                    <Grid Grid.Row="2" Margin="0,14,0,0">
-                        <TextBlock x:Name="SelectionHint" Text="Static prototype data — no database connected"
-                                   FontSize="11" VerticalAlignment="Center"
-                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                            <Button Style="{StaticResource GhostButton}" Click="CopyPasswordButton_Click">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE8C8;" FontSize="12" />
-                                    <TextBlock Text="Copy password" FontSize="12" />
+                                    <!-- notes -->
+                                    <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Notes" Style="{StaticResource SectionLabel}" />
+                                        <TextBlock x:Name="DetailNotes" TextWrapping="Wrap" FontSize="13"
+                                                   Text="Personal account. Recovery codes are stored in the off-line backup." />
+                                    </StackPanel>
                                 </StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource GhostButton}" Click="DeleteEntryButton_Click">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE74D;" FontSize="12" />
-                                    <TextBlock Text="Delete" FontSize="12" />
-                                </StackPanel>
-                            </Button>
-                        </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
                     </Grid>
-                </Grid>
-            </Grid>
-
-            <!-- footer -->
-            <Grid Grid.Row="2" Padding="20,0"
-                  Background="{ThemeResource LayerFillColorDefaultBrush}"
-                  BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
-                <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon Glyph="&#xE72E;" FontSize="11"
-                                  Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                        <TextBlock Text="Vault unlocked · local only" FontSize="11"
-                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                    </StackPanel>
-                    <TextBlock Text="KDBX 4.0 · AES-256 · Argon2id" FontSize="11"
-                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                    <TextBlock x:Name="AutoLockText" Text="Auto-lock in 14:58" FontSize="11"
-                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right"
-                            VerticalAlignment="Center">
-                    <FontIcon Glyph="&#xE73E;" FontSize="11"
-                              Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                    <TextBlock Text="Synced 2 min ago" FontSize="11"
-                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                </StackPanel>
+                </Border>
             </Grid>
         </Grid>
 
-        <!-- toast -->
-        <InfoBar x:Name="Toast" IsOpen="False" IsClosable="True" Severity="Success"
+        <InfoBar x:Name="Toast" Grid.Row="1" IsOpen="False" IsClosable="True" Severity="Success"
                  HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                 Margin="0,0,24,44" Width="380" />
+                 Margin="0,0,20,20" Width="340" />
     </Grid>
 </Window>

@@ -22,6 +22,17 @@ vault. Review:
 5. **New entry / Edit / Delete** — modal flow and row refresh.
 6. **Lock** (top-right lock icon) — returns to unlock screen.
 
+## Current layout (v4)
+
+- Integrated Mica title bar: app name + centered search + native window buttons.
+- Permanent left navigation: vault file, groups, and bottom-left sync/lock/settings.
+- The middle entry list and right detail live in one floating two-pane workspace with
+  a soft shadow; it animates in from the bottom-right after unlock.
+- Restrained 1Password-style detail: flat field groups, one accent only for selection,
+  no decorative cards or badges. Functional actions stay visible: Move/Edit/Delete,
+  copy/reveal/generate password, Edit TOTP, custom fields, notes.
+- No hamburger: the left navigation is always visible.
+
 ## Notes
 
 - All UI copy is English (M3-10 direction).

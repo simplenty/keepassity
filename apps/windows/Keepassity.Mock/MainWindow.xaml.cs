@@ -2,7 +2,9 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using System.Collections.ObjectModel;
+using System.Numerics;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.System;
@@ -17,20 +19,23 @@ public sealed partial class MainWindow : Window
 
     private readonly List<EntryItem> _allEntries = new();
     private readonly DispatcherTimer _totpTimer = new();
-    private readonly DispatcherTimer _clockTimer = new();
     private readonly DispatcherTimer _toastTimer = new();
     private string? _selectedGroup;
     private bool _passwordVisible;
-    private int _autoLockSeconds = 14 * 60 + 58;
 
     public MainWindow()
     {
         InitializeComponent();
         Title = "keepassity — UI Prototype";
         AppWindow.MoveAndResize(new RectInt32(28, 40, 1650, 970));
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(TitleBarDragArea);
         ApplyTitleBarTheme();
-
+        Root.ActualThemeChanged += (_, _) => ApplyTitleBarTheme();
+        SearchBox.Visibility = Visibility.Collapsed;
         TrySetMica();
+        WorkspacePanel.Shadow = new ThemeShadow();
+        WorkspacePanel.Translation = new Vector3(0, 0, 32);
 
         SeedMockData();
         GroupList.ItemsSource = Groups;
@@ -40,14 +45,22 @@ public sealed partial class MainWindow : Window
 
         _totpTimer.Interval = TimeSpan.FromSeconds(1);
         _totpTimer.Tick += (_, _) => UpdateTotp();
-        _clockTimer.Interval = TimeSpan.FromSeconds(1);
-        _clockTimer.Tick += (_, _) => UpdateAutoLock();
         _toastTimer.Interval = TimeSpan.FromSeconds(4);
         _toastTimer.Tick += (_, _) =>
         {
             _toastTimer.Stop();
             Toast.IsOpen = false;
         };
+
+        if (Environment.GetCommandLineArgs().Contains("--unlocked"))
+        {
+            UnlockRoot.Visibility = Visibility.Collapsed;
+            MainRoot.Visibility = Visibility.Visible;
+            SearchBox.Visibility = Visibility.Visible;
+            _totpTimer.Start();
+            UpdateTotp();
+            AnimateWorkspace();
+        }
     }
 
     private void TrySetMica()
@@ -58,26 +71,33 @@ public sealed partial class MainWindow : Window
         }
         catch
         {
-            // Mica is unavailable on some Windows builds; the app remains usable.
+            // Mica is unavailable on some Windows builds; the solid page colour
+            // remains readable.
         }
     }
 
     private void ApplyTitleBarTheme()
     {
         var titleBar = AppWindow.TitleBar;
-        var background = Color.FromArgb(255, 28, 30, 36);
-        var foreground = Color.FromArgb(255, 245, 247, 250);
-        titleBar.BackgroundColor = background;
-        titleBar.InactiveBackgroundColor = background;
-        titleBar.ForegroundColor = foreground;
-        titleBar.InactiveForegroundColor = Color.FromArgb(255, 170, 176, 188);
-        titleBar.ButtonBackgroundColor = Color.FromArgb(0, 0, 0, 0);
-        titleBar.ButtonInactiveBackgroundColor = Color.FromArgb(0, 0, 0, 0);
+        var light = Root.ActualTheme == ElementTheme.Light;
+        var transparent = Color.FromArgb(0, 0, 0, 0);
+        var foreground = light
+            ? Color.FromArgb(255, 28, 30, 36)
+            : Color.FromArgb(255, 245, 247, 250);
+        var inactive = light
+            ? Color.FromArgb(255, 110, 116, 128)
+            : Color.FromArgb(255, 170, 176, 188);
         titleBar.ButtonForegroundColor = foreground;
-        titleBar.ButtonInactiveForegroundColor = Color.FromArgb(255, 170, 176, 188);
-        titleBar.ButtonHoverBackgroundColor = Color.FromArgb(255, 48, 52, 62);
+        titleBar.ButtonInactiveForegroundColor = inactive;
+        titleBar.ButtonBackgroundColor = transparent;
+        titleBar.ButtonInactiveBackgroundColor = transparent;
+        titleBar.ButtonHoverBackgroundColor = light
+            ? Color.FromArgb(255, 228, 231, 236)
+            : Color.FromArgb(255, 48, 52, 62);
         titleBar.ButtonHoverForegroundColor = foreground;
-        titleBar.ButtonPressedBackgroundColor = Color.FromArgb(255, 64, 70, 84);
+        titleBar.ButtonPressedBackgroundColor = light
+            ? Color.FromArgb(255, 212, 217, 224)
+            : Color.FromArgb(255, 64, 70, 84);
         titleBar.ButtonPressedForegroundColor = foreground;
     }
 
@@ -136,10 +156,10 @@ public sealed partial class MainWindow : Window
         UnlockError.IsOpen = false;
         UnlockRoot.Visibility = Visibility.Collapsed;
         MainRoot.Visibility = Visibility.Visible;
+        SearchBox.Visibility = Visibility.Visible;
         _totpTimer.Start();
-        _clockTimer.Start();
         UpdateTotp();
-        UpdateAutoLock();
+        AnimateWorkspace();
         EntryList.Focus(FocusState.Programmatic);
     }
 
@@ -151,14 +171,38 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>Two-pane workspace slides in from the bottom-right corner.</summary>
+    private void AnimateWorkspace()
+    {
+        var transform = new TranslateTransform { X = 56, Y = 72 };
+        WorkspacePanel.RenderTransform = transform;
+        WorkspacePanel.Opacity = 0;
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var storyboard = new Storyboard();
+        var duration = new Duration(TimeSpan.FromMilliseconds(320));
+        var slideX = new DoubleAnimation { To = 0, Duration = duration, EasingFunction = ease };
+        Storyboard.SetTarget(slideX, transform);
+        Storyboard.SetTargetProperty(slideX, "X");
+        var slideY = new DoubleAnimation { To = 0, Duration = duration, EasingFunction = ease };
+        Storyboard.SetTarget(slideY, transform);
+        Storyboard.SetTargetProperty(slideY, "Y");
+        var fade = new DoubleAnimation { To = 1, Duration = duration, EasingFunction = ease };
+        Storyboard.SetTarget(fade, WorkspacePanel);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+        storyboard.Children.Add(slideX);
+        storyboard.Children.Add(slideY);
+        storyboard.Children.Add(fade);
+        storyboard.Begin();
+    }
+
     private void LockButton_Click(object sender, RoutedEventArgs e)
     {
         _totpTimer.Stop();
-        _clockTimer.Stop();
         _passwordVisible = false;
         DetailPassword.Text = "••••••••••••";
         MasterPassword.Password = string.Empty;
         MainRoot.Visibility = Visibility.Collapsed;
+        SearchBox.Visibility = Visibility.Collapsed;
         UnlockRoot.Visibility = Visibility.Visible;
         MasterPassword.Focus(FocusState.Programmatic);
     }
@@ -218,14 +262,13 @@ public sealed partial class MainWindow : Window
     private void ShowEntry(EntryItem entry)
     {
         DetailTitle.Text = entry.Title;
-        DetailInitial.Text = entry.Initial;
         DetailSubtitle.Text = $"{entry.Host}  ·  {entry.Category}";
         DetailUsername.Text = entry.Username;
         DetailUrl.Text = entry.Url;
         DetailNotes.Text = entry.Notes;
         DetailPassword.Text = _passwordVisible ? entry.Password : "••••••••••••";
+        DetailTags.Text = $"{entry.Tag}  ·  {entry.Category}";
         TotpCode.Text = FormatCode(entry);
-        SelectionHint.Text = $"Static prototype data  ·  {entry.Category}  ·  {entry.UuidShort}";
         UpdateTotp();
     }
 
@@ -236,19 +279,13 @@ public sealed partial class MainWindow : Window
         var code = ((now / 30) * 73939 + 142857) % 1_000_000;
         TotpCode.Text = $"{code / 1000:D3} {code % 1000:D3}";
         TotpRemainingText.Text = $"Refreshes in {remaining}s";
-        TotpProgress.Value = remaining;
     }
 
     private static string FormatCode(EntryItem entry) => entry.HasTotp ? "428 913" : "No TOTP";
 
     private void UpdateAutoLock()
     {
-        _autoLockSeconds--;
-        if (_autoLockSeconds < 0)
-        {
-            _autoLockSeconds = 15 * 60;
-        }
-        AutoLockText.Text = $"Auto-lock in {_autoLockSeconds / 60:00}:{_autoLockSeconds % 60:00}";
+        // Removed from the compact system-style UI.
     }
 
     private void RevealPasswordButton_Click(object sender, RoutedEventArgs e)
@@ -389,8 +426,111 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void DeleteEntryButton_Click(object sender, RoutedEventArgs e)
+    private async void MoveEntryButton_Click(object sender, RoutedEventArgs e)
     {
+        if (EntryList.SelectedItem is not EntryItem entry)
+        {
+            return;
+        }
+        var choices = new ComboBox
+        {
+            Header = "Move to group",
+            ItemsSource = Groups.Where(group => group.Category is not null)
+                .Select(group => group.Name)
+                .ToList(),
+            SelectedIndex = 0,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var dialog = new ContentDialog
+        {
+            Title = "Move entry",
+            Content = choices,
+            PrimaryButtonText = "Move",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Root.XamlRoot,
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary &&
+            choices.SelectedItem is string target)
+        {
+            entry.MoveTo(target);
+            FilterEntries(_selectedGroup);
+            EntryList.SelectedItem = entry;
+            ShowToast($"Moved to {target}", InfoBarSeverity.Success);
+        }
+    }
+
+    private async void GeneratePasswordButton_Click(object sender, RoutedEventArgs e)
+    {
+        const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*";
+        var random = new Random();
+        var generated = new string(Enumerable.Range(0, 20)
+            .Select(_ => alphabet[random.Next(alphabet.Length)])
+            .ToArray());
+        var preview = new TextBox
+        {
+            Text = generated,
+            IsReadOnly = true,
+            FontFamily = new FontFamily("Consolas"),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var dialog = new ContentDialog
+        {
+            Title = "Generated password",
+            Content = preview,
+            PrimaryButtonText = "Use password",
+            SecondaryButtonText = "Copy",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Root.XamlRoot,
+        };
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.Primary)
+        {
+            if (EntryList.SelectedItem is EntryItem entry)
+            {
+                entry.SetPassword(generated);
+                _passwordVisible = true;
+                ShowEntry(entry);
+                ShowToast("Password replaced (prototype only)", InfoBarSeverity.Success);
+            }
+        }
+        else if (result == ContentDialogResult.Secondary)
+        {
+            CopyText(generated, "Generated password copied");
+        }
+    }
+
+    private async void TotpSetupButton_Click(object sender, RoutedEventArgs e)
+    {
+        var secret = new TextBox
+        {
+            Header = "Base32 secret",
+            Text = "JBSWY3DPEHPK3PXP",
+            FontFamily = new FontFamily("Consolas"),
+        };
+        var digits = new ComboBox { Header = "Digits", ItemsSource = new[] { "6", "8" }, SelectedIndex = 0 };
+        var period = new NumberBox { Header = "Period (seconds)", Value = 30, Minimum = 15, Maximum = 120 };
+        var content = new StackPanel { Spacing = 10 };
+        content.Children.Add(secret);
+        content.Children.Add(digits);
+        content.Children.Add(period);
+        var dialog = new ContentDialog
+        {
+            Title = "TOTP setup",
+            Content = content,
+            PrimaryButtonText = "Save",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Root.XamlRoot,
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            ShowToast("TOTP configuration saved (prototype only)", InfoBarSeverity.Success);
+        }
+    }
+
+    private async void DeleteEntryButton_Click(object sender, RoutedEventArgs e)    {
         if (EntryList.SelectedItem is not EntryItem entry)
         {
             return;
@@ -415,6 +555,12 @@ public sealed partial class MainWindow : Window
     private void MoreButton_Click(object sender, RoutedEventArgs e)
     {
         ShowToast("More actions would open here (prototype)", InfoBarSeverity.Informational);
+    }
+
+    private void ToolsPlaceholder_Click(object sender, RoutedEventArgs e)
+    {
+        var label = (sender as Button)?.Tag as string ?? "Tool";
+        ShowToast($"{label} would open here (prototype)", InfoBarSeverity.Informational);
     }
 
     private async void SyncStatusButton_Click(object sender, RoutedEventArgs e)
@@ -601,11 +747,11 @@ public sealed class EntryItem
     public string Title { get; private set; }
     public string Username { get; private set; }
     public string Url { get; private set; }
-    public string Category { get; }
+    public string Category { get; private set; }
     public string Tag { get; }
     public bool HasTotp { get; }
     public string Notes { get; private set; }
-    public string Password { get; }
+    public string Password { get; private set; }
     public string Initial { get; private set; }
     public Brush AvatarBrush { get; }
     public string UuidShort { get; }
@@ -619,5 +765,15 @@ public sealed class EntryItem
         Url = url;
         Notes = notes;
         Initial = title.Length > 0 ? title[..1].ToUpperInvariant() : "?";
+    }
+
+    public void MoveTo(string category)
+    {
+        Category = category;
+    }
+
+    public void SetPassword(string password)
+    {
+        Password = password;
     }
 }
