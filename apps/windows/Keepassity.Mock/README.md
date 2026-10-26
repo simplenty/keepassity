@@ -32,7 +32,8 @@ apps/windows/Keepassity.Mock/bin/Debug/net8.0-windows10.0.19041.0/win-x64/Keepas
 
 For local UI testing only, `--db <path>` pre-fills the database, and the
 `KEEPASSITY_MOCK_PASSWORD` environment variable auto-unlocks the app. Do not put
-real passwords in arguments.
+real passwords in arguments. A second normal launch activates the existing
+window; pass `--allow-multiple` for isolated test instances (e.g. conflict tests).
 
 ## Implemented in this slice
 
@@ -46,9 +47,11 @@ real passwords in arguments.
 - Copy username/password/URL/custom field; password generation via core.
 - TOTP code display, period progress, set/remove through core dual-write fields.
 - Lock/unlock, light/dark theme, Mica/titlebar layout.
+- Single instance (a second launch restores and focuses the existing window) and
+  persisted window position/size; `--allow-multiple` is a test-only bypass.
 - Settings persisted to `%LOCALAPPDATA%\keepassity\settings.json`: theme, clipboard
-  clearing, auto-lock enable/minutes, backup retention, and the last opened
-  database path.
+  clearing, auto-lock enable/minutes, backup retention, window bounds, and the last
+  opened database path.
 - Clipboard secrets are cleared after 30 seconds if they are still the current
   clipboard text.
 - Auto-lock after the configured inactivity period (default 15 minutes); activity
@@ -72,7 +75,6 @@ real passwords in arguments.
 
 - Keyfile/challenge-response credentials.
 - Tray behaviour, history/attachment UI.
-- Window position/size persistence.
 
 ## Notes
 

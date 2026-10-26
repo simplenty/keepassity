@@ -14,6 +14,10 @@ public sealed class AppSettings
     public string? WebDavUsername { get; set; }
     public bool SyncOnSave { get; set; } = true;
     public int BackupRetention { get; set; } = 20;
+    public int? WindowX { get; set; }
+    public int? WindowY { get; set; }
+    public int? WindowWidth { get; set; }
+    public int? WindowHeight { get; set; }
 }
 
 public sealed class AppSettingsStore

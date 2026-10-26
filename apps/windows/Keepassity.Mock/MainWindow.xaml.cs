@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -57,7 +58,7 @@ public sealed partial class MainWindow : Window
         bool forceLight = Environment.GetCommandLineArgs().Contains("--light");
         ApplyThemePreference(forceLight ? "Light" : Settings.Theme);
         Title = "keepassity";
-        AppWindow.MoveAndResize(new RectInt32(28, 40, 1650, 970));
+        RestoreWindowBounds();
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(TitleBarDragArea);
         ApplyTitleBarTheme();
@@ -93,6 +94,51 @@ public sealed partial class MainWindow : Window
         Root.AddHandler(UIElement.KeyDownEvent,
             new KeyEventHandler((_, _) => TouchActivity()), true);
         Root.Loaded += Root_Loaded;
+        Closed += (_, _) => SaveWindowBounds();
+    }
+
+    private void RestoreWindowBounds()
+    {
+        var fallback = new RectInt32(28, 40, 1650, 970);
+        if (Settings.WindowWidth is not int width || Settings.WindowHeight is not int height ||
+            width < 800 || height < 600)
+        {
+            AppWindow.MoveAndResize(fallback);
+            return;
+        }
+        try
+        {
+            DisplayArea area = DisplayArea.GetFromWindowId(AppWindow.Id,
+                DisplayAreaFallback.Primary);
+            RectInt32 work = area.WorkArea;
+            width = Math.Min(width, work.Width);
+            height = Math.Min(height, work.Height);
+            int x = Settings.WindowX ?? work.X;
+            int y = Settings.WindowY ?? work.Y;
+            x = Math.Clamp(x, work.X, Math.Max(work.X, work.X + work.Width - 200));
+            y = Math.Clamp(y, work.Y, Math.Max(work.Y, work.Y + work.Height - 100));
+            AppWindow.MoveAndResize(new RectInt32(x, y, width, height));
+        }
+        catch
+        {
+            AppWindow.MoveAndResize(fallback);
+        }
+    }
+
+    private void SaveWindowBounds()
+    {
+        try
+        {
+            Settings.WindowX = AppWindow.Position.X;
+            Settings.WindowY = AppWindow.Position.Y;
+            Settings.WindowWidth = AppWindow.Size.Width;
+            Settings.WindowHeight = AppWindow.Size.Height;
+            _settingsStore.Save();
+        }
+        catch
+        {
+            // Window bounds are a convenience; never block closing.
+        }
     }
 
     private void ApplyThemePreference(string theme)
