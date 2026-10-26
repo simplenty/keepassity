@@ -176,18 +176,18 @@
                     </NavigationView.PaneHeader>
 
                     <NavigationView.FooterMenuItems>
-                        <NavigationViewItem x:Name="SyncNavItem" Content="Synced" Tag="sync"
+                        <NavigationViewItem x:Name="SyncNavItem" Content="Synced" Tag="sync" UseSystemFocusVisuals="False"
                                             SelectsOnInvoked="False">
                             <NavigationViewItem.Icon>
                                 <FontIcon Glyph="&#xE895;" />
                             </NavigationViewItem.Icon>
                         </NavigationViewItem>
-                        <NavigationViewItem Content="Lock" Tag="lock" SelectsOnInvoked="False">
+                        <NavigationViewItem Content="Lock" Tag="lock" SelectsOnInvoked="False" UseSystemFocusVisuals="False">
                             <NavigationViewItem.Icon>
                                 <FontIcon Glyph="&#xE72E;" />
                             </NavigationViewItem.Icon>
                         </NavigationViewItem>
-                        <NavigationViewItem Content="Settings" Tag="settings" SelectsOnInvoked="False">
+                        <NavigationViewItem Content="Settings" Tag="settings" SelectsOnInvoked="False" UseSystemFocusVisuals="False">
                             <NavigationViewItem.Icon>
                                 <FontIcon Glyph="&#xE713;" />
                             </NavigationViewItem.Icon>
