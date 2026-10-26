@@ -72,10 +72,11 @@ non-zero on failure. The report contains counts/status only, never secrets.
   persisted window position/size; `--allow-multiple` is a test-only bypass.
 - Notification-area icon: left/double click shows the window, right click offers
   Show / Lock / Exit, and closing the window hides it to the tray with a one-time
-  hint. `--no-tray` is a test-only bypass.
+  hint. An optional setting starts the app minimized; `--no-tray` is a test-only
+  bypass.
 - Settings persisted to `%LOCALAPPDATA%\keepassity\settings.json`: theme, clipboard
-  clearing, auto-lock enable/minutes, backup retention, window bounds, and the last
-  opened database path.
+  clearing, auto-lock enable/minutes, backup retention, window bounds, start
+  minimized, and the last opened database path.
 - Clipboard secrets are cleared after 30 seconds if they are still the current
   clipboard text.
 - Auto-lock after the configured inactivity period (default 15 minutes); activity

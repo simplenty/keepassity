@@ -262,6 +262,10 @@ public sealed partial class MainWindow : Window
     private async void Root_Loaded(object sender, RoutedEventArgs e)
     {
         InitializeTray();
+        if (Settings.StartMinimized && _trayIcon is { Available: true })
+        {
+            AppWindow.Hide();
+        }
         string? devPassword = Environment.GetEnvironmentVariable("KEEPASSITY_MOCK_PASSWORD");
         if (_dbPath is not null && !string.IsNullOrEmpty(devPassword))
         {
@@ -2236,6 +2240,13 @@ public sealed partial class MainWindow : Window
             OffContent = "Off",
             IsOn = Settings.AutoLockEnabled,
         };
+        var startMinimized = new ToggleSwitch
+        {
+            Header = "Start minimized to the notification area",
+            OnContent = "On",
+            OffContent = "Off",
+            IsOn = Settings.StartMinimized,
+        };
         var minutes = new NumberBox
         {
             Header = "Inactivity minutes before lock",
@@ -2296,6 +2307,11 @@ public sealed partial class MainWindow : Window
             Settings.AutoLockEnabled = autoLock.IsOn;
             _settingsStore.Save();
         };
+        startMinimized.Toggled += (_, _) =>
+        {
+            Settings.StartMinimized = startMinimized.IsOn;
+            _settingsStore.Save();
+        };
         minutes.ValueChanged += (_, _) =>
         {
             if (!double.IsNaN(minutes.Value))
@@ -2321,6 +2337,7 @@ public sealed partial class MainWindow : Window
         content.Children.Add(theme);
         content.Children.Add(clipboard);
         content.Children.Add(autoLock);
+        content.Children.Add(startMinimized);
         content.Children.Add(minutes);
         content.Children.Add(retention);
         content.Children.Add(new TextBlock
