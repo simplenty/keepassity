@@ -323,6 +323,7 @@ public sealed partial class MainWindow : Window
         var code = ((now / 30) * 73939 + 142857) % 1_000_000;
         TotpCode.Text = $"{code / 1000:D3} {code % 1000:D3}";
         TotpRemainingText.Text = $"Refreshes in {remaining}s";
+        TotpProgress.Value = remaining;
     }
 
     private static string FormatCode(EntryItem entry) => entry.HasTotp ? "428 913" : "No TOTP";

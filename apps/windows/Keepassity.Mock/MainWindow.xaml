@@ -33,8 +33,12 @@
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
             </Style>
             <Style x:Key="ToolbarButton" TargetType="Button">
-                <Setter Property="Padding" Value="10,4" />
+                <Setter Property="Padding" Value="10,5" />
+                <Setter Property="MinHeight" Value="32" />
                 <Setter Property="FontSize" Value="12" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="4" />
             </Style>
         </Grid.Resources>
 
@@ -150,10 +154,10 @@
                     <!-- floating two-pane window: only the top-left corner is rounded;
                          right and bottom edges sit on the window frame. -->
                     <Border x:Name="WorkspacePanel"
-                            Margin="12,12,0,0" CornerRadius="8,0,0,0"
+                            Margin="0,12,0,0" CornerRadius="8,0,0,0"
                             Background="{ThemeResource LayerFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1,1,0,0">
+                            BorderThickness="0,1,0,0">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="340" />
@@ -170,14 +174,19 @@
                                     <RowDefinition Height="*" />
                                 </Grid.RowDefinitions>
 
-                                <Grid Margin="0,0,0,10">
-                                    <StackPanel Spacing="1">
+                                <Grid Margin="0,0,0,10" ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Spacing="1" Margin="0,0,8,0">
                                         <TextBlock x:Name="CurrentGroupTitle" Text="All entries"
-                                                   FontSize="18" FontWeight="SemiBold" />
+                                                   FontSize="18" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis" />
                                         <TextBlock x:Name="EntryCountText" Text="12 entries" FontSize="11"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     </StackPanel>
-                                    <Button x:Name="NewEntryButton" Content="New"
+                                    <Button x:Name="NewEntryButton" Grid.Column="1" Content="New"
                                             HorizontalAlignment="Right" VerticalAlignment="Center"
                                             Style="{StaticResource AccentButtonStyle}"
                                             Padding="12,4" FontSize="12"
@@ -191,11 +200,20 @@
                                 <ListView x:Name="EntryList" Grid.Row="2" SelectionMode="Single"
                                           SelectionChanged="EntryList_SelectionChanged"
                                           Background="Transparent" Padding="0">
+                                    <ListView.Resources>
+                                        <StaticResource x:Key="ListViewItemBackgroundSelected"
+                                                        ResourceKey="SubtleFillColorSecondaryBrush" />
+                                        <StaticResource x:Key="ListViewItemBackgroundSelectedPointerOver"
+                                                        ResourceKey="SubtleFillColorTertiaryBrush" />
+                                        <StaticResource x:Key="ListViewItemBackgroundSelectedPressed"
+                                                        ResourceKey="SubtleFillColorTertiaryBrush" />
+                                    </ListView.Resources>
                                     <ListView.ItemContainerStyle>
                                         <Style TargetType="ListViewItem">
                                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                                             <Setter Property="Padding" Value="8,7" />
-                                            <Setter Property="Margin" Value="0,0,0,1" />
+                                            <Setter Property="Margin" Value="2,1,2,1" />
+                                            <Setter Property="CornerRadius" Value="4" />
                                         </Style>
                                     </ListView.ItemContainerStyle>
                                     <ListView.ItemTemplate>
@@ -240,14 +258,20 @@
                                     <RowDefinition Height="*" />
                                 </Grid.RowDefinitions>
 
-                                <Grid Margin="0,0,0,14">
-                                    <StackPanel Spacing="2">
+                                <Grid Margin="0,0,0,14" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Spacing="2" Margin="0,0,8,0">
                                         <TextBlock x:Name="DetailTitle" Text="GitHub" FontSize="20"
-                                                   FontWeight="SemiBold" />
+                                                   FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis" />
                                         <TextBlock x:Name="DetailSubtitle" Text="github.com · Work" FontSize="11"
+                                                   TextTrimming="CharacterEllipsis"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Spacing="2"
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2"
                                                 HorizontalAlignment="Right" VerticalAlignment="Top">
                                         <Button Style="{StaticResource ToolbarButton}" Click="MoveEntryButton_Click">Move</Button>
                                         <Button Style="{StaticResource ToolbarButton}" Click="EditEntryButton_Click">Edit</Button>
@@ -336,18 +360,27 @@
 
                                         <!-- TOTP -->
                                         <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                                        <Grid Padding="0,2">
-                                            <StackPanel Spacing="2">
+                                        <Grid Padding="0,2" ColumnSpacing="12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Spacing="2" Margin="0,0,8,0">
                                                 <TextBlock Text="One-time password" Style="{StaticResource SectionLabel}" />
-                                                <TextBlock x:Name="TotpCode" Text="428 913" FontSize="26"
+                                                <TextBlock x:Name="TotpCode" Text="428 913" FontSize="24"
                                                            FontWeight="SemiBold" FontFamily="Consolas"
-                                                           CharacterSpacing="20"
+                                                           CharacterSpacing="18"
+                                                           TextTrimming="CharacterEllipsis"
                                                            Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                                                 <TextBlock x:Name="TotpRemainingText" Text="Refreshes in 24s"
                                                            FontSize="10"
                                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                                <ProgressBar x:Name="TotpProgress" Height="3"
+                                                             Minimum="0" Maximum="30" Value="24"
+                                                             Margin="0,5,0,0"
+                                                             HorizontalAlignment="Stretch" />
                                             </StackPanel>
-                                            <StackPanel Orientation="Horizontal" Spacing="2"
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2"
                                                         HorizontalAlignment="Right" VerticalAlignment="Center">
                                                 <Button Style="{StaticResource ToolbarButton}"
                                                         Click="TotpSetupButton_Click">Edit TOTP</Button>

@@ -22,20 +22,21 @@ vault. Pass `--unlocked` to open the main window directly for review.
 5. **New entry / Edit / Move / Delete** — modal flow and row refresh.
 6. **Lock (left footer)** — returns to the unlock screen.
 
-## Current layout (v5)
+## Current layout (v6)
 
 - Integrated dark Mica title bar: app icon + name, centered search, native window buttons.
 - Permanent WinUI `NavigationView` pane, always open (no hamburger toggle). Standard
   navigation items, selection treatment, InfoBadge counts, and footer items for
   sync / lock / settings.
 - The entry list and detail form one two-pane workspace: only the **top-left corner**
-  is rounded, while its right and bottom edges sit flush on the window frame. It
-  animates in from the bottom-right after unlock.
-- Restrained 1Password-style detail: flat field groups, one accent, no decorative
-  cards. Functional actions stay visible: Move/Edit/Delete, copy/reveal/generate
-  password, Edit TOTP, custom fields, notes.
-- Colour is back: dark Mica surface, accent-blue app/group icons, coloured entry
-  avatars, and accent primary actions.
+  is rounded, while its right and bottom edges sit flush on the window frame. Only
+  one divider separates the navigation pane from the workspace.
+- Restrained 1Password-style detail: flat field groups, no decorative cards.
+  Long titles and long TOTP codes ellipsize instead of covering the action buttons.
+  Actions use subtle WinUI toolbar buttons rather than white filled boxes.
+- TOTP shows a countdown progress bar to the next 30-second rollover.
+- Entry selection uses a subtle rounded WinUI fill; colour remains in the accent
+  titlebar mark, group glyphs, entry avatars, New and TOTP.
 
 ## Notes
 
