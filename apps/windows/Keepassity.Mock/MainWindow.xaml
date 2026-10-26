@@ -39,6 +39,46 @@
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="CornerRadius" Value="4" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Grid x:Name="Root" Background="Transparent"
+                                  CornerRadius="{TemplateBinding CornerRadius}">
+                                <Border x:Name="HoverLayer" Background="Transparent"
+                                        CornerRadius="{TemplateBinding CornerRadius}" />
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  Padding="{TemplateBinding Padding}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                            </Grid>
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroup x:Name="CommonStates">
+                                    <VisualState x:Name="Normal" />
+                                    <VisualState x:Name="PointerOver">
+                                        <VisualState.Setters>
+                                            <Setter Target="HoverLayer.Background"
+                                                    Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                    <VisualState x:Name="Pressed">
+                                        <VisualState.Setters>
+                                            <Setter Target="HoverLayer.Background"
+                                                    Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                    <VisualState x:Name="Disabled">
+                                        <VisualState.Setters>
+                                            <Setter Target="Root.Opacity" Value="0.4" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                </VisualStateGroup>
+                            </VisualStateManager.VisualStateGroups>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
         </Grid.Resources>
 
@@ -151,13 +191,9 @@
                         </NavigationViewItem>
                     </NavigationView.FooterMenuItems>
 
-                    <!-- floating two-pane window: only the top-left corner is rounded;
-                         right and bottom edges sit on the window frame. -->
-                    <Border x:Name="WorkspacePanel"
-                            Margin="0,12,0,0" CornerRadius="8,0,0,0"
-                            Background="{ThemeResource LayerFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="0,1,0,0">
+                    <!-- NavigationView's content grid already draws the single
+                         top-left-rounded frame; right and bottom stay flush. -->
+                    <Grid x:Name="WorkspacePanel">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="340" />
@@ -421,7 +457,7 @@
                                 </ScrollViewer>
                             </Grid>
                         </Grid>
-                    </Border>
+                    </Grid>
                 </NavigationView>
             </Grid>
         </Grid>
