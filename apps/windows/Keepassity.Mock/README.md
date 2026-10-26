@@ -78,7 +78,8 @@ non-zero on failure. The report contains counts/status only, never secrets.
   clearing, auto-lock enable/minutes, backup retention, window bounds, start
   minimized, and the last opened database path.
 - Clipboard secrets are cleared after 30 seconds if they are still the current
-  clipboard text.
+  clipboard text, and are marked not to enter Win+V history or cloud clipboard
+  (`ClipboardContentOptions`).
 - Auto-lock after the configured inactivity period (default 15 minutes); activity
   from pointer or keyboard resets the timer.
 - **WebDAV sync**: configure a file URL and username in Settings; the password is

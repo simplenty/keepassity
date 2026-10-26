@@ -1664,7 +1664,22 @@ public sealed partial class MainWindow : Window
     {
         var package = new DataPackage();
         package.SetText(text);
-        Clipboard.SetContent(package);
+        // Keep copied secrets out of Win+V history and cloud clipboard where
+        // Windows honors the request.
+        var options = new ClipboardContentOptions
+        {
+            IsAllowedInHistory = false,
+            IsRoamable = false,
+        };
+        try
+        {
+            Clipboard.SetContentWithOptions(package, options);
+        }
+        catch
+        {
+            // Older shells may not support content options; plain copy still works.
+            Clipboard.SetContent(package);
+        }
         _lastClipboardText = text;
         _clipboardTimer.Stop();
         if (Settings.ClearClipboardAfter30Seconds)
