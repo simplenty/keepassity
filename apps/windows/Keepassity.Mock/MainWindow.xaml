@@ -135,16 +135,20 @@
                             HorizontalAlignment="Stretch" Height="36"
                             Style="{StaticResource AccentButtonStyle}"
                             Click="UnlockButton_Click" />
+                    <ProgressRing x:Name="UnlockProgress" IsActive="False"
+                                  Width="22" Height="22" HorizontalAlignment="Center" />
                     <Grid>
-                        <HyperlinkButton Content="Open another database…" Padding="0"
-                                         HorizontalAlignment="Left" />
-                        <TextBlock Text="Prototype: any password works"
+                        <HyperlinkButton x:Name="ChooseDatabaseButton" Content="Choose database…"
+                                         Padding="0" HorizontalAlignment="Left"
+                                         Click="ChooseDatabaseButton_Click" />
+                        <TextBlock x:Name="DatabasePathText" Text="No database selected"
                                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   MaxWidth="210" TextTrimming="CharacterEllipsis"
                                    FontSize="11"
                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                     </Grid>
-                    <TextBlock Text="Personal.kdbx · last opened 2 minutes ago"
-                               FontSize="11"
+                    <TextBlock Text="The database is read and written locally through the keepassity core."
+                               FontSize="11" TextWrapping="Wrap"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                 </StackPanel>
             </Grid>
@@ -171,12 +175,12 @@
                     </NavigationView.Resources>
 
                     <NavigationView.PaneHeader>
-                        <TextBlock Text="Personal.kdbx" FontSize="13" FontWeight="SemiBold"
+                        <TextBlock x:Name="VaultNameText" Text="Personal.kdbx" FontSize="13" FontWeight="SemiBold"
                                    Margin="16,12,0,10" />
                     </NavigationView.PaneHeader>
 
                     <NavigationView.FooterMenuItems>
-                        <NavigationViewItem x:Name="SyncNavItem" Content="Synced" Tag="sync" UseSystemFocusVisuals="False"
+                        <NavigationViewItem x:Name="SyncNavItem" Content="Local only" Tag="sync" UseSystemFocusVisuals="False"
                                             SelectsOnInvoked="False">
                             <NavigationViewItem.Icon>
                                 <FontIcon Glyph="&#xE895;" />
@@ -406,23 +410,23 @@
 
                                         <!-- TOTP -->
                                         <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                                        <Grid Padding="0,2" ColumnSpacing="12">
+                                        <Grid x:Name="TotpSection" Padding="0,2" ColumnSpacing="12">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Spacing="2" Margin="0,0,8,0">
                                                 <TextBlock Text="One-time password" Style="{StaticResource SectionLabel}" />
-                                                <TextBlock x:Name="TotpCode" Text="428 913" FontSize="24"
+                                                <TextBlock x:Name="TotpCode" Text="—" FontSize="24"
                                                            FontWeight="SemiBold" FontFamily="Consolas"
                                                            CharacterSpacing="18"
                                                            TextTrimming="CharacterEllipsis"
                                                            Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                                                <TextBlock x:Name="TotpRemainingText" Text="Refreshes in 24s"
+                                                <TextBlock x:Name="TotpRemainingText" Text=""
                                                            FontSize="10"
                                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                                                 <ProgressBar x:Name="TotpProgress" Height="3"
-                                                             Minimum="0" Maximum="30" Value="24"
+                                                             Minimum="0" Maximum="30" Value="0"
                                                              Margin="0,5,0,0"
                                                              HorizontalAlignment="Stretch" />
                                             </StackPanel>
@@ -437,7 +441,7 @@
 
                                         <!-- custom fields -->
                                         <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                                        <StackPanel Spacing="4">
+                                        <StackPanel x:Name="CustomFieldsSection" Spacing="4" Visibility="Collapsed">
                                             <TextBlock Text="Custom fields" Style="{StaticResource SectionLabel}" />
                                             <Grid ColumnSpacing="8">
                                                 <Grid.ColumnDefinitions>
@@ -445,12 +449,13 @@
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock Text="Recovery email" Style="{StaticResource FieldLabel}"
-                                                           FontSize="11" />
-                                                <TextBlock Grid.Column="1" Text="alex.recovery@proton.me"
+                                                <TextBlock x:Name="CustomFieldName" Text="Field"
+                                                           Style="{StaticResource FieldLabel}"
+                                                           FontSize="11" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock x:Name="CustomFieldValue" Grid.Column="1" Text=""
                                                            Style="{StaticResource FieldValue}" />
                                                 <Button Grid.Column="2" Style="{StaticResource IconButton}"
-                                                        Click="CopyRecoveryButton_Click" ToolTipService.ToolTip="Copy">
+                                                        Click="CopyCustomFieldButton_Click" ToolTipService.ToolTip="Copy">
                                                     <FontIcon Glyph="&#xE8C8;" FontSize="12" />
                                                 </Button>
                                             </Grid>

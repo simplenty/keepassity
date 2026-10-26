@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -6,6 +7,7 @@ using Microsoft.UI.Xaml.Media.Animation;
 using System.Collections.ObjectModel;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
+using Windows.Storage.Pickers;
 using Windows.System;
 using Windows.UI;
 
@@ -16,11 +18,24 @@ public sealed partial class MainWindow : Window
     public ObservableCollection<GroupItem> Groups { get; } = new();
     public ObservableCollection<EntryItem> Entries { get; } = new();
 
-    private readonly List<EntryItem> _allEntries = new();
+    private readonly CoreClient _core = new();
     private readonly DispatcherTimer _totpTimer = new();
     private readonly DispatcherTimer _toastTimer = new();
-    private string? _selectedGroup;
+    private readonly List<GroupDto> _groupDtos = new();
+    private readonly List<GroupDto> _selectableGroups = new();
+    private readonly Dictionary<string, string> _groupNames = new();
+
+    private string? _dbPath;
+    private string? _selectedGroupUuid;
+    private string? _rootGroupUuid;
+    private EntryFullDto? _currentFull;
+    private EntryItem? _currentSummary;
+    private string? _currentTotpCode;
+    private CancellationTokenSource? _searchCts;
     private bool _passwordVisible;
+    private bool _busy;
+    private bool _suppressNav;
+    private int _showGeneration;
 
     public MainWindow()
     {
@@ -29,7 +44,7 @@ public sealed partial class MainWindow : Window
         {
             Root.RequestedTheme = ElementTheme.Light;
         }
-        Title = "keepassity — UI Prototype";
+        Title = "keepassity";
         AppWindow.MoveAndResize(new RectInt32(28, 40, 1650, 970));
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(TitleBarDragArea);
@@ -37,30 +52,51 @@ public sealed partial class MainWindow : Window
         Root.ActualThemeChanged += (_, _) => ApplyTitleBarTheme();
         SearchBox.Visibility = Visibility.Collapsed;
         TrySetMica();
-
-        SeedMockData();
         EntryList.ItemsSource = Entries;
-        PopulateNavigation();
-        FilterEntries(null);
+        ParseArguments();
+        UpdateDatabasePath();
 
         _totpTimer.Interval = TimeSpan.FromSeconds(1);
-        _totpTimer.Tick += (_, _) => UpdateTotp();
+        _totpTimer.Tick += async (_, _) => await UpdateTotpAsync(_showGeneration);
         _toastTimer.Interval = TimeSpan.FromSeconds(4);
         _toastTimer.Tick += (_, _) =>
         {
             _toastTimer.Stop();
             Toast.IsOpen = false;
         };
+        Root.Loaded += Root_Loaded;
+    }
 
-        if (Environment.GetCommandLineArgs().Contains("--unlocked"))
+    private async void Root_Loaded(object sender, RoutedEventArgs e)
+    {
+        string? devPassword = Environment.GetEnvironmentVariable("KEEPASSITY_MOCK_PASSWORD");
+        if (_dbPath is not null && !string.IsNullOrEmpty(devPassword))
         {
-            UnlockRoot.Visibility = Visibility.Collapsed;
-            MainRoot.Visibility = Visibility.Visible;
-            SearchBox.Visibility = Visibility.Visible;
-            _totpTimer.Start();
-            UpdateTotp();
-            AnimateWorkspace();
+            MasterPassword.Password = devPassword;
+            await UnlockAsync();
         }
+    }
+
+    private void ParseArguments()
+    {
+        string[] args = Environment.GetCommandLineArgs();
+        int index = Array.IndexOf(args, "--db");
+        if (index >= 0 && index + 1 < args.Length)
+        {
+            string candidate = args[index + 1];
+            if (File.Exists(candidate))
+            {
+                _dbPath = Path.GetFullPath(candidate);
+            }
+        }
+    }
+
+    private void UpdateDatabasePath()
+    {
+        DatabasePathText.Text = _dbPath is null
+            ? "No database selected"
+            : Path.GetFileName(_dbPath);
+        ToolTipService.SetToolTip(DatabasePathText, _dbPath ?? "Choose a .kdbx database");
     }
 
     private void TrySetMica()
@@ -71,15 +107,14 @@ public sealed partial class MainWindow : Window
         }
         catch
         {
-            // Mica is unavailable on some Windows builds; the solid page colour
-            // remains readable.
+            // Mica is unavailable on some Windows builds; keep the solid fallback.
         }
     }
 
     private void ApplyTitleBarTheme()
     {
         var titleBar = AppWindow.TitleBar;
-        var light = Root.ActualTheme == ElementTheme.Light;
+        bool light = Root.ActualTheme == ElementTheme.Light;
         var transparent = Color.FromArgb(0, 0, 0, 0);
         var foreground = light
             ? Color.FromArgb(255, 28, 30, 36)
@@ -99,76 +134,6 @@ public sealed partial class MainWindow : Window
             ? Color.FromArgb(255, 212, 217, 224)
             : Color.FromArgb(255, 64, 70, 84);
         titleBar.ButtonPressedForegroundColor = foreground;
-    }
-
-    private void SeedMockData()
-    {
-        Groups.Add(new GroupItem("All entries", "12", "\uE8FD", null));
-        Groups.Add(new GroupItem("Personal", "5", "\uE77B", "Personal"));
-        Groups.Add(new GroupItem("Work", "4", "\uE821", "Work"));
-        Groups.Add(new GroupItem("Finance", "2", "\uE825", "Finance"));
-        Groups.Add(new GroupItem("Social", "1", "\uE8D4", "Social"));
-        Groups.Add(new GroupItem("Archive", "3", "\uE7B8", "Archive"));
-
-        AddEntry("GitHub", "alex@example.com", "https://github.com", "Work", "2FA", true,
-            "Personal account. Recovery codes are stored in the off-line backup.");
-        AddEntry("Microsoft 365", "alex.work@contoso.com", "https://outlook.office.com", "Work", "work", true,
-            "Work tenant. MFA is enforced by the organisation.");
-        AddEntry("Proton Mail", "alex@proton.me", "https://mail.proton.me", "Personal", "personal", true,
-            "Primary private mailbox. Recovery phrase is in the safe.");
-        AddEntry("Bank of Example", "alex_private", "https://bank.example.com", "Finance", "finance", false,
-            "Online banking. Never share the one-time codes.");
-        AddEntry("Figma", "alex@example.com", "https://figma.com", "Work", "design", false,
-            "Design team workspace.");
-        AddEntry("Netflix", "family@example.com", "https://netflix.com", "Personal", "media", false,
-            "Family plan, 4 screens.");
-        AddEntry("X / Twitter", "@alex", "https://x.com", "Social", "social", true,
-            "Read-only account. 2FA enabled.");
-        AddEntry("Amazon", "alex@example.com", "https://amazon.com", "Personal", "shopping", false,
-            "Default shipping address is in the old vault.");
-        AddEntry("Vanguard", "alex_invest", "https://vanguard.com", "Finance", "finance", true,
-            "Long-term index funds. 2FA enabled.");
-        AddEntry("Slack", "alex@contoso.com", "https://contoso.slack.com", "Work", "work", false,
-            "Design workspace.");
-        AddEntry("Steam", "alex_games", "https://store.steampowered.com", "Personal", "media", true,
-            "Steam Guard is enabled.");
-        AddEntry("Old forum", "alex2008", "https://forum.example.org", "Archive", "archive", false,
-            "No longer used. Kept for reference.");
-    }
-
-    private void AddEntry(string title, string username, string url, string group, string tag,
-        bool hasTotp, string notes)
-    {
-        var entry = new EntryItem(title, username, url, group, tag, hasTotp, notes);
-        _allEntries.Add(entry);
-        Entries.Add(entry);
-    }
-
-    private void UnlockButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (MasterPassword.Password.Length == 0)
-        {
-            UnlockError.Message = "Enter a password first. In this prototype any value works.";
-            UnlockError.IsOpen = true;
-            MasterPassword.Focus(FocusState.Programmatic);
-            return;
-        }
-        UnlockError.IsOpen = false;
-        UnlockRoot.Visibility = Visibility.Collapsed;
-        MainRoot.Visibility = Visibility.Visible;
-        SearchBox.Visibility = Visibility.Visible;
-        _totpTimer.Start();
-        UpdateTotp();
-        AnimateWorkspace();
-        EntryList.Focus(FocusState.Programmatic);
-    }
-
-    private void MasterPassword_KeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        if (e.Key == VirtualKey.Enter)
-        {
-            UnlockButton_Click(sender, e);
-        }
     }
 
     /// <summary>Two-pane workspace slides in from the bottom-right corner.</summary>
@@ -195,55 +160,298 @@ public sealed partial class MainWindow : Window
         storyboard.Begin();
     }
 
-    private void LockButton_Click(object sender, RoutedEventArgs e)
+    // ---------------------------------------------------------------- unlock
+
+    private async void ChooseDatabaseButton_Click(object sender, RoutedEventArgs e)
     {
-        _totpTimer.Stop();
-        _passwordVisible = false;
-        DetailPassword.Text = "••••••••••••";
-        MasterPassword.Password = string.Empty;
-        MainRoot.Visibility = Visibility.Collapsed;
-        SearchBox.Visibility = Visibility.Collapsed;
-        UnlockRoot.Visibility = Visibility.Visible;
-        MasterPassword.Focus(FocusState.Programmatic);
+        var picker = new FileOpenPicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+        };
+        picker.FileTypeFilter.Add(".kdbx");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker,
+            WinRT.Interop.WindowNative.GetWindowHandle(this));
+        var file = await picker.PickSingleFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+        _dbPath = file.Path;
+        UpdateDatabasePath();
+        UnlockError.IsOpen = false;
     }
 
-    private void PopulateNavigation()
+    private async void UnlockButton_Click(object sender, RoutedEventArgs e)
+        => await UnlockAsync();
+
+    private async void MasterPassword_KeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (e.Key == VirtualKey.Enter)
+        {
+            await UnlockAsync();
+        }
+    }
+
+    private async Task UnlockAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+        if (_dbPath is null)
+        {
+            UnlockError.Message = "Choose a .kdbx database first.";
+            UnlockError.IsOpen = true;
+            return;
+        }
+        if (MasterPassword.Password.Length == 0)
+        {
+            UnlockError.Message = "Enter the master password.";
+            UnlockError.IsOpen = true;
+            MasterPassword.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        _busy = true;
+        UnlockError.IsOpen = false;
+        UnlockButton.IsEnabled = false;
+        ChooseDatabaseButton.IsEnabled = false;
+        UnlockProgress.IsActive = true;
+        try
+        {
+            await _core.OpenAsync(_dbPath, MasterPassword.Password);
+            _selectedGroupUuid = null;
+            await ReloadVaultAsync(null);
+            ShowMain();
+            MasterPassword.Password = string.Empty;
+        }
+        catch (CoreException ex)
+        {
+            UnlockError.Title = ex.Code switch
+            {
+                "BadPassword" => "Wrong master password",
+                "CorruptDatabase" => "Database is damaged",
+                "UnsupportedFormat" => "Unsupported database",
+                _ => "Cannot open database",
+            };
+            UnlockError.Message = ex.Message;
+            UnlockError.IsOpen = true;
+        }
+        catch (Exception ex)
+        {
+            UnlockError.Title = "Cannot open database";
+            UnlockError.Message = ex.Message;
+            UnlockError.IsOpen = true;
+        }
+        finally
+        {
+            _busy = false;
+            UnlockButton.IsEnabled = true;
+            ChooseDatabaseButton.IsEnabled = true;
+            UnlockProgress.IsActive = false;
+        }
+    }
+
+    private void ShowMain()
+    {
+        UnlockRoot.Visibility = Visibility.Collapsed;
+        MainRoot.Visibility = Visibility.Visible;
+        SearchBox.Visibility = Visibility.Visible;
+        VaultNameText.Text = _dbPath is null
+            ? "Vault"
+            : Path.GetFileNameWithoutExtension(_dbPath);
+        _totpTimer.Start();
+        AnimateWorkspace();
+        EntryList.Focus(FocusState.Programmatic);
+    }
+
+    // ------------------------------------------------------------ vault data
+
+    private async Task ReloadVaultAsync(string? selectEntryUuid)
+    {
+        List<GroupDto> groups = await _core.ListGroupsAsync();
+        List<EntrySummaryDto> allEntries = await _core.ListEntriesAsync();
+
+        _groupDtos.Clear();
+        _selectableGroups.Clear();
+        _groupNames.Clear();
+        _rootGroupUuid = groups.FirstOrDefault(group => group.ParentUuid is null)?.Uuid;
+        foreach (GroupDto group in groups)
+        {
+            _groupDtos.Add(group);
+            string name = string.IsNullOrWhiteSpace(group.Name) ? "Vault" : group.Name;
+            _groupNames[group.Uuid] = name;
+            if (group.Uuid != _rootGroupUuid && !string.IsNullOrWhiteSpace(group.Name))
+            {
+                _selectableGroups.Add(group);
+            }
+        }
+        if (_selectableGroups.Count == 0 && _groupDtos.Count > 0)
+        {
+            _selectableGroups.AddRange(_groupDtos);
+        }
+
+        Groups.Clear();
+        Groups.Add(new GroupItem(null, "All entries", allEntries.Count, "\uE8FD"));
+        foreach (GroupDto group in _groupDtos)
+        {
+            if (group.Uuid == _rootGroupUuid || string.IsNullOrWhiteSpace(group.Name))
+            {
+                continue;
+            }
+            int count = allEntries.Count(entry => entry.GroupUuid == group.Uuid);
+            Groups.Add(new GroupItem(group.Uuid, group.Name, count, "\uE8B7"));
+        }
+        PopulateNavigation(_selectedGroupUuid);
+
+        string title = _selectedGroupUuid is null
+            ? "All entries"
+            : _groupNames.GetValueOrDefault(_selectedGroupUuid, "Entries");
+        List<EntrySummaryDto> visible = _selectedGroupUuid is null
+            ? allEntries
+            : allEntries.Where(entry => entry.GroupUuid == _selectedGroupUuid).ToList();
+        PopulateEntries(visible, title);
+
+        if (selectEntryUuid is not null)
+        {
+            EntryItem? select = Entries.FirstOrDefault(entry => entry.Uuid == selectEntryUuid);
+            if (select is not null)
+            {
+                EntryList.SelectedItem = select;
+            }
+        }
+    }
+
+    private void PopulateNavigation(string? selectedUuid)
+    {
+        _suppressNav = true;
         NavView.MenuItems.Clear();
+        NavigationViewItem? selectedItem = null;
         NavigationViewItem? first = null;
-        foreach (var group in Groups)
+        foreach (GroupItem group in Groups)
         {
             var item = new NavigationViewItem
             {
                 Content = group.Name,
-                Tag = group.Category ?? "all",
+                Tag = group.Uuid ?? "all",
                 Icon = new FontIcon { Glyph = group.Glyph },
             };
-            if (int.TryParse(group.Count, out var count))
+            if (group.CountValue > 0)
             {
-                item.InfoBadge = new InfoBadge { Value = count };
+                item.InfoBadge = new InfoBadge { Value = group.CountValue };
             }
             NavView.MenuItems.Add(item);
             first ??= item;
+            if ((selectedUuid is null && group.Uuid is null) ||
+                (selectedUuid is not null && group.Uuid == selectedUuid))
+            {
+                selectedItem = item;
+            }
         }
-        if (first is not null)
+        NavView.SelectedItem = selectedItem ?? first;
+        _suppressNav = false;
+    }
+
+    private void PopulateEntries(IEnumerable<EntrySummaryDto> entries, string title)
+    {
+        Entries.Clear();
+        foreach (EntrySummaryDto entry in entries)
         {
-            NavView.SelectedItem = first;
+            string groupName = _groupNames.GetValueOrDefault(entry.GroupUuid, "Vault");
+            Entries.Add(new EntryItem(entry, groupName));
+        }
+        CurrentGroupTitle.Text = title;
+        EntryCountText.Text = $"{Entries.Count} {(Entries.Count == 1 ? "entry" : "entries")}";
+        if (Entries.Count > 0)
+        {
+            EntryList.SelectedIndex = 0;
+        }
+        else
+        {
+            EntryList.SelectedIndex = -1;
+            ClearDetail();
         }
     }
 
-    private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    private async void NavView_SelectionChanged(NavigationView sender,
+        NavigationViewSelectionChangedEventArgs args)
     {
-        if (args.SelectedItemContainer is NavigationViewItem item && item.Tag is string tag)
+        if (_suppressNav ||
+            args.SelectedItemContainer is not NavigationViewItem item ||
+            item.Tag is not string tag)
         {
-            _selectedGroup = tag == "all" ? null : tag;
-            FilterEntries(_selectedGroup);
+            return;
+        }
+        _selectedGroupUuid = tag == "all" ? null : tag;
+        try
+        {
+            await LoadSelectedGroupAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, InfoBarSeverity.Error);
         }
     }
 
-    private void NavView_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
+    private async Task LoadSelectedGroupAsync()
     {
-        if (args.InvokedItemContainer is not NavigationViewItem item || item.Tag is not string tag)
+        string? query = SearchBox.Text.Trim();
+        if (query.Length > 0)
+        {
+            List<SearchMatchDto> matches = await _core.SearchAsync(query);
+            PopulateEntries(matches.Select(match => match.Entry), "Search results");
+            return;
+        }
+        List<EntrySummaryDto> entries = await _core.ListEntriesAsync(_selectedGroupUuid);
+        string title = _selectedGroupUuid is null
+            ? "All entries"
+            : _groupNames.GetValueOrDefault(_selectedGroupUuid, "Entries");
+        PopulateEntries(entries, title);
+    }
+
+    private async void SearchBox_TextChanged(AutoSuggestBox sender,
+        AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput || !_core.IsOpen)
+        {
+            return;
+        }
+        _searchCts?.Cancel();
+        _searchCts = new CancellationTokenSource();
+        CancellationToken token = _searchCts.Token;
+        try
+        {
+            await Task.Delay(220, token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        try
+        {
+            await LoadSelectedGroupAsync();
+        }
+        catch (Exception ex)
+        {
+            if (!token.IsCancellationRequested)
+            {
+                ShowToast(ex.Message, InfoBarSeverity.Error);
+            }
+        }
+    }
+
+    private async void SyncStatusButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowToast("Local database mode. Sync is not configured in this build.",
+            InfoBarSeverity.Informational);
+        await Task.CompletedTask;
+    }
+
+    private void NavView_ItemInvoked(NavigationView sender,
+        NavigationViewItemInvokedEventArgs args)
+    {
+        if (args.InvokedItemContainer is not NavigationViewItem item ||
+            item.Tag is not string tag)
         {
             return;
         }
@@ -261,121 +469,204 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    // -------------------------------------------------------------- detail
+
+    private async void EntryList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
+        if (EntryList.SelectedItem is not EntryItem item)
         {
-            FilterEntries(_selectedGroup);
+            ClearDetail();
+            return;
+        }
+        try
+        {
+            await ShowEntryAsync(item);
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, InfoBarSeverity.Error);
         }
     }
 
-    private void FilterEntries(string? category)
+    private async Task ShowEntryAsync(EntryItem summary)
     {
-        var query = SearchBox?.Text?.Trim() ?? string.Empty;
-        var filtered = _allEntries.Where(entry =>
-            (string.IsNullOrEmpty(category) || entry.Category == category) &&
-            (query.Length == 0 ||
-             entry.Title.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-             entry.Username.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-             entry.Url.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-             entry.Notes.Contains(query, StringComparison.OrdinalIgnoreCase)));
-        Entries.Clear();
-        foreach (var entry in filtered)
+        int generation = ++_showGeneration;
+        _currentSummary = summary;
+        _passwordVisible = false;
+        EntryFullDto full = await _core.GetEntryAsync(summary.Uuid);
+        if (generation != _showGeneration)
         {
-            Entries.Add(entry);
+            return;
         }
-        CurrentGroupTitle.Text = string.IsNullOrEmpty(category) ? "All entries" : category;
-        EntryCountText.Text = $"{Entries.Count} {(Entries.Count == 1 ? "entry" : "entries")}";
-        if (Entries.Count > 0)
+        _currentFull = full;
+        DetailTitle.Text = full.Title;
+        string host = Uri.TryCreate(full.Url, UriKind.Absolute, out Uri? uri)
+            ? uri.Host
+            : full.Url;
+        string groupName = _groupNames.GetValueOrDefault(full.GroupUuid, "Vault");
+        DetailSubtitle.Text = string.IsNullOrEmpty(host)
+            ? groupName
+            : $"{host}  ·  {groupName}";
+        DetailUsername.Text = full.Username;
+        DetailUrl.Text = full.Url;
+        DetailNotes.Text = full.Notes;
+        DetailPassword.Text = "••••••••••••";
+        DetailTags.Text = full.Tags.Count > 0 ? string.Join("  ·  ", full.Tags) : string.Empty;
+
+        CustomFieldDto? custom = full.CustomFields.FirstOrDefault(field => !IsTotpField(field.Key));
+        CustomFieldsSection.Visibility = custom is null ? Visibility.Collapsed : Visibility.Visible;
+        CustomFieldName.Text = custom?.Key ?? string.Empty;
+        CustomFieldValue.Text = custom?.Value ?? string.Empty;
+
+        if (full.Totp is not null)
         {
-            EntryList.SelectedIndex = 0;
+            TotpSection.Visibility = Visibility.Visible;
+            TotpCode.FontSize = 24;
+            TotpRemainingText.Visibility = Visibility.Visible;
+            TotpProgress.Visibility = Visibility.Visible;
+            await UpdateTotpAsync(generation);
         }
         else
         {
-            EntryList.SelectedIndex = -1;
+            TotpSection.Visibility = Visibility.Visible;
+            TotpCode.FontSize = 13;
+            TotpCode.Text = "No TOTP configured";
+            TotpRemainingText.Text = string.Empty;
+            TotpRemainingText.Visibility = Visibility.Collapsed;
+            TotpProgress.Value = 0;
+            TotpProgress.Visibility = Visibility.Collapsed;
+            _currentTotpCode = null;
         }
     }
 
-    private void EntryList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void ClearDetail()
     {
-        if (EntryList.SelectedItem is EntryItem entry)
+        _currentFull = null;
+        _currentSummary = null;
+        _currentTotpCode = null;
+        DetailTitle.Text = "Select an entry";
+        DetailSubtitle.Text = string.Empty;
+        DetailUsername.Text = string.Empty;
+        DetailPassword.Text = string.Empty;
+        DetailUrl.Text = string.Empty;
+        DetailTags.Text = string.Empty;
+        DetailNotes.Text = string.Empty;
+        CustomFieldsSection.Visibility = Visibility.Collapsed;
+        TotpSection.Visibility = Visibility.Collapsed;
+        TotpProgress.Value = 0;
+        TotpRemainingText.Text = string.Empty;
+        TotpCode.Text = "—";
+    }
+
+    private async Task UpdateTotpAsync(int generation)
+    {
+        EntryFullDto? full = _currentFull;
+        if (full is null || full.Totp is null)
         {
-            ShowEntry(entry);
+            TotpCode.FontSize = 13;
+            TotpCode.Text = "No TOTP configured";
+            TotpRemainingText.Text = string.Empty;
+            TotpRemainingText.Visibility = Visibility.Collapsed;
+            TotpProgress.Value = 0;
+            TotpProgress.Visibility = Visibility.Collapsed;
+            _currentTotpCode = null;
+            return;
         }
+        TotpCode.FontSize = 24;
+        TotpRemainingText.Visibility = Visibility.Visible;
+        TotpProgress.Visibility = Visibility.Visible;
+        TotpCodeDto? code = await _core.TotpCodeAsync(full.Uuid);
+        if (generation != _showGeneration || _currentFull?.Uuid != full.Uuid)
+        {
+            return;
+        }
+        if (code is null)
+        {
+            TotpCode.FontSize = 13;
+            TotpCode.Text = "No TOTP configured";
+            TotpRemainingText.Text = string.Empty;
+            TotpRemainingText.Visibility = Visibility.Collapsed;
+            TotpProgress.Value = 0;
+            TotpProgress.Visibility = Visibility.Collapsed;
+            _currentTotpCode = null;
+            return;
+        }
+        _currentTotpCode = code.Code;
+        TotpCode.Text = FormatTotp(code.Code, code.Digits);
+        TotpRemainingText.Text = $"Refreshes in {code.Remaining}s";
+        TotpProgress.Maximum = code.Period;
+        TotpProgress.Value = Math.Max(0, code.Period - code.Remaining);
     }
 
-    private void ShowEntry(EntryItem entry)
+    private static string FormatTotp(string code, int digits)
     {
-        DetailTitle.Text = entry.Title;
-        DetailSubtitle.Text = $"{entry.Host}  ·  {entry.Category}";
-        DetailUsername.Text = entry.Username;
-        DetailUrl.Text = entry.Url;
-        DetailNotes.Text = entry.Notes;
-        DetailPassword.Text = _passwordVisible ? entry.Password : "••••••••••••";
-        DetailTags.Text = $"{entry.Tag}  ·  {entry.Category}";
-        TotpCode.Text = FormatCode(entry);
-        UpdateTotp();
+        if (digits == 8 && code.Length == 8)
+        {
+            return $"{code[..4]} {code[4..]}";
+        }
+        if (code.Length == 6)
+        {
+            return $"{code[..3]} {code[3..]}";
+        }
+        return code;
     }
 
-    private void UpdateTotp()
-    {
-        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var remaining = 30 - (int)(now % 30);
-        var code = ((now / 30) * 73939 + 142857) % 1_000_000;
-        TotpCode.Text = $"{code / 1000:D3} {code % 1000:D3}";
-        TotpRemainingText.Text = $"Refreshes in {remaining}s";
-        TotpProgress.Value = 30 - remaining;
-    }
-
-    private static string FormatCode(EntryItem entry) => entry.HasTotp ? "428 913" : "No TOTP";
-
-    private void UpdateAutoLock()
-    {
-        // Removed from the compact system-style UI.
-    }
+    private static bool IsTotpField(string key)
+        => key == "otp"
+           || key == "TOTP Seed"
+           || key == "TOTP Settings"
+           || key.StartsWith("TimeOtp-", StringComparison.OrdinalIgnoreCase);
 
     private void RevealPasswordButton_Click(object sender, RoutedEventArgs e)
     {
-        if (EntryList.SelectedItem is not EntryItem entry)
+        if (_currentFull is null)
         {
             return;
         }
         _passwordVisible = !_passwordVisible;
-        DetailPassword.Text = _passwordVisible ? entry.Password : "••••••••••••";
+        DetailPassword.Text = _passwordVisible
+            ? _currentFull.PasswordSecret
+            : "••••••••••••";
     }
 
     private void CopyUsernameButton_Click(object sender, RoutedEventArgs e)
     {
-        if (EntryList.SelectedItem is EntryItem entry)
+        if (_currentFull is not null)
         {
-            CopyText(entry.Username, "Username copied");
+            CopyText(_currentFull.Username, "Username copied");
         }
     }
 
     private void CopyPasswordButton_Click(object sender, RoutedEventArgs e)
     {
-        if (EntryList.SelectedItem is EntryItem entry)
+        if (_currentFull is not null)
         {
-            CopyText(entry.Password, "Password copied — clears in 30 seconds (prototype)");
+            CopyText(_currentFull.PasswordSecret, "Password copied");
         }
     }
 
     private void CopyUrlButton_Click(object sender, RoutedEventArgs e)
     {
-        if (EntryList.SelectedItem is EntryItem entry)
+        if (_currentFull is not null)
         {
-            CopyText(entry.Url, "URL copied");
+            CopyText(_currentFull.Url, "URL copied");
         }
-    }
-
-    private void CopyRecoveryButton_Click(object sender, RoutedEventArgs e)
-    {
-        CopyText("alex.recovery@proton.me", "Recovery email copied");
     }
 
     private void CopyTotpButton_Click(object sender, RoutedEventArgs e)
     {
-        CopyText(TotpCode.Text.Replace(" ", string.Empty), "One-time code copied");
+        if (!string.IsNullOrEmpty(_currentTotpCode))
+        {
+            CopyText(_currentTotpCode, "One-time code copied");
+        }
+    }
+
+    private void CopyCustomFieldButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(CustomFieldValue.Text))
+        {
+            CopyText(CustomFieldValue.Text, "Custom field copied");
+        }
     }
 
     private void CopyText(string text, string label)
@@ -388,24 +679,52 @@ public sealed partial class MainWindow : Window
 
     private async void OpenUrlButton_Click(object sender, RoutedEventArgs e)
     {
-        if (EntryList.SelectedItem is EntryItem entry &&
-            Uri.TryCreate(entry.Url, UriKind.Absolute, out var uri))
+        if (_currentFull is null)
+        {
+            return;
+        }
+        if (Uri.TryCreate(_currentFull.Url, UriKind.Absolute, out Uri? uri))
         {
             await Launcher.LaunchUriAsync(uri);
         }
     }
 
+    // ---------------------------------------------------------------- CRUD
+
     private async void NewEntryButton_Click(object sender, RoutedEventArgs e)
     {
+        if (!_core.IsOpen)
+        {
+            return;
+        }
+        var groupChoice = new ComboBox
+        {
+            Header = "Group",
+            ItemsSource = _selectableGroups,
+            DisplayMemberPath = "Name",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        groupChoice.SelectedItem = _selectableGroups.FirstOrDefault(group =>
+            group.Uuid == (_selectedGroupUuid ?? _selectableGroups.FirstOrDefault()?.Uuid));
+
         var title = new TextBox { Header = "Title", PlaceholderText = "Entry name" };
         var username = new TextBox { Header = "Username", PlaceholderText = "name@example.com" };
         var password = new PasswordBox { Header = "Password", PasswordRevealMode = PasswordRevealMode.Peek };
         var url = new TextBox { Header = "Website", PlaceholderText = "https://" };
+        var notes = new TextBox
+        {
+            Header = "Notes",
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            Height = 84,
+        };
         var content = new StackPanel { Spacing = 10 };
+        content.Children.Add(groupChoice);
         content.Children.Add(title);
         content.Children.Add(username);
         content.Children.Add(password);
         content.Children.Add(url);
+        content.Children.Add(notes);
         var dialog = new ContentDialog
         {
             Title = "New entry",
@@ -415,44 +734,60 @@ public sealed partial class MainWindow : Window
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Root.XamlRoot,
         };
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary ||
+            groupChoice.SelectedItem is not GroupDto group)
         {
-            var entry = new EntryItem(
+            return;
+        }
+        try
+        {
+            string uuid = await _core.CreateEntryAsync(group.Uuid,
                 string.IsNullOrWhiteSpace(title.Text) ? "Untitled entry" : title.Text.Trim(),
-                username.Text.Trim(),
-                string.IsNullOrWhiteSpace(url.Text) ? "https://example.com" : url.Text.Trim(),
-                _selectedGroup ?? "Personal",
-                "new",
-                false,
-                "Created in the UI prototype.");
-            _allEntries.Add(entry);
-            FilterEntries(_selectedGroup);
-            EntryList.SelectedItem = entry;
-            ShowToast("Entry created (prototype only)", InfoBarSeverity.Success);
+                username.Text.Trim(), password.Password, url.Text.Trim(), notes.Text);
+            await SaveAsync();
+            await ReloadVaultAsync(uuid);
+            ShowToast("Entry created and saved", InfoBarSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, InfoBarSeverity.Error);
         }
     }
 
     private async void EditEntryButton_Click(object sender, RoutedEventArgs e)
     {
-        if (EntryList.SelectedItem is not EntryItem entry)
+        if (_currentFull is null)
         {
             return;
         }
-        var title = new TextBox { Header = "Title", Text = entry.Title };
-        var username = new TextBox { Header = "Username", Text = entry.Username };
-        var url = new TextBox { Header = "Website", Text = entry.Url };
+        var title = new TextBox { Header = "Title", Text = _currentFull.Title };
+        var username = new TextBox { Header = "Username", Text = _currentFull.Username };
+        var password = new PasswordBox
+        {
+            Header = "Password",
+            Password = _currentFull.PasswordSecret,
+            PasswordRevealMode = PasswordRevealMode.Peek,
+        };
+        var url = new TextBox { Header = "Website", Text = _currentFull.Url };
+        var tags = new TextBox
+        {
+            Header = "Tags (comma-separated)",
+            Text = string.Join(", ", _currentFull.Tags),
+        };
         var notes = new TextBox
         {
             Header = "Notes",
-            Text = entry.Notes,
+            Text = _currentFull.Notes,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
-            Height = 96,
+            Height = 84,
         };
         var content = new StackPanel { Spacing = 10 };
         content.Children.Add(title);
         content.Children.Add(username);
+        content.Children.Add(password);
         content.Children.Add(url);
+        content.Children.Add(tags);
         content.Children.Add(notes);
         var dialog = new ContentDialog
         {
@@ -463,30 +798,43 @@ public sealed partial class MainWindow : Window
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Root.XamlRoot,
         };
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
         {
-            entry.Update(title.Text.Trim(), username.Text.Trim(), url.Text.Trim(), notes.Text);
-            ShowEntry(entry);
-            FilterEntries(_selectedGroup);
-            ShowToast("Entry updated (prototype only)", InfoBarSeverity.Success);
+            return;
+        }
+        try
+        {
+            List<string> tagList = tags.Text
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            await _core.UpdateEntryAsync(_currentFull.Uuid, title.Text.Trim(),
+                username.Text.Trim(), password.Password, url.Text.Trim(), notes.Text, tagList);
+            await SaveAsync();
+            await ReloadVaultAsync(_currentFull.Uuid);
+            ShowToast("Entry updated and saved", InfoBarSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, InfoBarSeverity.Error);
         }
     }
 
     private async void MoveEntryButton_Click(object sender, RoutedEventArgs e)
     {
-        if (EntryList.SelectedItem is not EntryItem entry)
+        if (_currentFull is null || _selectableGroups.Count == 0)
         {
             return;
         }
         var choices = new ComboBox
         {
             Header = "Move to group",
-            ItemsSource = Groups.Where(group => group.Category is not null)
-                .Select(group => group.Name)
-                .ToList(),
-            SelectedIndex = 0,
+            ItemsSource = _selectableGroups,
+            DisplayMemberPath = "Name",
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
+        choices.SelectedItem = _selectableGroups.FirstOrDefault(group =>
+            group.Uuid == _currentFull.GroupUuid) ?? _selectableGroups[0];
         var dialog = new ContentDialog
         {
             Title = "Move entry",
@@ -496,182 +844,273 @@ public sealed partial class MainWindow : Window
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Root.XamlRoot,
         };
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary &&
-            choices.SelectedItem is string target)
-        {
-            entry.MoveTo(target);
-            FilterEntries(_selectedGroup);
-            EntryList.SelectedItem = entry;
-            ShowToast($"Moved to {target}", InfoBarSeverity.Success);
-        }
-    }
-
-    private async void GeneratePasswordButton_Click(object sender, RoutedEventArgs e)
-    {
-        const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*";
-        var random = new Random();
-        var generated = new string(Enumerable.Range(0, 20)
-            .Select(_ => alphabet[random.Next(alphabet.Length)])
-            .ToArray());
-        var preview = new TextBox
-        {
-            Text = generated,
-            IsReadOnly = true,
-            FontFamily = new FontFamily("Consolas"),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        var dialog = new ContentDialog
-        {
-            Title = "Generated password",
-            Content = preview,
-            PrimaryButtonText = "Use password",
-            SecondaryButtonText = "Copy",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = Root.XamlRoot,
-        };
-        var result = await dialog.ShowAsync();
-        if (result == ContentDialogResult.Primary)
-        {
-            if (EntryList.SelectedItem is EntryItem entry)
-            {
-                entry.SetPassword(generated);
-                _passwordVisible = true;
-                ShowEntry(entry);
-                ShowToast("Password replaced (prototype only)", InfoBarSeverity.Success);
-            }
-        }
-        else if (result == ContentDialogResult.Secondary)
-        {
-            CopyText(generated, "Generated password copied");
-        }
-    }
-
-    private async void TotpSetupButton_Click(object sender, RoutedEventArgs e)
-    {
-        var secret = new TextBox
-        {
-            Header = "Base32 secret",
-            Text = "JBSWY3DPEHPK3PXP",
-            FontFamily = new FontFamily("Consolas"),
-        };
-        var digits = new ComboBox { Header = "Digits", ItemsSource = new[] { "6", "8" }, SelectedIndex = 0 };
-        var period = new NumberBox { Header = "Period (seconds)", Value = 30, Minimum = 15, Maximum = 120 };
-        var content = new StackPanel { Spacing = 10 };
-        content.Children.Add(secret);
-        content.Children.Add(digits);
-        content.Children.Add(period);
-        var dialog = new ContentDialog
-        {
-            Title = "TOTP setup",
-            Content = content,
-            PrimaryButtonText = "Save",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = Root.XamlRoot,
-        };
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
-        {
-            ShowToast("TOTP configuration saved (prototype only)", InfoBarSeverity.Success);
-        }
-    }
-
-    private async void DeleteEntryButton_Click(object sender, RoutedEventArgs e)    {
-        if (EntryList.SelectedItem is not EntryItem entry)
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary ||
+            choices.SelectedItem is not GroupDto target ||
+            _currentFull is null)
         {
             return;
         }
+        string uuid = _currentFull.Uuid;
+        try
+        {
+            await _core.MoveEntryAsync(uuid, target.Uuid);
+            await SaveAsync();
+            _selectedGroupUuid = target.Uuid;
+            await ReloadVaultAsync(uuid);
+            ShowToast($"Moved to {target.Name}", InfoBarSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, InfoBarSeverity.Error);
+        }
+    }
+
+    private async void DeleteEntryButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentFull is null)
+        {
+            return;
+        }
+        string title = _currentFull.Title;
+        string uuid = _currentFull.Uuid;
         var dialog = new ContentDialog
         {
             Title = "Delete entry?",
-            Content = $"\"{entry.Title}\" will be moved to the recycle bin.",
+            Content = $"\"{title}\" will be moved to the recycle bin.",
             PrimaryButtonText = "Delete",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Root.XamlRoot,
         };
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
         {
-            _allEntries.Remove(entry);
-            FilterEntries(_selectedGroup);
-            ShowToast("Entry moved to recycle bin (prototype only)", InfoBarSeverity.Informational);
+            return;
+        }
+        try
+        {
+            await _core.DeleteEntryAsync(uuid);
+            await SaveAsync();
+            await ReloadVaultAsync(null);
+            ShowToast("Entry moved to the recycle bin", InfoBarSeverity.Informational);
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, InfoBarSeverity.Error);
         }
     }
 
-    private void MoreButton_Click(object sender, RoutedEventArgs e)
+    private async void GeneratePasswordButton_Click(object sender, RoutedEventArgs e)
     {
-        ShowToast("More actions would open here (prototype)", InfoBarSeverity.Informational);
-    }
-
-    private void ToolsPlaceholder_Click(object sender, RoutedEventArgs e)
-    {
-        var label = (sender as Button)?.Tag as string ?? "Tool";
-        ShowToast($"{label} would open here (prototype)", InfoBarSeverity.Informational);
-    }
-
-    private async void SyncStatusButton_Click(object sender, RoutedEventArgs e)
-    {
-        var content = new StackPanel { Spacing = 12 };
-            content.Children.Add(new TextBlock
+        if (!_core.IsOpen)
+        {
+            return;
+        }
+        try
+        {
+            PasswordGenerateDto generated = await _core.GeneratePasswordAsync();
+            var preview = new TextBox
             {
-                Text = "A newer version of this entry was changed on another device.",
-                TextWrapping = TextWrapping.Wrap,
-            });
-            var conflictCard = new Border
-            {
-                Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
-                BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(14),
+                Text = generated.Password,
+                IsReadOnly = true,
+                FontFamily = new FontFamily("Consolas"),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
             };
-            var conflictText = new StackPanel { Spacing = 4 };
-            conflictText.Children.Add(new TextBlock
-            {
-                Text = "GitHub  ·  Work",
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            });
-            conflictText.Children.Add(new TextBlock
-            {
-                Text = "Changed fields: Password, Notes\nLocal  Oct 26, 2026 09:12  ·  Remote  Oct 26, 2026 09:14",
-                FontSize = 12,
-                Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-                TextWrapping = TextWrapping.Wrap,
-            });
-            conflictCard.Child = conflictText;
-            content.Children.Add(conflictCard);
+            var content = new StackPanel { Spacing = 8 };
+            content.Children.Add(preview);
             content.Children.Add(new TextBlock
             {
-                Text = "A conflict copy is written before any choice. Nothing is overwritten silently.",
-                FontSize = 12,
-                TextWrapping = TextWrapping.Wrap,
+                Text = $"{generated.EntropyBits:F0} bits of entropy",
+                FontSize = 11,
                 Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-            });
-            content.Children.Add(new TextBlock
-            {
-                Text = "Recommended: Keep both — preserve the conflict copy and merge the two versions.",
-                FontSize = 12,
-                TextWrapping = TextWrapping.Wrap,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             });
             var dialog = new ContentDialog
             {
-                Title = "Resolve sync conflict",
+                Title = "Generated password",
                 Content = content,
-                PrimaryButtonText = "Keep both",
-                SecondaryButtonText = "Keep local",
-                CloseButtonText = "Keep remote",
+                PrimaryButtonText = _currentFull is null ? "Copy" : "Use password",
+                SecondaryButtonText = _currentFull is null ? null : "Copy",
+                CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Primary,
                 XamlRoot = Root.XamlRoot,
             };
-            var result = await dialog.ShowAsync();
-            var choice = result switch
+            ContentDialogResult result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary)
             {
-                ContentDialogResult.Primary => "Keep both",
-                ContentDialogResult.Secondary => "Keep local",
-                _ => "Keep remote",
-            };
-            ShowToast($"{choice}: conflict copy would be written first (prototype)", InfoBarSeverity.Success);
+                if (_currentFull is null)
+                {
+                    CopyText(generated.Password, "Generated password copied");
+                }
+                else
+                {
+                    EntryFullDto current = _currentFull;
+                    await _core.UpdateEntryAsync(current.Uuid, current.Title, current.Username,
+                        generated.Password, current.Url, current.Notes, current.Tags);
+                    await SaveAsync();
+                    await ReloadVaultAsync(current.Uuid);
+                    ShowToast("Password replaced and saved", InfoBarSeverity.Success);
+                }
+            }
+            else if (result == ContentDialogResult.Secondary)
+            {
+                CopyText(generated.Password, "Generated password copied");
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, InfoBarSeverity.Error);
+        }
+    }
+
+    private async void TotpSetupButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentFull is null)
+        {
+            return;
+        }
+        EntryFullDto current = _currentFull;
+        TotpConfigDto? existing = current.Totp;
+        var secret = new TextBox
+        {
+            Header = "Base32 secret",
+            Text = existing?.SecretBase32 ?? string.Empty,
+            FontFamily = new FontFamily("Consolas"),
+        };
+        var algorithm = new ComboBox
+        {
+            Header = "Algorithm",
+            ItemsSource = new[] { "SHA1", "SHA256", "SHA512" },
+            SelectedItem = existing?.Algorithm ?? "SHA1",
+        };
+        var digits = new ComboBox
+        {
+            Header = "Digits",
+            ItemsSource = new[] { "6", "8" },
+            SelectedItem = (existing?.Digits ?? 6).ToString(),
+        };
+        var period = new NumberBox
+        {
+            Header = "Period (seconds)",
+            Value = existing?.Period ?? 30,
+            Minimum = 1,
+            Maximum = 300,
+        };
+        var content = new StackPanel { Spacing = 10 };
+        content.Children.Add(secret);
+        content.Children.Add(algorithm);
+        content.Children.Add(digits);
+        content.Children.Add(period);
+        var dialog = new ContentDialog
+        {
+            Title = existing is null ? "Set up TOTP" : "Edit TOTP",
+            Content = content,
+            PrimaryButtonText = "Save",
+            SecondaryButtonText = existing is null ? null : "Remove",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Root.XamlRoot,
+        };
+        ContentDialogResult result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.Secondary)
+        {
+            try
+            {
+                await _core.TotpDeleteAsync(current.Uuid);
+                await SaveAsync();
+                await ReloadVaultAsync(current.Uuid);
+                ShowToast("TOTP removed", InfoBarSeverity.Informational);
+            }
+            catch (Exception ex)
+            {
+                ShowToast(ex.Message, InfoBarSeverity.Error);
+            }
+            return;
+        }
+        if (result != ContentDialogResult.Primary)
+        {
+            return;
+        }
+        try
+        {
+            await _core.TotpSetAsync(current.Uuid, new TotpConfigDto
+            {
+                SecretBase32 = secret.Text.Trim(),
+                Algorithm = algorithm.SelectedItem as string ?? "SHA1",
+                Digits = int.TryParse(digits.SelectedItem as string, out int parsedDigits)
+                    ? parsedDigits
+                    : 6,
+                Period = (int)Math.Clamp(period.Value, 1, 300),
+                Encoder = "totp",
+            });
+            await SaveAsync();
+            await ReloadVaultAsync(current.Uuid);
+            ShowToast("TOTP saved", InfoBarSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, InfoBarSeverity.Error);
+        }
+    }
+
+    // ------------------------------------------------------------ save/lock
+
+    private async Task SaveAsync(bool silent = false)
+    {
+        if (_dbPath is null)
+        {
+            return;
+        }
+        try
+        {
+            await _core.SaveAsync(_dbPath);
+            if (!silent)
+            {
+                ShowToast("Saved", InfoBarSeverity.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Save failed: {ex.Message}", InfoBarSeverity.Error);
+            throw;
+        }
+    }
+
+    private async void LockButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy)
+        {
+            return;
+        }
+        _busy = true;
+        try
+        {
+            if (_core.IsOpen)
+            {
+                await SaveAsync(silent: true);
+                await _core.LockAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Lock failed: {ex.Message}", InfoBarSeverity.Error);
+            _busy = false;
+            return;
+        }
+        _totpTimer.Stop();
+        _currentFull = null;
+        _currentSummary = null;
+        _currentTotpCode = null;
+        Entries.Clear();
+        Groups.Clear();
+        NavView.MenuItems.Clear();
+        ClearDetail();
+        MainRoot.Visibility = Visibility.Collapsed;
+        UnlockRoot.Visibility = Visibility.Visible;
+        SearchBox.Visibility = Visibility.Collapsed;
+        SearchBox.Text = string.Empty;
+        MasterPassword.Password = string.Empty;
+        UpdateDatabasePath();
+        _busy = false;
+        MasterPassword.Focus(FocusState.Programmatic);
     }
 
     private async void SettingsButton_Click(object sender, RoutedEventArgs e)
@@ -679,8 +1118,18 @@ public sealed partial class MainWindow : Window
         var theme = new RadioButtons
         {
             Header = "Appearance",
-            Items = { "Use system setting", "Light", "Dark" },
-            SelectedIndex = 0,
+            Items =
+            {
+                "Use system setting",
+                "Light",
+                "Dark",
+            },
+            SelectedIndex = Root.RequestedTheme switch
+            {
+                ElementTheme.Light => 1,
+                ElementTheme.Dark => 2,
+                _ => 0,
+            },
         };
         theme.SelectionChanged += (_, _) =>
         {
@@ -691,27 +1140,11 @@ public sealed partial class MainWindow : Window
                 _ => ElementTheme.Default,
             };
         };
-        var clipboard = new ToggleSwitch
-        {
-            Header = "Clear copied secrets after 30 seconds",
-            OnContent = "On",
-            OffContent = "Off",
-            IsOn = true,
-        };
-        var autoLock = new ToggleSwitch
-        {
-            Header = "Lock after 15 minutes of inactivity",
-            OnContent = "On",
-            OffContent = "Off",
-            IsOn = true,
-        };
         var content = new StackPanel { Spacing = 14 };
         content.Children.Add(theme);
-        content.Children.Add(clipboard);
-        content.Children.Add(autoLock);
         content.Children.Add(new TextBlock
         {
-            Text = "Sync, backup and credential settings would live here. This prototype only changes the theme.",
+            Text = "Sync, backup and credential settings are not implemented in this build.",
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
@@ -738,18 +1171,19 @@ public sealed partial class MainWindow : Window
 
 public sealed class GroupItem
 {
-    public GroupItem(string name, string count, string glyph, string? category)
+    public GroupItem(string? uuid, string name, int count, string glyph)
     {
+        Uuid = uuid;
         Name = name;
-        Count = count;
+        Count = count.ToString();
         Glyph = glyph;
-        Category = category;
     }
 
+    public string? Uuid { get; }
     public string Name { get; }
     public string Count { get; }
     public string Glyph { get; }
-    public string? Category { get; }
+    public int CountValue => int.TryParse(Count, out int value) ? value : 0;
 }
 
 public sealed class EntryItem
@@ -764,54 +1198,32 @@ public sealed class EntryItem
         Color.FromArgb(255, 197, 15, 31),
     };
 
-    private static int _paletteIndex;
-
-    public EntryItem(string title, string username, string url, string category, string tag,
-        bool hasTotp, string notes)
+    public EntryItem(EntrySummaryDto entry, string groupName)
     {
-        Title = title;
-        Username = username;
-        Url = url;
-        Category = category;
-        Tag = tag;
-        HasTotp = hasTotp;
-        Notes = notes;
-        Password = $"P{title.Length}!k#pQ2m@{DateTime.UtcNow.Ticks % 9973:D4}";
-        Initial = title.Length > 0 ? title[..1].ToUpperInvariant() : "?";
-        AvatarBrush = new SolidColorBrush(Palette[_paletteIndex++ % Palette.Length]);
-        UuidShort = Guid.NewGuid().ToString("N")[..8];
+        Uuid = entry.Uuid;
+        GroupUuid = entry.GroupUuid;
+        Title = entry.Title;
+        Username = entry.Username;
+        Url = entry.Url;
+        GroupName = groupName;
+        HasTotp = entry.HasTotp;
+        Initial = entry.Title.Length > 0 ? entry.Title[..1].ToUpperInvariant() : "?";
+        int hash = 0;
+        foreach (char character in entry.Uuid)
+        {
+            hash = unchecked((hash * 31) + character);
+        }
+        AvatarBrush = new SolidColorBrush(Palette[(hash & int.MaxValue) % Palette.Length]);
     }
 
-    public string Title { get; private set; }
-    public string Username { get; private set; }
-    public string Url { get; private set; }
-    public string Category { get; private set; }
-    public string Tag { get; }
+    public string Uuid { get; }
+    public string GroupUuid { get; }
+    public string Title { get; }
+    public string Username { get; }
+    public string Url { get; }
+    public string GroupName { get; }
     public bool HasTotp { get; }
-    public string Notes { get; private set; }
-    public string Password { get; private set; }
-    public string Initial { get; private set; }
+    public string Initial { get; }
     public Brush AvatarBrush { get; }
-    public string UuidShort { get; }
     public Visibility TotpVisibility => HasTotp ? Visibility.Visible : Visibility.Collapsed;
-    public string Host => Uri.TryCreate(Url, UriKind.Absolute, out var uri) ? uri.Host : Url;
-
-    public void Update(string title, string username, string url, string notes)
-    {
-        Title = title;
-        Username = username;
-        Url = url;
-        Notes = notes;
-        Initial = title.Length > 0 ? title[..1].ToUpperInvariant() : "?";
-    }
-
-    public void MoveTo(string category)
-    {
-        Category = category;
-    }
-
-    public void SetPassword(string password)
-    {
-        Password = password;
-    }
 }

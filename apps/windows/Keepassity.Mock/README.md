@@ -1,47 +1,57 @@
-# keepassity UI mock (test branch)
+# keepassity Windows app (test branch)
 
-Static English WinUI 3 prototype for visual direction review. **No Rust core, no
-KDBX access, no network.** Data is fake and lives only in memory.
+Functional WinUI 3 shell on top of the Rust core. It opens a real KDBX database
+through the FFI v1 C ABI, shows its groups/entries, reads and writes entries,
+generates TOTP codes, and saves the database back to disk.
+
+## Build
+
+The shell requires the native FFI DLL:
+
+```powershell
+cargo build -p keepassity-ffi --release
+dotnet build apps/windows/Keepassity.Mock/Keepassity.Mock.csproj -c Debug
+```
+
+The project copies `target/release/keepassity_ffi.dll` next to the app on build.
 
 ## Run
 
 ```powershell
-cd apps/windows/Keepassity.Mock
-dotnet build -c Debug
-.\bin\Debug\net8.0-windows10.0.19041.0\win-x64\Keepassity.Mock.exe
+apps/windows/Keepassity.Mock/bin/Debug/net8.0-windows10.0.19041.0/win-x64/Keepassity.Mock.exe
 ```
 
-The app starts on the unlock screen. Any non-empty password unlocks the mock
-vault. Pass `--unlocked` to open the main window directly for review.
+1. Choose a `.kdbx` file.
+2. Enter its master password.
+3. Browse groups/entries; use New, Edit, Move, Delete.
+4. `Edit TOTP` sets/removes TOTP; `Copy` works on passwords and codes.
+5. Changes are saved atomically to the same `.kdbx` (a `.keepassity-bak` backup
+   is written before replacement). Lock saves and closes the handle.
 
-1. **Unlock screen** — plain form, file label and mock diagnostics.
-2. **Main window** — permanent WinUI NavigationView pane on the left, entry list and
-   detail in one two-pane workspace, integrated title bar and search.
-3. **Sync (left footer)** — mock conflict dialog; conflict-copy-first rule.
-4. **Settings (left footer)** — theme switch and security toggles (mock only).
-5. **New entry / Edit / Move / Delete** — modal flow and row refresh.
-6. **Lock (left footer)** — returns to the unlock screen.
+For local UI testing only, `--db <path>` pre-fills the database, and the
+`KEEPASSITY_MOCK_PASSWORD` environment variable auto-unlocks the app. Do not put
+real passwords in arguments.
 
-## Current layout (v6)
+## Implemented in this slice
 
-- Integrated dark Mica title bar: app icon + name, centered search, native window buttons.
-- Permanent WinUI `NavigationView` pane, always open (no hamburger toggle). Standard
-  navigation items, selection treatment, InfoBadge counts, and footer items for
-  sync / lock / settings.
-- The entry list and detail form one two-pane workspace: only the **top-left corner**
-  is rounded, while its right and bottom edges sit flush on the window frame. Only
-  one divider separates the navigation pane from the workspace.
-- Restrained 1Password-style detail: flat field groups, no decorative cards.
-  Long titles and long TOTP codes ellipsize instead of covering the action buttons.
-  Actions use subtle WinUI toolbar buttons rather than white filled boxes.
-- TOTP shows a countdown progress bar to the next 30-second rollover.
-- Entry selection uses a subtle rounded WinUI fill; colour remains in the accent
-  titlebar mark, group glyphs, entry avatars, New and TOTP.
+- Real KDBX open/read (AES/Argon2/Argon2id fixtures; 3.1/4.0/4.1).
+- Groups + virtual All entries view, entry list, detail pane.
+- Search via core.
+- Create/edit/move/delete entries; save via core writer.
+- Copy username/password/URL/custom field; password generation via core.
+- TOTP code display, period progress, set/remove through core dual-write fields.
+- Lock/unlock, light/dark theme, Mica/titlebar layout.
+
+## Not implemented yet
+
+- WebDAV sync (footer says “Local only” instead of pretending to sync).
+- Create-new-database and keyfile/challenge-response credentials.
+- Auto-lock timer, tray behaviour, history/attachment UI.
+- Recent-database list.
 
 ## Notes
 
-- All UI copy is English (M3-10 direction).
-- Window is sized for the current 1707×1067 desktop at 150% scaling; resize freely.
-- This is a throwaway branch (`test/ui-mock-en`) and is not intended for `main`.
-- Known visual review questions: information density, three-column widths, accent
-  usage, conflict dialog wording, and whether unlock should be a separate window.
+- The project is still named `Keepassity.Mock` because it began as the UI prototype;
+  the UI is the intended shell and now talks to the real core.
+- Fixture passwords are public test values from `tests/fixtures`; no real vault is
+  committed. `.spike/` and `docs/spike/` are local review artifacts only.
