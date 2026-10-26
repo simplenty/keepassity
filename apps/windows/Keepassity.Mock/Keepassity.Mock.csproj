@@ -16,14 +16,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+    <PackageReference Include="ZXing.Net" Version="0.16.11" />
   </ItemGroup>
   <Target Name="CopyFfiNative" AfterTargets="Build">
     <ItemGroup>
       <FfiNative Include="$(MSBuildThisFileDirectory)..\..\..\target\release\keepassity_ffi.dll" />
       <FfiNative Include="$(MSBuildThisFileDirectory)..\..\..\target\release\keepassity_ffi.pdb" />
     </ItemGroup>
-    <Copy SourceFiles="@(FfiNative)" DestinationFolder="$(OutDir)"
-          SkipUnchangedFiles="true" Condition="Exists('$(MSBuildThisFileDirectory)..\..\..\target\release\keepassity_ffi.dll')" />
+    <Copy SourceFiles="@(FfiNative)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="Exists('$(MSBuildThisFileDirectory)..\..\..\target\release\keepassity_ffi.dll')" />
   </Target>
 </Project>

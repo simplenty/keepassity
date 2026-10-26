@@ -245,6 +245,13 @@ public sealed class CoreClient : IDisposable
         }
     }
 
+    public async Task<TotpConfigDto> ParseTotpUriAsync(string uri)
+        => await CallAsync<TotpConfigDto>(JsonSerializer.Serialize(new
+        {
+            command = "totp_parse_uri",
+            uri,
+        })).ConfigureAwait(false);
+
     public async Task TotpSetAsync(string uuid, TotpConfigDto config)
         => _ = await CallAsync<JsonElement>(JsonSerializer.Serialize(new
         {

@@ -45,8 +45,7 @@ public partial class App : Application
                 {
                     continue;
                 }
-                process.Refresh();
-                IntPtr handle = process.MainWindowHandle;
+                IntPtr handle = FindMainWindow(process.Id);
                 if (handle == IntPtr.Zero)
                 {
                     continue;
@@ -58,6 +57,46 @@ public partial class App : Application
             Thread.Sleep(200);
         }
     }
+
+    private static IntPtr FindMainWindow(int processId)
+    {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((window, _) =>
+        {
+            GetWindowThreadProcessId(window, out uint owner);
+            if (owner != processId || GetWindow(window, 4 /* GW_OWNER */) != IntPtr.Zero)
+            {
+                return true;
+            }
+            var title = new System.Text.StringBuilder(256);
+            _ = GetWindowText(window, title, title.Capacity);
+            if (title.ToString().Contains("keepassity", StringComparison.OrdinalIgnoreCase))
+            {
+                found = window;
+                return false;
+            }
+            if (found == IntPtr.Zero)
+            {
+                found = window;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    private delegate bool EnumWindowsProc(IntPtr window, IntPtr parameter);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr parameter);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindow(IntPtr window, uint command);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr window, System.Text.StringBuilder text, int count);
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr window, int command);

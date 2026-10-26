@@ -43,6 +43,9 @@ public sealed partial class MainWindow : Window
     private string? _currentTotpCode;
     private string? _lastClipboardText;
     private string? _masterPassword;
+    private TrayIcon? _trayIcon;
+    private bool _exitRequested;
+    private bool _trayHintShown;
     private DateTimeOffset _lastActivity = DateTimeOffset.UtcNow;
     private CancellationTokenSource? _searchCts;
     private bool _passwordVisible;
@@ -94,7 +97,69 @@ public sealed partial class MainWindow : Window
         Root.AddHandler(UIElement.KeyDownEvent,
             new KeyEventHandler((_, _) => TouchActivity()), true);
         Root.Loaded += Root_Loaded;
-        Closed += (_, _) => SaveWindowBounds();
+        Closed += (_, _) =>
+        {
+            SaveWindowBounds();
+            _trayIcon?.Dispose();
+            _trayIcon = null;
+            _core.Dispose();
+        };
+    }
+
+    private void InitializeTray()
+    {
+        if (Environment.GetCommandLineArgs().Contains("--no-tray", StringComparer.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        try
+        {
+            _trayIcon = new TrayIcon("keepassity", ShowFromTray, LockFromTray, ExitFromTray);
+            AppWindow.Closing += AppWindow_Closing;
+        }
+        catch
+        {
+            _trayIcon?.Dispose();
+            _trayIcon = null;
+        }
+    }
+
+    private void ShowFromTray()
+    {
+        AppWindow.Show();
+        Activate();
+    }
+
+    private void LockFromTray()
+    {
+        AppWindow.Show();
+        Activate();
+        if (_core.IsOpen)
+        {
+            _ = LockVaultAsync();
+        }
+    }
+
+    private void ExitFromTray()
+    {
+        _exitRequested = true;
+        Close();
+    }
+
+    private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (_exitRequested || _trayIcon is null || !_trayIcon.Available)
+        {
+            return;
+        }
+        args.Cancel = true;
+        AppWindow.Hide();
+        if (!_trayHintShown)
+        {
+            _trayHintShown = true;
+            _trayIcon.ShowInfo("keepassity",
+                "Still running in the notification area. Use its menu to exit.");
+        }
     }
 
     private void RestoreWindowBounds()
@@ -196,6 +261,7 @@ public sealed partial class MainWindow : Window
 
     private async void Root_Loaded(object sender, RoutedEventArgs e)
     {
+        InitializeTray();
         string? devPassword = Environment.GetEnvironmentVariable("KEEPASSITY_MOCK_PASSWORD");
         if (_dbPath is not null && !string.IsNullOrEmpty(devPassword))
         {
@@ -1925,7 +1991,90 @@ public sealed partial class MainWindow : Window
             Minimum = 1,
             Maximum = 300,
         };
+        var importStatus = new TextBlock
+        {
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+        };
+        var importFile = new Button { Content = "Import QR image…" };
+        var importClipboard = new Button { Content = "Paste QR / otpauth…" };
+        var importRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+        };
+        importRow.Children.Add(importFile);
+        importRow.Children.Add(importClipboard);
+        async Task ApplyImportedUriAsync(string? uri)
+        {
+            if (string.IsNullOrWhiteSpace(uri) ||
+                !uri.StartsWith("otpauth://", StringComparison.OrdinalIgnoreCase))
+            {
+                importStatus.Text = "No otpauth QR code found. Paste a Base32 secret instead.";
+                return;
+            }
+            try
+            {
+                TotpConfigDto parsed = await _core.ParseTotpUriAsync(uri);
+                secret.Text = parsed.SecretBase32;
+                algorithm.SelectedItem = parsed.Algorithm;
+                digits.SelectedItem = parsed.Digits.ToString();
+                period.Value = Math.Clamp(parsed.Period, 1, 300);
+                string account = string.Join(" / ",
+                    new[] { parsed.Issuer, parsed.Account }.Where(value =>
+                        !string.IsNullOrWhiteSpace(value)));
+                importStatus.Text = account.Length == 0
+                    ? "QR imported. Review the parameters and save."
+                    : $"Imported {account}. Review and save.";
+            }
+            catch (Exception ex)
+            {
+                importStatus.Text = $"Could not read otpauth URI: {ex.Message}";
+            }
+        }
+        importFile.Click += async (_, _) =>
+        {
+            try
+            {
+                var picker = new FileOpenPicker
+                {
+                    SuggestedStartLocation = PickerLocationId.PicturesLibrary,
+                };
+                foreach (string extension in new[]
+                         {
+                             ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff",
+                         })
+                {
+                    picker.FileTypeFilter.Add(extension);
+                }
+                WinRT.Interop.InitializeWithWindow.Initialize(picker,
+                    WinRT.Interop.WindowNative.GetWindowHandle(this));
+                StorageFile? file = await picker.PickSingleFileAsync();
+                if (file is not null)
+                {
+                    await ApplyImportedUriAsync(await QrDecoder.DecodeFileAsync(file));
+                }
+            }
+            catch (Exception ex)
+            {
+                importStatus.Text = $"QR image failed: {ex.Message}";
+            }
+        };
+        importClipboard.Click += async (_, _) =>
+        {
+            try
+            {
+                await ApplyImportedUriAsync(await QrDecoder.DecodeClipboardAsync());
+            }
+            catch (Exception ex)
+            {
+                importStatus.Text = $"Clipboard QR failed: {ex.Message}";
+            }
+        };
         var content = new StackPanel { Spacing = 10 };
+        content.Children.Add(importRow);
+        content.Children.Add(importStatus);
         content.Children.Add(secret);
         content.Children.Add(algorithm);
         content.Children.Add(digits);

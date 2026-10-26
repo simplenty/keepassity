@@ -25,7 +25,8 @@ apps/windows/Keepassity.Mock/bin/Debug/net8.0-windows10.0.19041.0/win-x64/Keepas
    database (name, path, master password, confirmation).
 2. Enter its master password.
 3. Browse groups/entries; use New, Edit, Move, Delete.
-4. `Edit TOTP` sets/removes TOTP; `Copy` works on passwords and codes.
+4. `Edit TOTP` sets/removes TOTP; import from a QR image or clipboard otpauth
+   URI, or paste a Base32 secret manually. `Copy` works on passwords and codes.
 5. Changes are saved atomically to the same `.kdbx`; a timestamped backup is
    copied to `.keepassity\backups\<db>\` before every save. Lock saves and closes
    the handle.
@@ -33,7 +34,9 @@ apps/windows/Keepassity.Mock/bin/Debug/net8.0-windows10.0.19041.0/win-x64/Keepas
 For local UI testing only, `--db <path>` pre-fills the database, and the
 `KEEPASSITY_MOCK_PASSWORD` environment variable auto-unlocks the app. Do not put
 real passwords in arguments. A second normal launch activates the existing
-window; pass `--allow-multiple` for isolated test instances (e.g. conflict tests).
+window; pass `--allow-multiple` for isolated test instances (e.g. conflict tests)
+and `--no-tray` when a test needs the close button to exit instead of hiding to
+the notification area.
 
 ## Implemented in this slice
 
@@ -46,9 +49,15 @@ window; pass `--allow-multiple` for isolated test instances (e.g. conflict tests
 - Create/edit/move/delete entries; save via core writer.
 - Copy username/password/URL/custom field; password generation via core.
 - TOTP code display, period progress, set/remove through core dual-write fields.
+  Import supports a selected QR image, a clipboard QR screenshot, or an
+  `otpauth://` clipboard URI; manual Base32 remains available. QR decoding stays
+  in the UI layer (ZXing.Net) and only the resulting URI/secret reaches core.
 - Lock/unlock, light/dark theme, Mica/titlebar layout.
 - Single instance (a second launch restores and focuses the existing window) and
   persisted window position/size; `--allow-multiple` is a test-only bypass.
+- Notification-area icon: left/double click shows the window, right click offers
+  Show / Lock / Exit, and closing the window hides it to the tray with a one-time
+  hint. `--no-tray` is a test-only bypass.
 - Settings persisted to `%LOCALAPPDATA%\keepassity\settings.json`: theme, clipboard
   clearing, auto-lock enable/minutes, backup retention, window bounds, and the last
   opened database path.
@@ -74,7 +83,7 @@ window; pass `--allow-multiple` for isolated test instances (e.g. conflict tests
 ## Not implemented yet
 
 - Keyfile/challenge-response credentials.
-- Tray behaviour, history/attachment UI.
+- History/attachment UI.
 
 ## Notes
 
