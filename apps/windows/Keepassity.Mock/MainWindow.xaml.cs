@@ -26,6 +26,10 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        if (Environment.GetCommandLineArgs().Contains("--light"))
+        {
+            Root.RequestedTheme = ElementTheme.Light;
+        }
         Title = "keepassity — UI Prototype";
         AppWindow.MoveAndResize(new RectInt32(28, 40, 1650, 970));
         ExtendsContentIntoTitleBar = true;

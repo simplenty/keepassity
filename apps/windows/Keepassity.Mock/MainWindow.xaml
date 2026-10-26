@@ -165,6 +165,9 @@
                         <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="Transparent" />
                         <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="Transparent" />
                         <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
+                        <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="Transparent" />
+                        <CornerRadius x:Key="NavigationViewContentGridCornerRadius">0</CornerRadius>
+                        <Thickness x:Key="NavigationViewContentGridBorderThickness">0</Thickness>
                     </NavigationView.Resources>
 
                     <NavigationView.PaneHeader>
@@ -191,9 +194,16 @@
                         </NavigationViewItem>
                     </NavigationView.FooterMenuItems>
 
-                    <!-- NavigationView's content grid already draws the single
-                         top-left-rounded frame; right and bottom stay flush. -->
-                    <Grid x:Name="WorkspacePanel">
+                </NavigationView>
+                <!-- Workspace is a sibling overlay so NavigationView cannot clip its frame. -->
+                <Grid Margin="232,0,0,0">
+                    <!-- The workspace owns its frame: rounded top-left only; right
+                         and bottom are square and sit on the window edge. -->
+                    <Border x:Name="WorkspaceFrame" Margin="0" CornerRadius="8,0,0,0"
+                            Background="{ThemeResource LayerFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="0,1,0,0">
+                        <Grid x:Name="WorkspacePanel">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="340" />
@@ -457,8 +467,9 @@
                                 </ScrollViewer>
                             </Grid>
                         </Grid>
-                    </Grid>
-                </NavigationView>
+                        </Grid>
+                    </Border>
+                </Grid>
             </Grid>
         </Grid>
 
