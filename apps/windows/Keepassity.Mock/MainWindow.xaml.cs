@@ -418,41 +418,229 @@ public sealed partial class MainWindow : Window
         SyncState state, string url, string username)
     {
         byte[] remote = await dav.DownloadAsync();
-        string? copyPath = CreateConflictCopy();
-        SyncMergeResult merged = await _core.SyncMergeAsync(remote);
+        string? localCopy = CreateConflictCopy();
+        string? remoteCopy = CreateRemoteConflictCopy(remote);
+        SyncMergeResult merged = await ProbeMergeAsync(remote);
+        if (merged.Conflicts.Count == 0)
+        {
+            await ApplyMergedAsync(dav, metadata, state, url, username, merged,
+                localCopy, remoteCopy, autoMerged: true);
+            return;
+        }
+
+        ConflictChoice choice = await ShowConflictDialogAsync(localCopy, remoteCopy,
+            merged.Conflicts);
+        switch (choice)
+        {
+            case ConflictChoice.KeepLocal:
+                await KeepLocalConflictAsync(dav, metadata, state, url, username);
+                break;
+            case ConflictChoice.KeepRemote:
+                await KeepRemoteConflictAsync(dav, metadata, state, url, username, remote);
+                break;
+            case ConflictChoice.KeepBoth:
+                await ApplyMergedAsync(dav, metadata, state, url, username, merged,
+                    localCopy, remoteCopy, autoMerged: false);
+                break;
+            default:
+                state.LocalDirty = true;
+                _syncStates.Save(url, username, _dbPath!, state);
+                SetSyncStatus("Conflict");
+                ShowToast("Sync paused. Local and remote are unchanged; conflict copies were saved.",
+                    InfoBarSeverity.Warning);
+                break;
+        }
+    }
+
+    private enum ConflictChoice
+    {
+        Cancel,
+        KeepLocal,
+        KeepRemote,
+        KeepBoth,
+    }
+
+    private async Task<ConflictChoice> ShowConflictDialogAsync(string? localCopy,
+        string? remoteCopy, List<SyncConflictDto> conflicts)
+    {
+        var panel = new StackPanel { Spacing = 12 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Local and remote both changed. Conflict copies have been saved " +
+                   "before asking what to do.",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 13,
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"Local copy: {Path.GetFileName(localCopy)}\n" +
+                   $"Remote copy: {Path.GetFileName(remoteCopy)}",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 11,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+        });
+        if (conflicts.Count > 0)
+        {
+            var lines = conflicts.Take(6).Select(conflict =>
+            {
+                string fields = conflict.Fields.Count == 0
+                    ? "entry changed on both sides"
+                    : string.Join(", ", conflict.Fields);
+                return $"• {conflict.Kind}: {fields}";
+            });
+            panel.Children.Add(new TextBlock
+            {
+                Text = string.Join("\n", lines),
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 12,
+            });
+        }
+
+        ConflictChoice choice = ConflictChoice.Cancel;
+        var keepBoth = new Button
+        {
+            Content = "Keep both (recommended)",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"],
+        };
+        var keepLocal = new Button
+        {
+            Content = "Keep local",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var keepRemote = new Button
+        {
+            Content = "Keep remote",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var cancel = new Button
+        {
+            Content = "Cancel and keep both files untouched",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        panel.Children.Add(keepBoth);
+        panel.Children.Add(keepLocal);
+        panel.Children.Add(keepRemote);
+        panel.Children.Add(cancel);
+        var dialog = new ContentDialog
+        {
+            Title = "Sync conflict",
+            Content = panel,
+            XamlRoot = Root.XamlRoot,
+        };
+        keepBoth.Click += (_, _) =>
+        {
+            choice = ConflictChoice.KeepBoth;
+            dialog.Hide();
+        };
+        keepLocal.Click += (_, _) =>
+        {
+            choice = ConflictChoice.KeepLocal;
+            dialog.Hide();
+        };
+        keepRemote.Click += (_, _) =>
+        {
+            choice = ConflictChoice.KeepRemote;
+            dialog.Hide();
+        };
+        cancel.Click += (_, _) =>
+        {
+            choice = ConflictChoice.Cancel;
+            dialog.Hide();
+        };
+        dialog.Opened += (_, _) => keepBoth.Focus(FocusState.Programmatic);
+        await dialog.ShowAsync();
+        return choice;
+    }
+
+    private async Task<SyncMergeResult> ProbeMergeAsync(byte[] remote)
+    {
+        using var probe = new CoreClient();
+        await probe.OpenAsync(_dbPath!, _masterPassword!);
+        try
+        {
+            return await probe.SyncMergeAsync(remote);
+        }
+        finally
+        {
+            await probe.LockAsync();
+        }
+    }
+
+    private async Task ApplyMergedAsync(WebDavClient dav, WebDavFileInfo metadata,
+        SyncState state, string url, string username, SyncMergeResult merged,
+        string? localCopy, string? remoteCopy, bool autoMerged)
+    {
         await WriteLocalBytesAsync(_dbPath!, merged.Bytes);
-        string? etag = null;
+        await ReopenFromLocalAsync();
+        string? etag;
         try
         {
             etag = await dav.UploadAsync(merged.Bytes, metadata.ETag);
         }
         catch (WebDavException ex) when (ex.Conflict)
         {
-            // Keep the merged local file; the next sync round will merge again.
             state.LocalDirty = true;
             _syncStates.Save(url, username, _dbPath!, state);
             SetSyncStatus("Conflict");
             ShowToast("Remote changed again; merged locally, will retry next sync.",
                 InfoBarSeverity.Warning);
-            await ReopenFromLocalAsync();
             return;
         }
-        string sha = Sha256Hex(merged.Bytes);
+        await CommitSyncedAsync(state, merged.Bytes, etag, metadata, url, username,
+            autoMerged ? "Synced" : "Merged");
+        string copies = $"local: {Path.GetFileName(localCopy)}; remote: {Path.GetFileName(remoteCopy)}";
+        ShowToast(autoMerged
+                ? $"Merged remote changes automatically ({copies})."
+                : $"Kept both versions; merged and uploaded ({copies}).",
+            InfoBarSeverity.Success);
+    }
+
+    private async Task KeepLocalConflictAsync(WebDavClient dav, WebDavFileInfo metadata,
+        SyncState state, string url, string username)
+    {
+        byte[] localBytes = await File.ReadAllBytesAsync(_dbPath!);
+        string? etag;
+        try
+        {
+            etag = await dav.UploadAsync(localBytes, metadata.ETag);
+        }
+        catch (WebDavException ex) when (ex.Conflict)
+        {
+            state.LocalDirty = true;
+            _syncStates.Save(url, username, _dbPath!, state);
+            SetSyncStatus("Conflict");
+            ShowToast("Remote changed again; local version kept, will retry next sync.",
+                InfoBarSeverity.Warning);
+            return;
+        }
+        await CommitSyncedAsync(state, localBytes, etag, metadata, url, username, "Synced");
+        ShowToast("Kept local version; remote copy was saved.", InfoBarSeverity.Success);
+    }
+
+    private async Task KeepRemoteConflictAsync(WebDavClient dav, WebDavFileInfo metadata,
+        SyncState state, string url, string username, byte[] remote)
+    {
+        await WriteLocalBytesAsync(_dbPath!, remote);
+        await ReopenFromLocalAsync();
+        await CommitSyncedAsync(state, remote, metadata.ETag, metadata, url, username,
+            "Synced");
+        ShowToast("Kept remote version; local copy was saved.", InfoBarSeverity.Success);
+    }
+
+    private async Task CommitSyncedAsync(SyncState state, byte[] bytes, string? etag,
+        WebDavFileInfo metadata, string url, string username, string status)
+    {
+        string sha = Sha256Hex(bytes);
         await _core.SyncCommitAsync(etag, sha);
         state.Etag = etag;
         state.Sha256 = sha;
-        state.Size = merged.Bytes.Length;
+        state.Size = bytes.Length;
         state.RemoteModifiedUnix = metadata.ModifiedUnix;
         state.LocalDirty = false;
         state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         _syncStates.Save(url, username, _dbPath!, state);
-        await ReopenFromLocalAsync();
-        SetSyncStatus("Merged");
-        string suffix = merged.Conflicts.Count == 0
-            ? string.Empty
-            : $" ({merged.Conflicts.Count} conflict(s))";
-        ShowToast($"Merged remote changes{suffix}; conflict copy: {Path.GetFileName(copyPath)}",
-            InfoBarSeverity.Warning);
+        SetSyncStatus(status);
     }
 
     private async Task ReopenFromLocalAsync()
@@ -483,6 +671,27 @@ public sealed partial class MainWindow : Window
             path = Path.Combine(directory, $"{stem} (conflict {stamp}-{suffix++}){extension}");
         }
         File.Copy(_dbPath, path);
+        return path;
+    }
+
+    private string? CreateRemoteConflictCopy(byte[] remote)
+    {
+        if (_dbPath is null)
+        {
+            return null;
+        }
+        string directory = Path.GetDirectoryName(_dbPath)!;
+        string stem = Path.GetFileNameWithoutExtension(_dbPath);
+        string extension = Path.GetExtension(_dbPath);
+        string stamp = DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss");
+        string path = Path.Combine(directory, $"{stem} (remote conflict {stamp}){extension}");
+        int suffix = 1;
+        while (File.Exists(path))
+        {
+            path = Path.Combine(directory,
+                $"{stem} (remote conflict {stamp}-{suffix++}){extension}");
+        }
+        File.WriteAllBytes(path, remote);
         return path;
     }
 

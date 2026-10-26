@@ -53,7 +53,10 @@ real passwords in arguments.
   stored with Windows DPAPI. The app checks the remote on unlock, syncs on save
   (toggle), and supports manual sync from the footer. It implements PROPFIND
   depth 0 metadata, conditional GET/PUT with ETag/If-Match/If-None-Match, download,
-  upload, and local merge with a timestamped conflict copy before overwriting.
+  upload, and local merge. Non-overlapping changes merge automatically; when the
+  same item changed on both sides, a three-choice dialog offers Keep local, Keep
+  remote, or Keep both (recommended), and local/remote conflict copies are written
+  before any choice.
   Baseline ETag/hash/dirty state is kept under `%LOCALAPPDATA%\keepassity\state\`.
 - **Backups**: every save (local or sync write) first copies the current database
   to `.keepassity\backups\<db>\<timestamp>.kdbx`; the newest `BackupRetention`
@@ -66,8 +69,6 @@ real passwords in arguments.
 - Create-new-database and keyfile/challenge-response credentials.
 - Tray behaviour, history/attachment UI.
 - Window position/size persistence.
-- Three-choice conflict dialog; the current merge policy keeps both copies and
-  reports the conflict count in a toast.
 
 ## Notes
 
