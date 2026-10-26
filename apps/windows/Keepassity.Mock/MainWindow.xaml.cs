@@ -9,6 +9,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
+using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.System;
 using Windows.UI;
@@ -819,6 +820,223 @@ public sealed partial class MainWindow : Window
         _dbPath = file.Path;
         UpdateDatabasePath();
         UnlockError.IsOpen = false;
+    }
+
+    private async void NewDatabaseButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy)
+        {
+            return;
+        }
+        var nameBox = new TextBox
+        {
+            Header = "Database name",
+            Text = "keepassity",
+        };
+        var pathBox = new TextBox
+        {
+            Header = "Save as",
+            Text = DefaultNewDatabasePath(),
+        };
+        var browse = new Button
+        {
+            Content = "Browse…",
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(8, 0, 0, 0),
+        };
+        var pathRow = new Grid();
+        pathRow.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(1, GridUnitType.Star),
+        });
+        pathRow.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = GridLength.Auto,
+        });
+        Grid.SetColumn(pathBox, 0);
+        Grid.SetColumn(browse, 1);
+        pathRow.Children.Add(pathBox);
+        pathRow.Children.Add(browse);
+        var passwordBox = new PasswordBox
+        {
+            Header = "Master password",
+            PasswordRevealMode = PasswordRevealMode.Peek,
+        };
+        var confirmBox = new PasswordBox
+        {
+            Header = "Confirm master password",
+            PasswordRevealMode = PasswordRevealMode.Peek,
+        };
+        var errorText = new TextBlock
+        {
+            Foreground = (Brush)Application.Current.Resources["SystemFillColorCriticalBrush"],
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed,
+        };
+        var content = new StackPanel { Spacing = 12 };
+        content.Children.Add(nameBox);
+        content.Children.Add(pathRow);
+        content.Children.Add(passwordBox);
+        content.Children.Add(confirmBox);
+        content.Children.Add(errorText);
+        content.Children.Add(new TextBlock
+        {
+            Text = "Creates an empty KDBX 4.0 database with a General group. " +
+                   "The master password is not stored.",
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+        });
+        var dialog = new ContentDialog
+        {
+            Title = "New database",
+            Content = content,
+            PrimaryButtonText = "Create",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Root.XamlRoot,
+        };
+        browse.Click += async (_, _) =>
+        {
+            var picker = new FolderPicker
+            {
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            };
+            picker.FileTypeFilter.Add("*");
+            WinRT.Interop.InitializeWithWindow.Initialize(picker,
+                WinRT.Interop.WindowNative.GetWindowHandle(this));
+            StorageFolder? folder = await picker.PickSingleFolderAsync();
+            if (folder is null)
+            {
+                return;
+            }
+            string stem = string.IsNullOrWhiteSpace(nameBox.Text) ? "keepassity" : nameBox.Text.Trim();
+            pathBox.Text = Path.Combine(folder.Path, stem + ".kdbx");
+        };
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            string error = ValidateNewDatabase(nameBox.Text, pathBox.Text,
+                passwordBox.Password, confirmBox.Password);
+            if (error.Length == 0)
+            {
+                return;
+            }
+            args.Cancel = true;
+            errorText.Text = error;
+            errorText.Visibility = Visibility.Visible;
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+        string databaseName = nameBox.Text.Trim();
+        string path;
+        try
+        {
+            path = Path.GetFullPath(pathBox.Text.Trim());
+        }
+        catch
+        {
+            return;
+        }
+        string password = passwordBox.Password;
+        if (ValidateNewDatabase(databaseName, path, password, confirmBox.Password).Length > 0)
+        {
+            return;
+        }
+
+        _busy = true;
+        UnlockError.IsOpen = false;
+        NewDatabaseButton.IsEnabled = false;
+        ChooseDatabaseButton.IsEnabled = false;
+        UnlockButton.IsEnabled = false;
+        UnlockProgress.IsActive = true;
+        try
+        {
+            byte[] bytes = await _core.CreateDatabaseAsync(databaseName, password);
+            string? directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+            if (File.Exists(path))
+            {
+                throw new InvalidOperationException("That file already exists. Choose another path.");
+            }
+            string temp = path + ".keepassity-new-tmp";
+            await File.WriteAllBytesAsync(temp, bytes);
+            File.Move(temp, path);
+            _dbPath = path;
+            await _core.OpenAsync(path, password);
+            _masterPassword = password;
+            _selectedGroupUuid = null;
+            Settings.LastDatabasePath = path;
+            _settingsStore.Save();
+            await ReloadVaultAsync(null);
+            UpdateDatabasePath();
+            ShowMain();
+            MasterPassword.Password = string.Empty;
+            SetSyncStatus(IsSyncConfigured ? "Not synced" : "Local only");
+            ShowToast("Database created", InfoBarSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            UnlockError.Title = "Cannot create database";
+            UnlockError.Message = ex.Message;
+            UnlockError.IsOpen = true;
+        }
+        finally
+        {
+            _busy = false;
+            NewDatabaseButton.IsEnabled = true;
+            ChooseDatabaseButton.IsEnabled = true;
+            UnlockButton.IsEnabled = true;
+            UnlockProgress.IsActive = false;
+            passwordBox.Password = string.Empty;
+            confirmBox.Password = string.Empty;
+        }
+    }
+
+    private static string ValidateNewDatabase(string name, string path, string password,
+        string confirm)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return "Enter a database name.";
+        }
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return "Choose where to save the database.";
+        }
+        if (!path.EndsWith(".kdbx", StringComparison.OrdinalIgnoreCase))
+        {
+            return "The file name must end in .kdbx.";
+        }
+        if (password.Length == 0)
+        {
+            return "Enter a master password.";
+        }
+        if (password != confirm)
+        {
+            return "The master passwords do not match.";
+        }
+        return string.Empty;
+    }
+
+    private static string DefaultNewDatabasePath()
+    {
+        string directory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        if (string.IsNullOrEmpty(directory))
+        {
+            directory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        }
+        string path = Path.Combine(directory, "keepassity.kdbx");
+        int suffix = 2;
+        while (File.Exists(path))
+        {
+            path = Path.Combine(directory, $"keepassity-{suffix++}.kdbx");
+        }
+        return path;
     }
 
     private async void UnlockButton_Click(object sender, RoutedEventArgs e)

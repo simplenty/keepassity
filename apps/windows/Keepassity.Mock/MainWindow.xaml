@@ -138,9 +138,14 @@
                     <ProgressRing x:Name="UnlockProgress" IsActive="False"
                                   Width="22" Height="22" HorizontalAlignment="Center" />
                     <Grid>
-                        <HyperlinkButton x:Name="ChooseDatabaseButton" Content="Choose database…"
-                                         Padding="0" HorizontalAlignment="Left"
-                                         Click="ChooseDatabaseButton_Click" />
+                        <StackPanel Orientation="Horizontal" Spacing="16" HorizontalAlignment="Left">
+                            <HyperlinkButton x:Name="ChooseDatabaseButton" Content="Choose database…"
+                                             Padding="0"
+                                             Click="ChooseDatabaseButton_Click" />
+                            <HyperlinkButton x:Name="NewDatabaseButton" Content="New database…"
+                                             Padding="0"
+                                             Click="NewDatabaseButton_Click" />
+                        </StackPanel>
                         <TextBlock x:Name="DatabasePathText" Text="No database selected"
                                    HorizontalAlignment="Right" VerticalAlignment="Center"
                                    MaxWidth="210" TextTrimming="CharacterEllipsis"

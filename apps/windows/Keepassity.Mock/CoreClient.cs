@@ -53,6 +53,10 @@ public sealed class CoreClient : IDisposable
     private static extern int kp_save(IntPtr handle, out IntPtr outBytes, out UIntPtr outLen);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int kp_create_database(byte[] optsJson, out IntPtr outBytes,
+        out UIntPtr outLen);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     private static extern int kp_sync_decide(IntPtr handle, byte[] remoteMetaJson,
         int localDirty, out IntPtr outJson);
 
@@ -94,6 +98,37 @@ public sealed class CoreClient : IDisposable
                 _handle = handle;
             }).ConfigureAwait(false);
             DatabasePath = path;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<byte[]> CreateDatabaseAsync(string name, string password)
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            return await Task.Run(() =>
+            {
+                byte[] options = Utf8Z(JsonSerializer.Serialize(new { name, password }));
+                if (kp_create_database(options, out IntPtr pointer, out UIntPtr length) != 0 ||
+                    pointer == IntPtr.Zero)
+                {
+                    throw ParseError(LastError(), "create database");
+                }
+                try
+                {
+                    var bytes = new byte[checked((int)length.ToUInt64())];
+                    Marshal.Copy(pointer, bytes, 0, bytes.Length);
+                    return bytes;
+                }
+                finally
+                {
+                    kp_buffer_free(pointer, length);
+                }
+            }).ConfigureAwait(false);
         }
         finally
         {

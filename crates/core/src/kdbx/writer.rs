@@ -93,6 +93,29 @@ pub fn write_model(db: &Database, password: &str) -> Result<Vec<u8>, KdbxWriteEr
         .map_err(|error| KdbxWriteError::Write(format!("{error:?}")))
 }
 
+/// Create a new empty KDBX 4.0 database with a `General` root group.
+///
+/// This is intentionally a small, IO-free bridge for the app's "new database"
+/// flow. It uses the same backend and version policy as [`write_model`].
+pub fn create_empty(name: &str, password: &str) -> Result<Vec<u8>, KdbxWriteError> {
+    if password.is_empty() {
+        return Err(KdbxWriteError::Write(
+            "password required to encrypt".to_string(),
+        ));
+    }
+    let database_name = if name.trim().is_empty() {
+        "keepassity".to_string()
+    } else {
+        name.trim().to_string()
+    };
+    let mut backend = BackendDatabase::new(database_name);
+    backend.root_mut().set_name("General".to_string());
+    let file = keepassxcr::KdbxFile::new(backend);
+    let credentials = Credentials::password(password);
+    write_kdbx_bytes(&file, &credentials)
+        .map_err(|error| KdbxWriteError::Write(format!("{error:?}")))
+}
+
 fn backend_uuid(uuid: Uuid) -> keepassxcr::Uuid {
     keepassxcr::Uuid::from_bytes(*uuid.as_bytes())
 }
@@ -224,6 +247,23 @@ mod tests {
         assert!(matches!(
             reseal(&[0u8; 4], "x"),
             Err(KdbxWriteError::Header(_))
+        ));
+    }
+
+    #[test]
+    fn creates_empty_database_that_reads_back() {
+        let bytes = create_empty("Fresh", "correct horse battery staple").unwrap();
+        let credentials = Credentials::password("correct horse battery staple");
+        let file = read_kdbx_bytes(&bytes, &credentials).unwrap();
+        assert_eq!(file.database.root().name(), "General");
+        assert!(file.database.root().entries().is_empty());
+    }
+
+    #[test]
+    fn create_empty_rejects_empty_password() {
+        assert!(matches!(
+            create_empty("Fresh", ""),
+            Err(KdbxWriteError::Write(_))
         ));
     }
 }

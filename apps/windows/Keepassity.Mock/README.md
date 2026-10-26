@@ -21,7 +21,8 @@ The project copies `target/release/keepassity_ffi.dll` next to the app on build.
 apps/windows/Keepassity.Mock/bin/Debug/net8.0-windows10.0.19041.0/win-x64/Keepassity.Mock.exe
 ```
 
-1. Choose a `.kdbx` file.
+1. Choose a `.kdbx` file, or use **New database…** to create an empty KDBX 4.0
+   database (name, path, master password, confirmation).
 2. Enter its master password.
 3. Browse groups/entries; use New, Edit, Move, Delete.
 4. `Edit TOTP` sets/removes TOTP; `Copy` works on passwords and codes.
@@ -36,6 +37,9 @@ real passwords in arguments.
 ## Implemented in this slice
 
 - Real KDBX open/read (AES/Argon2/Argon2id fixtures; 3.1/4.0/4.1).
+- Create a new empty KDBX 4.0 database from the unlock page (master password,
+  save path, confirmation) with a `General` root group; open it immediately and
+  keep using the normal save/backup path.
 - Groups + virtual All entries view, entry list, detail pane.
 - Search via core.
 - Create/edit/move/delete entries; save via core writer.
@@ -66,7 +70,7 @@ real passwords in arguments.
 
 ## Not implemented yet
 
-- Create-new-database and keyfile/challenge-response credentials.
+- Keyfile/challenge-response credentials.
 - Tray behaviour, history/attachment UI.
 - Window position/size persistence.
 

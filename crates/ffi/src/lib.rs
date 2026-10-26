@@ -633,6 +633,44 @@ pub extern "C" fn kp_verify(bytes: *const u8, len: usize, opts_json: *const c_ch
     })
 }
 
+/// Create a new empty KDBX 4.0 database. `opts_json` is
+/// `{"password":"...","name":"..."}`; output is a caller-owned byte buffer.
+#[no_mangle]
+pub extern "C" fn kp_create_database(
+    opts_json: *const c_char,
+    out_bytes: *mut *mut u8,
+    out_len: *mut usize,
+) -> i32 {
+    guarded(|| {
+        if opts_json.is_null() || out_bytes.is_null() || out_len.is_null() {
+            return fail(FfiError::invalid("options or output pointer is null"));
+        }
+        let text = match unsafe { CStr::from_ptr(opts_json) }.to_str() {
+            Ok(text) => text,
+            Err(_) => return fail(FfiError::invalid("options JSON is not UTF-8")),
+        };
+        let options: Value = match serde_json::from_str(text) {
+            Ok(value) => value,
+            Err(_) => return fail(FfiError::invalid("options JSON is invalid")),
+        };
+        let password = match options.get("password").and_then(Value::as_str) {
+            Some(value) if !value.is_empty() => value,
+            _ => return fail(FfiError::invalid("password is required")),
+        };
+        let name = options
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("keepassity");
+        match keepassity_core::kdbx::writer::create_empty(name, password) {
+            Ok(bytes) => {
+                set_buffer(out_bytes, out_len, bytes);
+                success()
+            }
+            Err(_) => fail(FfiError::new("IoError", "cannot create database")),
+        }
+    })
+}
+
 /// Decide the next sync action from remote metadata.
 #[no_mangle]
 pub extern "C" fn kp_sync_decide(

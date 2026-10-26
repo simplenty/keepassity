@@ -31,6 +31,12 @@ int32_t kp_call(KpHandle* handle, const char* cmd_json, char** out_json);
 int32_t kp_save(KpHandle* handle, uint8_t** out_bytes, size_t* out_len);
 int32_t kp_verify(const uint8_t* bytes, size_t len, const char* opts_json);
 
+/* Create a new empty KDBX 4.0 database.
+ * opts_json: {"password":"...", "name":"..."} (name may be omitted).
+ * Output bytes are caller-owned; release with kp_buffer_free(). */
+int32_t kp_create_database(const char* opts_json,
+                           uint8_t** out_bytes, size_t* out_len);
+
 int32_t kp_sync_decide(KpHandle* handle, const char* remote_meta_json,
                        int local_dirty, char** out_json);
 int32_t kp_sync_merge(KpHandle* handle, const uint8_t* remote, size_t len,
