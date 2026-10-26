@@ -12,26 +12,30 @@ dotnet build -c Debug
 ```
 
 The app starts on the unlock screen. Any non-empty password unlocks the mock
-vault. Review:
+vault. Pass `--unlocked` to open the main window directly for review.
 
-1. **Unlock screen** — branding, recent database card, error/diagnostic placement.
-2. **Main window** — three columns (groups / entries / detail), search, TOTP card,
-   footer sync/auto-lock status.
-3. **Sync status** (top bar) — mock conflict dialog; three choices, copy-first rule.
-4. **Settings** (gear) — theme switch and security toggles (mock only).
-5. **New entry / Edit / Delete** — modal flow and row refresh.
-6. **Lock** (top-right lock icon) — returns to unlock screen.
+1. **Unlock screen** — plain form, file label and mock diagnostics.
+2. **Main window** — permanent WinUI NavigationView pane on the left, entry list and
+   detail in one two-pane workspace, integrated title bar and search.
+3. **Sync (left footer)** — mock conflict dialog; conflict-copy-first rule.
+4. **Settings (left footer)** — theme switch and security toggles (mock only).
+5. **New entry / Edit / Move / Delete** — modal flow and row refresh.
+6. **Lock (left footer)** — returns to the unlock screen.
 
-## Current layout (v4)
+## Current layout (v5)
 
-- Integrated Mica title bar: app name + centered search + native window buttons.
-- Permanent left navigation: vault file, groups, and bottom-left sync/lock/settings.
-- The middle entry list and right detail live in one floating two-pane workspace with
-  a soft shadow; it animates in from the bottom-right after unlock.
-- Restrained 1Password-style detail: flat field groups, one accent only for selection,
-  no decorative cards or badges. Functional actions stay visible: Move/Edit/Delete,
-  copy/reveal/generate password, Edit TOTP, custom fields, notes.
-- No hamburger: the left navigation is always visible.
+- Integrated dark Mica title bar: app icon + name, centered search, native window buttons.
+- Permanent WinUI `NavigationView` pane, always open (no hamburger toggle). Standard
+  navigation items, selection treatment, InfoBadge counts, and footer items for
+  sync / lock / settings.
+- The entry list and detail form one two-pane workspace: only the **top-left corner**
+  is rounded, while its right and bottom edges sit flush on the window frame. It
+  animates in from the bottom-right after unlock.
+- Restrained 1Password-style detail: flat field groups, one accent, no decorative
+  cards. Functional actions stay visible: Move/Edit/Delete, copy/reveal/generate
+  password, Edit TOTP, custom fields, notes.
+- Colour is back: dark Mica surface, accent-blue app/group icons, coloured entry
+  avatars, and accent primary actions.
 
 ## Notes
 

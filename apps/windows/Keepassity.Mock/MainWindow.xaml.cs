@@ -38,9 +38,8 @@ public sealed partial class MainWindow : Window
         WorkspacePanel.Translation = new Vector3(0, 0, 32);
 
         SeedMockData();
-        GroupList.ItemsSource = Groups;
         EntryList.ItemsSource = Entries;
-        GroupList.SelectedIndex = 0;
+        PopulateNavigation();
         FilterEntries(null);
 
         _totpTimer.Interval = TimeSpan.FromSeconds(1);
@@ -207,12 +206,57 @@ public sealed partial class MainWindow : Window
         MasterPassword.Focus(FocusState.Programmatic);
     }
 
-    private void GroupList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void PopulateNavigation()
     {
-        if (GroupList.SelectedItem is GroupItem group)
+        NavView.MenuItems.Clear();
+        NavigationViewItem? first = null;
+        foreach (var group in Groups)
         {
-            _selectedGroup = group.Category;
-            FilterEntries(group.Name == "All entries" ? null : group.Category);
+            var item = new NavigationViewItem
+            {
+                Content = group.Name,
+                Tag = group.Category ?? "all",
+                Icon = new FontIcon { Glyph = group.Glyph },
+            };
+            if (int.TryParse(group.Count, out var count))
+            {
+                item.InfoBadge = new InfoBadge { Value = count };
+            }
+            NavView.MenuItems.Add(item);
+            first ??= item;
+        }
+        if (first is not null)
+        {
+            NavView.SelectedItem = first;
+        }
+    }
+
+    private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    {
+        if (args.SelectedItemContainer is NavigationViewItem item && item.Tag is string tag)
+        {
+            _selectedGroup = tag == "all" ? null : tag;
+            FilterEntries(_selectedGroup);
+        }
+    }
+
+    private void NavView_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
+    {
+        if (args.InvokedItemContainer is not NavigationViewItem item || item.Tag is not string tag)
+        {
+            return;
+        }
+        switch (tag)
+        {
+            case "sync":
+                SyncStatusButton_Click(this, new RoutedEventArgs());
+                break;
+            case "lock":
+                LockButton_Click(this, new RoutedEventArgs());
+                break;
+            case "settings":
+                SettingsButton_Click(this, new RoutedEventArgs());
+                break;
         }
     }
 
@@ -565,10 +609,7 @@ public sealed partial class MainWindow : Window
 
     private async void SyncStatusButton_Click(object sender, RoutedEventArgs e)
     {
-        SyncStatusButton.IsEnabled = false;
-        try
-        {
-            var content = new StackPanel { Spacing = 12 };
+        var content = new StackPanel { Spacing = 12 };
             content.Children.Add(new TextBlock
             {
                 Text = "A newer version of this entry was changed on another device.",
@@ -629,11 +670,6 @@ public sealed partial class MainWindow : Window
                 _ => "Keep remote",
             };
             ShowToast($"{choice}: conflict copy would be written first (prototype)", InfoBarSeverity.Success);
-        }
-        finally
-        {
-            SyncStatusButton.IsEnabled = true;
-        }
     }
 
     private async void SettingsButton_Click(object sender, RoutedEventArgs e)
