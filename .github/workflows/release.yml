@@ -96,7 +96,7 @@ jobs:
           subject-path: "out/dist/*"
 
       - name: upload release files
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: keepassity-windows
           path: out/dist/*
