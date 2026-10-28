@@ -122,18 +122,10 @@ jobs:
         run: dotnet run --project tests/app-core/Keepassity.Core.Tests -c Release
       - name: application self-test (AES fixture)
         shell: pwsh
-        run: >-
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/selftest.ps1
-          -Fixture tests/fixtures/keepass-rs/test_db_kdbx4_with_password_aes.kdbx
-          -Password demopass
-          -Exe apps/windows/Keepassity.Mock/bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/Keepassity.Mock.exe
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/selftest.ps1 -Fixture tests/fixtures/keepass-rs/test_db_kdbx4_with_password_aes.kdbx -Password demopass
       - name: application self-test (TOTP fixture)
         shell: pwsh
-        run: >-
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/selftest.ps1
-          -Fixture tests/fixtures/keepass-rs/test_db_kdbx4_with_totp_entry.kdbx
-          -Password test
-          -Exe apps/windows/Keepassity.Mock/bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/Keepassity.Mock.exe
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/selftest.ps1 -Fixture tests/fixtures/keepass-rs/test_db_kdbx4_with_totp_entry.kdbx -Password test
       - name: dependency audit (informational)
         shell: pwsh
         continue-on-error: true
