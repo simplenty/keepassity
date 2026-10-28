@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "keepassity-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "KDBX / crypto / merge / sync-decision / TOTP. No IO, no network, no platform API."
+
+[dependencies]
+# Keep the dependency set minimal; new dependencies require review.
+# serde/serde_json: model + DTO serialization and canonical dump (whitelist).
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+# keepass: established read path (MIT, whitelist). Used only for decryption
+# and the known model; core still performs no file IO.
+keepass = "=0.17.0"
+# sha2: raw-XML evidence hashes (whitelist).
+# sha2 0.10 pairs with hmac 0.12 (digest 0.10); used for hashes and HMAC.
+sha2 = "0.10.9"
+sha1 = "0.10.7"
+hmac = "0.12.1"
+# Vendored keepassxcr 0.3.1 (Q11/D9): byte-level read/write API, no CLI/YubiKey UX.
+keepassxcr = { path = "../../vendor/keepassxcr", default-features = false }
+
+[dev-dependencies]
+proptest = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
