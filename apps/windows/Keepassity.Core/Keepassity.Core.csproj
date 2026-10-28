@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Platform-neutral application services shared by the Windows shell (and a
+       future Linux shell): paths, settings, sync state, WebDAV, backups and
+       diagnostics. No WinUI or other UI dependency belongs here. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Keepassity.Mock</RootNamespace>
+    <AssemblyName>Keepassity.Core</AssemblyName>
+  </PropertyGroup>
+</Project>
