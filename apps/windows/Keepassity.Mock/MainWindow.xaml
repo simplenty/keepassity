@@ -338,6 +338,9 @@
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2"
                                                 HorizontalAlignment="Right" VerticalAlignment="Top">
+                                        <Button x:Name="AddTotpButton" Style="{StaticResource ToolbarButton}"
+                                                Visibility="Collapsed"
+                                                Click="TotpSetupButton_Click">Add TOTP</Button>
                                         <Button Style="{StaticResource ToolbarButton}" Click="MoveEntryButton_Click">Move</Button>
                                         <Button Style="{StaticResource ToolbarButton}" Click="EditEntryButton_Click">Edit</Button>
                                         <Button Style="{StaticResource ToolbarButton}" Click="DeleteEntryButton_Click">Delete</Button>
@@ -424,8 +427,11 @@
                                         </StackPanel>
 
                                         <!-- TOTP -->
-                                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                                        <Grid x:Name="TotpSection" Padding="0,2" ColumnSpacing="12">
+                                        <Border x:Name="TotpDivider" Height="1"
+                                                Visibility="Collapsed"
+                                                Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                                        <Grid x:Name="TotpSection" Padding="0,2" ColumnSpacing="12"
+                                              Visibility="Collapsed">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
