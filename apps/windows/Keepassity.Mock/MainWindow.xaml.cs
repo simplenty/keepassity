@@ -2667,7 +2667,10 @@ public sealed partial class MainWindow : Window
         {
             if (_core.IsOpen)
             {
-                await SaveAsync(silent: true, syncAfterSave: false);
+                // Every edit path saves the database immediately. Saving again
+                // here would re-encrypt the working copy and mark it dirty even
+                // when nothing changed, so the next WebDAV open would report
+                // unsynced local changes and force an unnecessary merge.
                 await _core.LockAsync();
             }
         }
