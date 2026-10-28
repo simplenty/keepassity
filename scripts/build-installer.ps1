@@ -43,4 +43,11 @@ $installer = Join-Path $OutputDir "keepassity-$Version-win-x64-setup.exe"
 if (-not (Test-Path $installer)) {
   throw "installer was not produced: $installer"
 }
+# A setup executable stored in a Low integrity folder is started at Low
+# integrity and cannot create its %TEMP%\is-*.tmp extraction directory
+# (Inno Setup reports error 5). Keep the distributed setup at Medium.
+& icacls $installer /setintegritylevel Medium | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  throw "Could not set the installer integrity level: $installer"
+}
 Write-Host "installer: $installer"

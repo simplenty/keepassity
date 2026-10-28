@@ -70,6 +70,14 @@ $exe = Join-Path $output "Keepassity.Mock.exe"
 if (-not (Test-Path $exe)) {
     throw "Published executable is missing: $exe"
 }
+# The workspace may carry a Low integrity label. Windows starts executables from
+# Low-labeled folders at Low integrity, which prevents the app and the installer
+# from writing normal user data and the setup TEMP directory. Release binaries
+# must run at Medium.
+& icacls $exe /setintegritylevel Medium | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not set the executable integrity level: $exe"
+}
 $launcher = Join-Path $output "Run keepassity.cmd"
 Set-Content -LiteralPath $launcher -Encoding Ascii -Value @(
     "@echo off",
