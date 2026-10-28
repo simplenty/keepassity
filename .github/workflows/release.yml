@@ -59,15 +59,26 @@ jobs:
       - name: self-test the published application
         shell: pwsh
         run: |
-          $exe = "out/dist/keepassity-$env:KEEPASSITY_VERSION-win-x64/Keepassity.Mock.exe"
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/selftest.ps1 `
-            -Fixture tests/fixtures/keepass-rs/test_db_kdbx4_with_password_aes.kdbx `
-            -Password demopass -Exe $exe
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/selftest.ps1 `
-            -Fixture tests/fixtures/keepass-rs/test_db_kdbx4_with_totp_entry.kdbx `
-            -Password test -Exe $exe
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $exe = (Resolve-Path "out/dist/keepassity-$env:KEEPASSITY_VERSION-win-x64/Keepassity.Mock.exe").Path
+          $cases = @(
+            @{ fixture = 'tests/fixtures/keepass-rs/test_db_kdbx4_with_password_aes.kdbx'; password = 'demopass' },
+            @{ fixture = 'tests/fixtures/keepass-rs/test_db_kdbx4_with_totp_entry.kdbx'; password = 'test' }
+          )
+          foreach ($case in $cases) {
+            $report = Join-Path $env:RUNNER_TEMP ('selftest-' + [guid]::NewGuid().ToString('N') + '.log')
+            $env:KEEPASSITY_SELFTEST_PASSWORD = $case.password
+            $env:KEEPASSITY_SELFTEST_REPORT = $report
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = $exe
+            $psi.Arguments = '--selftest "' + (Resolve-Path $case.fixture).Path + '"'
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            $process = [System.Diagnostics.Process]::Start($psi)
+            if (-not $process.WaitForExit(120000)) { $process.Kill(); throw "selftest timeout: $($case.fixture)" }
+            $content = if (Test-Path $report) { Get-Content $report -Raw } else { '' }
+            Write-Host $content
+            if ($content -notmatch '(?m)^PASS\s*$') { throw "selftest failed: $($case.fixture)" }
+          }
 
       - name: build installer
         shell: pwsh
