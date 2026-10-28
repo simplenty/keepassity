@@ -1,0 +1,6 @@
+[toolchain]
+# Pinned to the same version as .github/workflows/ci.yml so local and CI builds
+# use identical compilers. Update both together.
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

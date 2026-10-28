@@ -1,0 +1,231 @@
+{
+    "schema":  1,
+    "source":  "keepass-rs tests/resources (MIT) and project fixtures; test passwords only",
+    "fixtures":  [
+                     {
+                         "id":  "broken_kdbx_version",
+                         "path":  "keepass-rs/broken_kdbx_version.kdbx",
+                         "sha256":  "e19188f792eb71f7c38fc58a9a34eca1929903ef27556b1db5a0a87b42f3cda0",
+                         "size":  1605,
+                         "password":  null,
+                         "usable_for_v1":  false,
+                         "notes":  "requires unsupported credential type or is intentionally broken"
+                     },
+                     {
+                         "id":  "broken_random_data",
+                         "path":  "keepass-rs/broken_random_data.kdbx",
+                         "sha256":  "b976a0b70229c13e4e00f992fc9d84e83689031e5cb0779f110401311d1bf812",
+                         "size":  1024,
+                         "password":  null,
+                         "usable_for_v1":  false,
+                         "notes":  "requires unsupported credential type or is intentionally broken"
+                     },
+                     {
+                         "id":  "test_db_few_rounds",
+                         "path":  "keepass-rs/test_db_few_rounds.kdbx",
+                         "sha256":  "58a6c0c173a0bfa0f32349d35c29a5cabd2b4fc42f9a4176d0f1883b2b59fdd5",
+                         "size":  1992,
+                         "password":  "demopass",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_kdb3_with_file_larger_1mb",
+                         "path":  "keepass-rs/test_db_kdb3_with_file_larger_1mb.kdbx",
+                         "sha256":  "50eaa425048be69409158e79e11e7fe0a7ec8c20ddabc29b6c359807d500948f",
+                         "size":  2121998,
+                         "password":  "demopass",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_kdbx3_with_attachments",
+                         "path":  "keepass-rs/test_db_kdbx3_with_attachments.kdbx",
+                         "sha256":  "014421cf9f49a951670b70f03002c279c85567a1a4fcc201cc387eb4b8c1d57c",
+                         "size":  1934,
+                         "password":  "demopass",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_kdbx3_with_chacha20_protected_fields",
+                         "path":  "keepass-rs/test_db_kdbx3_with_chacha20_protected_fields.kdbx",
+                         "sha256":  "a93703cbbde361fb81e44db6c7720ac5c05cdc306fa6c0bfc40fd286e947aec0",
+                         "size":  1866,
+                         "password":  "password",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_kdbx4_with_keyfile",
+                         "path":  "keepass-rs/test_db_kdbx4_with_keyfile.kdbx",
+                         "sha256":  "1f78fa12b0c83d912248707a20fe3eca6eb9f3f104905c175973b73e8537166a",
+                         "size":  2358,
+                         "password":  null,
+                         "usable_for_v1":  false,
+                         "notes":  "requires unsupported credential type or is intentionally broken"
+                     },
+                     {
+                         "id":  "test_db_kdbx4_with_keyfile_v2",
+                         "path":  "keepass-rs/test_db_kdbx4_with_keyfile_v2.kdbx",
+                         "sha256":  "b2c36cb02ac0c785ce20d24cafc7d28b14e62d83d82b07f57627779e3b46581a",
+                         "size":  1990,
+                         "password":  null,
+                         "usable_for_v1":  false,
+                         "notes":  "requires unsupported credential type or is intentionally broken"
+                     },
+                     {
+                         "id":  "test_db_kdbx4_with_keyfile_v2_alt",
+                         "path":  "keepass-rs/test_db_kdbx4_with_keyfile_v2_alt.kdbx",
+                         "sha256":  "9218d922cfce15c0719e89e51eec8794f419dcb211e6d6749aa31a9575dd201f",
+                         "size":  2744,
+                         "password":  null,
+                         "usable_for_v1":  false,
+                         "notes":  "requires unsupported credential type or is intentionally broken"
+                     },
+                     {
+                         "id":  "test_db_kdbx4_with_password_aes",
+                         "path":  "keepass-rs/test_db_kdbx4_with_password_aes.kdbx",
+                         "sha256":  "9e54a163185cc03e27fe1a5003d3c638195cf962dba0b67e0f0e28af3296833e",
+                         "size":  1831,
+                         "password":  "demopass",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_kdbx4_with_password_argon2",
+                         "path":  "keepass-rs/test_db_kdbx4_with_password_argon2.kdbx",
+                         "sha256":  "4c8c11173f1f5894d6ba606e2f58da07b50a66d79486bac2daa1f23b7e3ca3cf",
+                         "size":  2518,
+                         "password":  "demopass",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_kdbx4_with_password_argon2_chacha20",
+                         "path":  "keepass-rs/test_db_kdbx4_with_password_argon2_chacha20.kdbx",
+                         "sha256":  "ba445a2db3d363358f7d3cf336d2a2e446c7a4140d4515398a44245caee6a94f",
+                         "size":  2393,
+                         "password":  "demopass",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_kdbx4_with_password_argon2_twofish",
+                         "path":  "keepass-rs/test_db_kdbx4_with_password_argon2_twofish.kdbx",
+                         "sha256":  "53ee2dabe7053413cffb83ac4fbacdc016a27f355a0a31e5b3a910a6c20591c8",
+                         "size":  2150,
+                         "password":  "demopass",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_kdbx4_with_password_argon2id",
+                         "path":  "keepass-rs/test_db_kdbx4_with_password_argon2id.kdbx",
+                         "sha256":  "1b40d7ac45bcba6051cd7380b2eace7de5e55be400b84e76123f6d36bc69fdb8",
+                         "size":  2118,
+                         "password":  "demopass",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_kdbx4_with_password_argon2id_chacha20",
+                         "path":  "keepass-rs/test_db_kdbx4_with_password_argon2id_chacha20.kdbx",
+                         "sha256":  "a45a2833ead92db643de2bb87fffe108ddcc6bb59bf13dd7e18963cae7004673",
+                         "size":  1883,
+                         "password":  "demopass",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_kdbx4_with_password_argon2id_twofish",
+                         "path":  "keepass-rs/test_db_kdbx4_with_password_argon2id_twofish.kdbx",
+                         "sha256":  "e877d1338d7c42891e7b41b065dd0cb957a4c9622b15587656bc54b39e2e4500",
+                         "size":  2374,
+                         "password":  "demopass",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_kdbx4_with_password_deleted_entry",
+                         "path":  "keepass-rs/test_db_kdbx4_with_password_deleted_entry.kdbx",
+                         "sha256":  "cdf0ddb068961b5fef7f17db5c1ef313fb2baeda166b13a11a7ba1de1b2f7f80",
+                         "size":  2502,
+                         "password":  "demopass",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_kdbx4_with_totp_entry",
+                         "path":  "keepass-rs/test_db_kdbx4_with_totp_entry.kdbx",
+                         "sha256":  "01de128cb6c2257b7f308e3be17ce96b5e203a3e6ca105df28026b39508e70c5",
+                         "size":  1973,
+                         "password":  "test",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_kdbx4_with_totp_sha512_entry",
+                         "path":  "keepass-rs/test_db_kdbx4_with_totp_sha512_entry.kdbx",
+                         "sha256":  "44eeb956ce4ad2a3f765fcf9daea9f5b0f0afb723467247b10bbe4aa6482e4c2",
+                         "size":  2309,
+                         "password":  "test",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_kdbx41_features",
+                         "path":  "keepass-rs/test_db_kdbx41_features.kdbx",
+                         "sha256":  "b3c9b3f3df36f71421e4075f038d1cf7d72f14fdbb5abf10a0a4b5308c93adb9",
+                         "size":  2072,
+                         "password":  "demopass",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_kdbx41_with_password_aes",
+                         "path":  "keepass-rs/test_db_kdbx41_with_password_aes.kdbx",
+                         "sha256":  "301dfe1a520a74886f3f25dfdb2645b756c30f1c005f98227aa65a49352c638d",
+                         "size":  5864,
+                         "password":  "demopass",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     },
+                     {
+                         "id":  "test_db_with_challenge_response_key",
+                         "path":  "keepass-rs/test_db_with_challenge_response_key.kdbx",
+                         "sha256":  "9767a6a34c86d3ba3111f08dc9d9deebbfc4cb5fdd4fca3542cf335069ec54bf",
+                         "size":  1653,
+                         "password":  null,
+                         "usable_for_v1":  false,
+                         "notes":  "requires unsupported credential type or is intentionally broken"
+                     },
+                     {
+                         "id":  "test_db_with_keyfile",
+                         "path":  "keepass-rs/test_db_with_keyfile.kdbx",
+                         "sha256":  "6acc7a6595f07e3d8b7ed530bbe0a56ff76f8e9b85e8969366fe229522b32db5",
+                         "size":  1358,
+                         "password":  null,
+                         "usable_for_v1":  false,
+                         "notes":  "requires unsupported credential type or is intentionally broken"
+                     },
+                     {
+                         "id":  "test_db_with_keyfile_xml",
+                         "path":  "keepass-rs/test_db_with_keyfile_xml.kdbx",
+                         "sha256":  "f6f23db020929b2aa3187c6dc8c7128e1f836982adce726ed6a9a36ead13835e",
+                         "size":  3326,
+                         "password":  null,
+                         "usable_for_v1":  false,
+                         "notes":  "requires unsupported credential type or is intentionally broken"
+                     },
+                     {
+                         "id":  "test_db_with_password",
+                         "path":  "keepass-rs/test_db_with_password.kdbx",
+                         "sha256":  "0909889e838988f57bea9ed33ecf244c1fb40c6efb2ba2224592659c749b884a",
+                         "size":  3134,
+                         "password":  "demopass",
+                         "usable_for_v1":  true,
+                         "notes":  ""
+                     }
+                 ]
+}

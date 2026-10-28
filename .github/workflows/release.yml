@@ -1,0 +1,114 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  windows:
+    name: build / windows
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: determine version
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          if ([string]::IsNullOrWhiteSpace($version)) { throw 'empty version tag' }
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "KEEPASSITY_VERSION=$version`n")
+
+      - name: verify the source
+        shell: pwsh
+        run: |
+          cargo test --workspace
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          dotnet run --project tests/app-core/Keepassity.Core.Tests -c Release
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-fixtures.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: build FFI library
+        run: cargo build -p keepassity-ffi --release
+
+      - name: publish portable package
+        shell: pwsh
+        run: >-
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish-windows.ps1
+          -Version $env:KEEPASSITY_VERSION
+          -OutputRoot out/dist
+          -FfiDir "${{ github.workspace }}\target\release"
+          -Zip
+
+      - name: self-test the published application
+        shell: pwsh
+        run: |
+          $exe = "out/dist/keepassity-$env:KEEPASSITY_VERSION-win-x64/Keepassity.Mock.exe"
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/selftest.ps1 `
+            -Fixture tests/fixtures/keepass-rs/test_db_kdbx4_with_password_aes.kdbx `
+            -Password demopass -Exe $exe
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/selftest.ps1 `
+            -Fixture tests/fixtures/keepass-rs/test_db_kdbx4_with_totp_entry.kdbx `
+            -Password test -Exe $exe
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: build installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-installer.ps1 `
+            -Version $env:KEEPASSITY_VERSION `
+            -SourceDir "out/dist/keepassity-$env:KEEPASSITY_VERSION-win-x64" `
+            -OutputDir "out/dist"
+
+      - name: write checksums
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-checksums.ps1 -Directory out/dist
+
+      - name: generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: out/dist
+          format: spdx-json
+          output-file: out/dist/sbom.spdx.json
+          artifact-name: keepassity-sbom
+
+      - name: attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "out/dist/*"
+
+      - name: upload release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: keepassity-windows
+          path: out/dist/*
+          if-no-files-found: error
+
+      - name: create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            out/dist/*.zip
+            out/dist/*-setup.exe
+            out/dist/SHA256SUMS
+            out/dist/sbom.spdx.json

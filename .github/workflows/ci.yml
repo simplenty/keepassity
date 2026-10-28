@@ -1,0 +1,170 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: core / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: verify fixture manifest
+        if: runner.os == 'Linux'
+        shell: pwsh
+        run: ./scripts/verify-fixtures.ps1
+      - name: Linux build deps (hidapi/udev)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace
+
+  interop:
+    name: interop / ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@v2
+      - name: install keepassxc and build deps
+        run: sudo apt-get update && sudo apt-get install -y keepassxc libudev-dev pkg-config
+      - name: fixture round trip + keepassxc verification
+        shell: pwsh
+        run: ./tools/interop/verify.ps1 -FixturesOnly -KeepassXcPath keepassxc-cli
+
+  sync-matrix:
+    name: sync-matrix / ubuntu
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux build deps (hidapi/udev)
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+      - name: 18-scenario sync matrix
+        run: cargo test -p keepassity-core --test sync_matrix
+
+  ffi:
+    name: ffi / ubuntu
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Linux build deps (hidapi/udev)
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+      - name: build FFI library
+        run: cargo build -p keepassity-ffi --release
+      - name: C harness (all commands)
+        run: |
+          gcc crates/ffi/tests/kp_smoke.c -Icrates/ffi/include \
+            target/release/libkeepassity_ffi.a -o /tmp/kp_smoke -lpthread -ldl -lm
+          /tmp/kp_smoke tests/fixtures/keepass-rs/test_db_kdbx4_with_password_aes.kdbx demopass
+      - name: C# P/Invoke smoke (open/list/totp/save)
+        env:
+          KEEPASSITY_FFI_FIXTURE: ${{ github.workspace }}/tests/fixtures/keepass-rs/test_db_kdbx4_with_password_aes.kdbx
+          KEEPASSITY_FFI_PASSWORD: demopass
+          LD_LIBRARY_PATH: ${{ github.workspace }}/target/release
+        run: dotnet run --project tests/ffi-csharp -c Release
+
+  app:
+    name: app / windows
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: build FFI library
+        run: cargo build -p keepassity-ffi --release
+      - name: restore and build the app
+        run: >-
+          dotnet build apps/windows/Keepassity.sln -c Release
+          /p:KeepassityFfiDir=${{ github.workspace }}\target\release\
+      - name: core service tests
+        run: dotnet run --project tests/app-core/Keepassity.Core.Tests -c Release
+      - name: application self-test (AES fixture)
+        shell: pwsh
+        run: >-
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/selftest.ps1
+          -Fixture tests/fixtures/keepass-rs/test_db_kdbx4_with_password_aes.kdbx
+          -Password demopass
+          -Exe apps/windows/Keepassity.Mock/bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/Keepassity.Mock.exe
+      - name: application self-test (TOTP fixture)
+        shell: pwsh
+        run: >-
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/selftest.ps1
+          -Fixture tests/fixtures/keepass-rs/test_db_kdbx4_with_totp_entry.kdbx
+          -Password test
+          -Exe apps/windows/Keepassity.Mock/bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/Keepassity.Mock.exe
+      - name: dependency audit (informational)
+        shell: pwsh
+        continue-on-error: true
+        run: dotnet list apps/windows/Keepassity.Mock/Keepassity.Mock.csproj package --vulnerable --include-transitive
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  supply-chain:
+    name: supply-chain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@cargo-deny
+      - name: cargo deny
+        run: cargo deny check
+
+  public-hygiene:
+    name: public-hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: enforce public allowlist
+        shell: pwsh
+        run: ./scripts/check-public.ps1
