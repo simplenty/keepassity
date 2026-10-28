@@ -1752,6 +1752,9 @@ public sealed partial class MainWindow : Window
 
         Groups.Clear();
         Groups.Add(new GroupItem(null, "All entries", allEntries.Count, "\uE8FD"));
+        GroupItem? recycleBin = null;
+        GroupItem? templates = null;
+        var otherGroups = new List<GroupItem>();
         foreach (GroupDto group in _groupDtos)
         {
             if (group.Uuid == _rootGroupUuid || string.IsNullOrWhiteSpace(group.Name))
@@ -1759,7 +1762,33 @@ public sealed partial class MainWindow : Window
                 continue;
             }
             int count = allEntries.Count(entry => entry.GroupUuid == group.Uuid);
-            Groups.Add(new GroupItem(group.Uuid, group.Name, count, "\uE8B7"));
+            var item = new GroupItem(group.Uuid, group.Name, count, "\uE8B7");
+            if (IsRecycleBinGroup(group.Name) && recycleBin is null)
+            {
+                recycleBin = item;
+            }
+            else if (IsTemplatesGroup(group.Name) && templates is null)
+            {
+                templates = item;
+            }
+            else
+            {
+                otherGroups.Add(item);
+            }
+        }
+        // The recycle bin stays directly below "All entries"; template groups are
+        // pinned to the bottom so a vault's XML order cannot move them around.
+        if (recycleBin is not null)
+        {
+            Groups.Add(recycleBin);
+        }
+        foreach (GroupItem item in otherGroups)
+        {
+            Groups.Add(item);
+        }
+        if (templates is not null)
+        {
+            Groups.Add(templates);
         }
         PopulateNavigation(_selectedGroupUuid);
 
@@ -1795,7 +1824,9 @@ public sealed partial class MainWindow : Window
                 Tag = group.Uuid ?? "all",
                 Icon = new FontIcon { Glyph = group.Glyph },
             };
-            if (group.CountValue > 0)
+            if (group.CountValue > 0 &&
+                !IsRecycleBinGroup(group.Name) &&
+                !IsTemplatesGroup(group.Name))
             {
                 item.InfoBadge = new InfoBadge { Value = group.CountValue };
             }
@@ -1809,6 +1840,22 @@ public sealed partial class MainWindow : Window
         }
         NavView.SelectedItem = selectedItem ?? first;
         _suppressNav = false;
+    }
+
+    private static bool IsRecycleBinGroup(string name)
+    {
+        string value = name.Trim();
+        return value.Equals("回收站", StringComparison.OrdinalIgnoreCase) ||
+               value.Equals("Recycle Bin", StringComparison.OrdinalIgnoreCase) ||
+               value.Equals("RecycleBin", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsTemplatesGroup(string name)
+    {
+        string value = name.Trim();
+        return value.Equals("模板", StringComparison.OrdinalIgnoreCase) ||
+               value.Equals("Templates", StringComparison.OrdinalIgnoreCase) ||
+               value.Equals("Template", StringComparison.OrdinalIgnoreCase);
     }
 
     private void PopulateEntries(IEnumerable<EntrySummaryDto> entries, string title)
