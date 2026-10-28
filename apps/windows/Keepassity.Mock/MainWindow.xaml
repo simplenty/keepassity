@@ -137,22 +137,27 @@
                             Click="UnlockButton_Click" />
                     <ProgressRing x:Name="UnlockProgress" IsActive="False"
                                   Width="22" Height="22" HorizontalAlignment="Center" />
-                    <Grid>
+                    <StackPanel Spacing="6">
                         <StackPanel Orientation="Horizontal" Spacing="16" HorizontalAlignment="Left">
-                            <HyperlinkButton x:Name="ChooseDatabaseButton" Content="Choose database…"
+                            <HyperlinkButton x:Name="ChooseDatabaseButton" Content="Open local file…"
                                              Padding="0"
                                              Click="ChooseDatabaseButton_Click" />
-                            <HyperlinkButton x:Name="NewDatabaseButton" Content="New database…"
+                            <HyperlinkButton x:Name="OpenFromWebDavButton" Content="Open from WebDAV…"
                                              Padding="0"
-                                             Click="NewDatabaseButton_Click" />
+                                             Click="OpenFromWebDavButton_Click" />
                         </StackPanel>
-                        <TextBlock x:Name="DatabasePathText" Text="No database selected"
-                                   HorizontalAlignment="Right" VerticalAlignment="Center"
-                                   MaxWidth="210" TextTrimming="CharacterEllipsis"
-                                   FontSize="11"
-                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                    </Grid>
-                    <TextBlock Text="The database is read and written locally through the keepassity core."
+                        <Grid>
+                            <HyperlinkButton x:Name="NewDatabaseButton" Content="New database…"
+                                             Padding="0" HorizontalAlignment="Left"
+                                             Click="NewDatabaseButton_Click" />
+                            <TextBlock x:Name="DatabasePathText" Text="No database selected"
+                                       HorizontalAlignment="Right" VerticalAlignment="Center"
+                                       MaxWidth="200" TextTrimming="CharacterEllipsis"
+                                       FontSize="11"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        </Grid>
+                    </StackPanel>
+                    <TextBlock Text="Local files are read and written through the keepassity core. Databases opened from WebDAV keep a local working copy and sync back on save."
                                FontSize="11" TextWrapping="Wrap"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                 </StackPanel>

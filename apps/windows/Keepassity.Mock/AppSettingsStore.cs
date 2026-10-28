@@ -10,6 +10,10 @@ public sealed class AppSettings
     public bool AutoLockEnabled { get; set; } = true;
     public int AutoLockMinutes { get; set; } = 15;
     public string? LastDatabasePath { get; set; }
+    /// <summary>"local" or "webdav": how the last database was opened.</summary>
+    public string? LastDatabaseKind { get; set; }
+    public string? LastWebDavUrl { get; set; }
+    public string? LastWebDavUsername { get; set; }
     public string? WebDavUrl { get; set; }
     public string? WebDavUsername { get; set; }
     public bool SyncOnSave { get; set; } = true;

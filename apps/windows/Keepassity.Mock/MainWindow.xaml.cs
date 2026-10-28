@@ -36,6 +36,8 @@ public sealed partial class MainWindow : Window
     private readonly Dictionary<string, string> _groupNames = new();
 
     private string? _dbPath;
+    private bool _webDavSource;
+    private string? _sourceWebDavUrl;
     private string? _selectedGroupUuid;
     private string? _rootGroupUuid;
     private EntryFullDto? _currentFull;
@@ -75,6 +77,12 @@ public sealed partial class MainWindow : Window
             File.Exists(Settings.LastDatabasePath))
         {
             _dbPath = Settings.LastDatabasePath;
+            if (string.Equals(Settings.LastDatabaseKind, "webdav",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                _webDavSource = true;
+                _sourceWebDavUrl = Settings.LastWebDavUrl;
+            }
         }
         UpdateDatabasePath();
 
@@ -284,16 +292,59 @@ public sealed partial class MainWindow : Window
             if (File.Exists(candidate))
             {
                 _dbPath = Path.GetFullPath(candidate);
+                // An explicit local file wins over a previously opened WebDAV
+                // source; drop that remote target so saves cannot overwrite it.
+                if (string.Equals(Settings.LastDatabaseKind, "webdav",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    Settings.WebDavUrl = null;
+                    Settings.WebDavUsername = null;
+                }
+                Settings.LastDatabaseKind = "local";
+                Settings.LastWebDavUrl = null;
+                Settings.LastWebDavUsername = null;
             }
         }
     }
 
     private void UpdateDatabasePath()
     {
-        DatabasePathText.Text = _dbPath is null
-            ? "No database selected"
-            : Path.GetFileName(_dbPath);
-        ToolTipService.SetToolTip(DatabasePathText, _dbPath ?? "Choose a .kdbx database");
+        if (_dbPath is null)
+        {
+            DatabasePathText.Text = "No database selected";
+            ToolTipService.SetToolTip(DatabasePathText,
+                "Open a local .kdbx file or open from WebDAV");
+            return;
+        }
+        if (_webDavSource && !string.IsNullOrWhiteSpace(_sourceWebDavUrl))
+        {
+            DatabasePathText.Text = "WebDAV: " + _sourceWebDavUrl;
+            ToolTipService.SetToolTip(DatabasePathText,
+                _sourceWebDavUrl + Environment.NewLine + "Local working copy: " + _dbPath);
+            return;
+        }
+        DatabasePathText.Text = Path.GetFileName(_dbPath);
+        ToolTipService.SetToolTip(DatabasePathText, _dbPath);
+    }
+
+    private string DisplayVaultName()
+    {
+        if (_webDavSource && !string.IsNullOrWhiteSpace(_sourceWebDavUrl))
+        {
+            try
+            {
+                string name = Path.GetFileName(new Uri(_sourceWebDavUrl).AbsolutePath);
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    return Path.GetFileNameWithoutExtension(Uri.UnescapeDataString(name));
+                }
+            }
+            catch
+            {
+                // Fall back to the working-copy file name.
+            }
+        }
+        return _dbPath is null ? "Vault" : Path.GetFileNameWithoutExtension(_dbPath);
     }
 
     private void TrySetMica()
@@ -465,6 +516,14 @@ public sealed partial class MainWindow : Window
             if (!startup)
             {
                 ShowToast(ex.Message, InfoBarSeverity.Error);
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            SetSyncStatus("Offline");
+            if (!startup)
+            {
+                ShowToast("WebDAV is unreachable; working offline.", InfoBarSeverity.Warning);
             }
         }
         catch (Exception ex)
@@ -933,9 +992,280 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
+        if (string.Equals(Settings.LastDatabaseKind, "webdav",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            // Do not carry a previous WebDAV target over to an unrelated local
+            // file: saving it would overwrite that remote database.
+            Settings.WebDavUrl = null;
+            Settings.WebDavUsername = null;
+        }
+        else if (!string.Equals(Settings.LastDatabasePath, file.Path,
+                     StringComparison.OrdinalIgnoreCase))
+        {
+            // Switching to a different local database must not inherit the
+            // previous database's WebDAV target either.
+            Settings.WebDavUrl = null;
+            Settings.WebDavUsername = null;
+        }
         _dbPath = file.Path;
+        _webDavSource = false;
+        _sourceWebDavUrl = null;
+        Settings.LastDatabaseKind = "local";
+        Settings.LastWebDavUrl = null;
+        Settings.LastWebDavUsername = null;
+        _settingsStore.Save();
         UpdateDatabasePath();
         UnlockError.IsOpen = false;
+    }
+
+    private async void OpenFromWebDavButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy)
+        {
+            return;
+        }
+        string initialUrl = Settings.LastWebDavUrl ?? Settings.WebDavUrl ?? string.Empty;
+        string initialUsername = Settings.LastWebDavUsername ?? Settings.WebDavUsername
+            ?? string.Empty;
+        var urlBox = new TextBox
+        {
+            Header = "WebDAV file URL",
+            Text = initialUrl,
+            PlaceholderText = "https://dav.jianguoyun.com/dav/keepassity/Keywords.kdbx",
+        };
+        var userBox = new TextBox
+        {
+            Header = "WebDAV username",
+            Text = initialUsername,
+        };
+        var passwordBox = new PasswordBox
+        {
+            Header = "WebDAV password",
+            PasswordRevealMode = PasswordRevealMode.Peek,
+            PlaceholderText = "Leave blank to use the stored password",
+        };
+        var rememberBox = new CheckBox
+        {
+            Content = "Remember password with Windows DPAPI",
+            IsChecked = true,
+        };
+        var errorText = new TextBlock
+        {
+            Foreground = (Brush)Application.Current.Resources["SystemFillColorCriticalBrush"],
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed,
+        };
+        var content = new StackPanel { Spacing = 12 };
+        content.Children.Add(urlBox);
+        content.Children.Add(userBox);
+        content.Children.Add(passwordBox);
+        content.Children.Add(rememberBox);
+        content.Children.Add(errorText);
+        content.Children.Add(new TextBlock
+        {
+            Text = "The .kdbx file is downloaded to an encrypted local working copy. " +
+                   "Saves sync back to this URL; conflicts never overwrite silently.",
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+        });
+        var dialog = new ContentDialog
+        {
+            Title = "Open from WebDAV",
+            Content = content,
+            PrimaryButtonText = "Open",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Root.XamlRoot,
+        };
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            string url = urlBox.Text.Trim();
+            string username = userBox.Text.Trim();
+            string? error = null;
+            if (!IsWebDavUrl(url))
+            {
+                error = "Enter an absolute http(s) URL that points to the .kdbx file.";
+            }
+            else if (username.Length == 0)
+            {
+                error = "Enter the WebDAV username.";
+            }
+            else if (passwordBox.Password.Length == 0 &&
+                     _credentials.LoadPassword(url, username) is null)
+            {
+                error = "Enter the WebDAV password (or use a URL whose credential is stored).";
+            }
+            if (error is null)
+            {
+                return;
+            }
+            errorText.Text = error;
+            errorText.Visibility = Visibility.Visible;
+            args.Cancel = true;
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+        string remoteUrl = urlBox.Text.Trim();
+        string remoteUsername = userBox.Text.Trim();
+        string remotePassword = passwordBox.Password.Length > 0
+            ? passwordBox.Password
+            : _credentials.LoadPassword(remoteUrl, remoteUsername) ?? string.Empty;
+        bool rememberPassword = rememberBox.IsChecked == true;
+        if (remotePassword.Length == 0)
+        {
+            ShowUnlockError("Cannot open database", "Enter the WebDAV password.");
+            return;
+        }
+
+        _busy = true;
+        SetUnlockControlsEnabled(false);
+        UnlockError.IsOpen = false;
+        UnlockProgress.IsActive = true;
+        try
+        {
+            // Never overwrite a working copy that still holds unsynced edits:
+            // open it now and let the normal sync/merge path reconcile after unlock.
+            string pendingPath = RemoteDatabaseStore.PathFor(remoteUrl, remoteUsername);
+            SyncState pendingState = _syncStates.Load(remoteUrl, remoteUsername, pendingPath);
+            if (File.Exists(pendingPath) && pendingState.LocalDirty)
+            {
+                if (rememberPassword)
+                {
+                    try
+                    {
+                        _credentials.SavePassword(remoteUrl, remoteUsername, remotePassword);
+                    }
+                    catch
+                    {
+                        // The pending-change path must not fail on credential storage.
+                    }
+                }
+                ApplyWebDavSource(remoteUrl, remoteUsername, pendingPath);
+                UnlockError.Severity = InfoBarSeverity.Warning;
+                UnlockError.Title = "Unsynced local changes";
+                UnlockError.Message = "The local working copy has changes that were not " +
+                                      "uploaded yet. Opening it; conflicts will be handled " +
+                                      "after unlock.";
+                UnlockError.IsOpen = true;
+                MasterPassword.Focus(FocusState.Programmatic);
+                return;
+            }
+            WebDavFileInfo? metadata;
+            byte[] bytes;
+            using (var dav = new WebDavClient(remoteUrl, remoteUsername, remotePassword))
+            {
+                metadata = await dav.GetMetadataAsync();
+                if (metadata is null)
+                {
+                    throw new WebDavException(
+                        "The remote database file was not found. Check the WebDAV file URL.", 404);
+                }
+                bytes = await dav.DownloadAsync();
+            }
+            if (rememberPassword)
+            {
+                _credentials.SavePassword(remoteUrl, remoteUsername, remotePassword);
+            }
+            string workingPath = RemoteDatabaseStore.PathFor(remoteUrl, remoteUsername);
+            await WriteLocalBytesAsync(workingPath, bytes);
+            ApplyWebDavSource(remoteUrl, remoteUsername, workingPath);
+            SyncState state = _syncStates.Load(remoteUrl, remoteUsername, workingPath);
+            state.Etag = metadata.ETag;
+            state.Sha256 = Sha256Hex(bytes);
+            state.Size = bytes.Length;
+            state.RemoteModifiedUnix = metadata.ModifiedUnix;
+            state.LocalDirty = false;
+            state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            _syncStates.Save(remoteUrl, remoteUsername, workingPath, state);
+            UnlockError.Severity = InfoBarSeverity.Success;
+            UnlockError.Title = "Downloaded from WebDAV";
+            UnlockError.Message =
+                "Enter the master password to unlock. Saves will sync back to this file.";
+            UnlockError.IsOpen = true;
+            MasterPassword.Focus(FocusState.Programmatic);
+        }
+        catch (WebDavException ex)
+        {
+            ShowUnlockError("Cannot open database", ex.Message);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            string workingPath = RemoteDatabaseStore.PathFor(remoteUrl, remoteUsername);
+            if (File.Exists(workingPath))
+            {
+                if (rememberPassword)
+                {
+                    try
+                    {
+                        _credentials.SavePassword(remoteUrl, remoteUsername, remotePassword);
+                    }
+                    catch
+                    {
+                        // Offline fallback must not fail because of credential storage.
+                    }
+                }
+                ApplyWebDavSource(remoteUrl, remoteUsername, workingPath);
+                UnlockError.Severity = InfoBarSeverity.Warning;
+                UnlockError.Title = "WebDAV unreachable";
+                UnlockError.Message = "Opening the local working copy. " +
+                                      "Changes will sync when the network is back.";
+                UnlockError.IsOpen = true;
+                MasterPassword.Focus(FocusState.Programmatic);
+            }
+            else
+            {
+                ShowUnlockError("Cannot open database", ex.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowUnlockError("Cannot open database", ex.Message);
+        }
+        finally
+        {
+            _busy = false;
+            SetUnlockControlsEnabled(true);
+            UnlockProgress.IsActive = false;
+        }
+    }
+
+    private static bool IsWebDavUrl(string url)
+        => Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) &&
+           (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+
+    private void ApplyWebDavSource(string url, string username, string workingPath)
+    {
+        _dbPath = workingPath;
+        _webDavSource = true;
+        _sourceWebDavUrl = url;
+        Settings.LastDatabaseKind = "webdav";
+        Settings.LastWebDavUrl = url;
+        Settings.LastWebDavUsername = username;
+        Settings.LastDatabasePath = workingPath;
+        Settings.WebDavUrl = url;
+        Settings.WebDavUsername = username;
+        _settingsStore.Save();
+        UpdateDatabasePath();
+    }
+
+    private void ShowUnlockError(string title, string message)
+    {
+        UnlockError.Severity = InfoBarSeverity.Error;
+        UnlockError.Title = title;
+        UnlockError.Message = message;
+        UnlockError.IsOpen = true;
+    }
+
+    private void SetUnlockControlsEnabled(bool enabled)
+    {
+        UnlockButton.IsEnabled = enabled;
+        ChooseDatabaseButton.IsEnabled = enabled;
+        OpenFromWebDavButton.IsEnabled = enabled;
+        NewDatabaseButton.IsEnabled = enabled;
     }
 
     private async void NewDatabaseButton_Click(object sender, RoutedEventArgs e)
@@ -948,6 +1278,12 @@ public sealed partial class MainWindow : Window
         {
             Header = "Database name",
             Text = "keepassity",
+        };
+        var targetChoices = new RadioButtons
+        {
+            Header = "Save to",
+            ItemsSource = new[] { "Local file", "WebDAV" },
+            SelectedIndex = 0,
         };
         var pathBox = new TextBox
         {
@@ -973,6 +1309,43 @@ public sealed partial class MainWindow : Window
         Grid.SetColumn(browse, 1);
         pathRow.Children.Add(pathBox);
         pathRow.Children.Add(browse);
+        var localPanel = new StackPanel { Spacing = 12 };
+        localPanel.Children.Add(pathRow);
+        var urlBox = new TextBox
+        {
+            Header = "WebDAV file URL",
+            Text = Settings.LastWebDavUrl ?? Settings.WebDavUrl ?? string.Empty,
+            PlaceholderText = "https://dav.jianguoyun.com/dav/keepassity/Keywords.kdbx",
+        };
+        var userBox = new TextBox
+        {
+            Header = "WebDAV username",
+            Text = Settings.LastWebDavUsername ?? Settings.WebDavUsername ?? string.Empty,
+        };
+        var remotePasswordBox = new PasswordBox
+        {
+            Header = "WebDAV password",
+            PasswordRevealMode = PasswordRevealMode.Peek,
+            PlaceholderText = "Leave blank to use the stored password",
+        };
+        var rememberBox = new CheckBox
+        {
+            Content = "Remember password with Windows DPAPI",
+            IsChecked = true,
+        };
+        var webdavPanel = new StackPanel { Spacing = 12, Visibility = Visibility.Collapsed };
+        webdavPanel.Children.Add(urlBox);
+        webdavPanel.Children.Add(userBox);
+        webdavPanel.Children.Add(remotePasswordBox);
+        webdavPanel.Children.Add(rememberBox);
+        webdavPanel.Children.Add(new TextBlock
+        {
+            Text = "The new database is uploaded to this URL first. An existing remote " +
+                   "file is never overwritten.",
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+        });
         var passwordBox = new PasswordBox
         {
             Header = "Master password",
@@ -991,7 +1364,9 @@ public sealed partial class MainWindow : Window
         };
         var content = new StackPanel { Spacing = 12 };
         content.Children.Add(nameBox);
-        content.Children.Add(pathRow);
+        content.Children.Add(targetChoices);
+        content.Children.Add(localPanel);
+        content.Children.Add(webdavPanel);
         content.Children.Add(passwordBox);
         content.Children.Add(confirmBox);
         content.Children.Add(errorText);
@@ -1012,6 +1387,12 @@ public sealed partial class MainWindow : Window
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Root.XamlRoot,
         };
+        targetChoices.SelectionChanged += (_, _) =>
+        {
+            bool webdav = targetChoices.SelectedIndex == 1;
+            localPanel.Visibility = webdav ? Visibility.Collapsed : Visibility.Visible;
+            webdavPanel.Visibility = webdav ? Visibility.Visible : Visibility.Collapsed;
+        };
         browse.Click += async (_, _) =>
         {
             var picker = new FolderPicker
@@ -1031,8 +1412,30 @@ public sealed partial class MainWindow : Window
         };
         dialog.PrimaryButtonClick += (_, args) =>
         {
-            string error = ValidateNewDatabase(nameBox.Text, pathBox.Text,
+            string error = ValidateNewDatabaseNameAndPassword(nameBox.Text,
                 passwordBox.Password, confirmBox.Password);
+            if (error.Length == 0 && targetChoices.SelectedIndex == 0)
+            {
+                error = ValidateLocalDatabasePath(pathBox.Text);
+            }
+            if (error.Length == 0 && targetChoices.SelectedIndex == 1)
+            {
+                string url = urlBox.Text.Trim();
+                string username = userBox.Text.Trim();
+                if (!IsWebDavUrl(url))
+                {
+                    error = "Enter an absolute http(s) URL for the new database.";
+                }
+                else if (username.Length == 0)
+                {
+                    error = "Enter the WebDAV username.";
+                }
+                else if (remotePasswordBox.Password.Length == 0 &&
+                         _credentials.LoadPassword(url, username) is null)
+                {
+                    error = "Enter the WebDAV password (or use a URL whose credential is stored).";
+                }
+            }
             if (error.Length == 0)
             {
                 return;
@@ -1046,87 +1449,146 @@ public sealed partial class MainWindow : Window
             return;
         }
         string databaseName = nameBox.Text.Trim();
-        string path;
-        try
-        {
-            path = Path.GetFullPath(pathBox.Text.Trim());
-        }
-        catch
-        {
-            return;
-        }
         string password = passwordBox.Password;
-        if (ValidateNewDatabase(databaseName, path, password, confirmBox.Password).Length > 0)
+        bool useWebDav = targetChoices.SelectedIndex == 1;
+        string path = string.Empty;
+        if (ValidateNewDatabaseNameAndPassword(databaseName, password,
+                confirmBox.Password).Length > 0)
         {
             return;
         }
+        if (!useWebDav)
+        {
+            try
+            {
+                path = Path.GetFullPath(pathBox.Text.Trim());
+            }
+            catch
+            {
+                return;
+            }
+            if (ValidateLocalDatabasePath(path).Length > 0)
+            {
+                return;
+            }
+        }
+        string remoteUrl = urlBox.Text.Trim();
+        string remoteUsername = userBox.Text.Trim();
+        string remotePassword = remotePasswordBox.Password.Length > 0
+            ? remotePasswordBox.Password
+            : _credentials.LoadPassword(remoteUrl, remoteUsername) ?? string.Empty;
+        bool rememberPassword = rememberBox.IsChecked == true;
 
         _busy = true;
         UnlockError.IsOpen = false;
-        NewDatabaseButton.IsEnabled = false;
-        ChooseDatabaseButton.IsEnabled = false;
-        UnlockButton.IsEnabled = false;
+        SetUnlockControlsEnabled(false);
         UnlockProgress.IsActive = true;
         try
         {
             byte[] bytes = await _core.CreateDatabaseAsync(databaseName, password);
-            string? directory = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(directory))
+            if (useWebDav)
             {
-                Directory.CreateDirectory(directory);
+                string workingPath = RemoteDatabaseStore.PathFor(remoteUrl, remoteUsername);
+                string? etag;
+                using (var dav = new WebDavClient(remoteUrl, remoteUsername, remotePassword))
+                {
+                    try
+                    {
+                        etag = await dav.UploadAsync(bytes, ifMatch: null);
+                    }
+                    catch (WebDavException ex) when (ex.Conflict)
+                    {
+                        throw new InvalidOperationException(
+                            "The remote file already exists. Choose another URL or open it " +
+                            "from WebDAV.");
+                    }
+                }
+                if (rememberPassword)
+                {
+                    _credentials.SavePassword(remoteUrl, remoteUsername, remotePassword);
+                }
+                await WriteLocalBytesAsync(workingPath, bytes);
+                ApplyWebDavSource(remoteUrl, remoteUsername, workingPath);
+                SyncState state = _syncStates.Load(remoteUrl, remoteUsername, workingPath);
+                state.Etag = etag;
+                state.Sha256 = Sha256Hex(bytes);
+                state.Size = bytes.Length;
+                state.RemoteModifiedUnix = null;
+                state.LocalDirty = false;
+                state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                _syncStates.Save(remoteUrl, remoteUsername, workingPath, state);
+                await _core.OpenAsync(workingPath, password);
+                _masterPassword = password;
+                _selectedGroupUuid = null;
+                await ReloadVaultAsync(null);
+                UpdateDatabasePath();
+                ShowMain();
+                MasterPassword.Password = string.Empty;
+                SetSyncStatus("Synced");
+                ShowToast("Database created on WebDAV", InfoBarSeverity.Success);
             }
-            if (File.Exists(path))
+            else
             {
-                throw new InvalidOperationException("That file already exists. Choose another path.");
+                string? directory = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+                if (File.Exists(path))
+                {
+                    throw new InvalidOperationException(
+                        "That file already exists. Choose another path.");
+                }
+                string temp = path + ".keepassity-new-tmp";
+                await File.WriteAllBytesAsync(temp, bytes);
+                File.Move(temp, path);
+                _dbPath = path;
+                _webDavSource = false;
+                _sourceWebDavUrl = null;
+                await _core.OpenAsync(path, password);
+                _masterPassword = password;
+                _selectedGroupUuid = null;
+                Settings.LastDatabaseKind = "local";
+                Settings.LastWebDavUrl = null;
+                Settings.LastWebDavUsername = null;
+                Settings.LastDatabasePath = path;
+                // A brand-new database starts without a sync target; carrying over
+                // the previous WebDAV URL could overwrite that remote file.
+                Settings.WebDavUrl = null;
+                Settings.WebDavUsername = null;
+                _settingsStore.Save();
+                await ReloadVaultAsync(null);
+                UpdateDatabasePath();
+                ShowMain();
+                MasterPassword.Password = string.Empty;
+                SetSyncStatus("Local only");
+                ShowToast("Database created", InfoBarSeverity.Success);
             }
-            string temp = path + ".keepassity-new-tmp";
-            await File.WriteAllBytesAsync(temp, bytes);
-            File.Move(temp, path);
-            _dbPath = path;
-            await _core.OpenAsync(path, password);
-            _masterPassword = password;
-            _selectedGroupUuid = null;
-            Settings.LastDatabasePath = path;
-            _settingsStore.Save();
-            await ReloadVaultAsync(null);
-            UpdateDatabasePath();
-            ShowMain();
-            MasterPassword.Password = string.Empty;
-            SetSyncStatus(IsSyncConfigured ? "Not synced" : "Local only");
-            ShowToast("Database created", InfoBarSeverity.Success);
         }
         catch (Exception ex)
         {
             UnlockError.Title = "Cannot create database";
+            UnlockError.Severity = InfoBarSeverity.Error;
             UnlockError.Message = ex.Message;
             UnlockError.IsOpen = true;
         }
         finally
         {
             _busy = false;
-            NewDatabaseButton.IsEnabled = true;
-            ChooseDatabaseButton.IsEnabled = true;
-            UnlockButton.IsEnabled = true;
+            SetUnlockControlsEnabled(true);
             UnlockProgress.IsActive = false;
             passwordBox.Password = string.Empty;
             confirmBox.Password = string.Empty;
+            remotePasswordBox.Password = string.Empty;
         }
     }
 
-    private static string ValidateNewDatabase(string name, string path, string password,
+    private static string ValidateNewDatabaseNameAndPassword(string name, string password,
         string confirm)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
             return "Enter a database name.";
-        }
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return "Choose where to save the database.";
-        }
-        if (!path.EndsWith(".kdbx", StringComparison.OrdinalIgnoreCase))
-        {
-            return "The file name must end in .kdbx.";
         }
         if (password.Length == 0)
         {
@@ -1139,6 +1601,18 @@ public sealed partial class MainWindow : Window
         return string.Empty;
     }
 
+    private static string ValidateLocalDatabasePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return "Choose where to save the database.";
+        }
+        if (!path.EndsWith(".kdbx", StringComparison.OrdinalIgnoreCase))
+        {
+            return "The file name must end in .kdbx.";
+        }
+        return string.Empty;
+    }
     private static string DefaultNewDatabasePath()
     {
         string directory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
@@ -1188,8 +1662,7 @@ public sealed partial class MainWindow : Window
 
         _busy = true;
         UnlockError.IsOpen = false;
-        UnlockButton.IsEnabled = false;
-        ChooseDatabaseButton.IsEnabled = false;
+        SetUnlockControlsEnabled(false);
         UnlockProgress.IsActive = true;
         try
         {
@@ -1202,6 +1675,7 @@ public sealed partial class MainWindow : Window
                 _settingsStore.Save();
             }
             await ReloadVaultAsync(null);
+            UnlockError.IsOpen = false;
             ShowMain();
             MasterPassword.Password = string.Empty;
             _ = SyncAsync(startup: true);
@@ -1227,8 +1701,7 @@ public sealed partial class MainWindow : Window
         finally
         {
             _busy = false;
-            UnlockButton.IsEnabled = true;
-            ChooseDatabaseButton.IsEnabled = true;
+            SetUnlockControlsEnabled(true);
             UnlockProgress.IsActive = false;
         }
     }
@@ -1238,9 +1711,7 @@ public sealed partial class MainWindow : Window
         UnlockRoot.Visibility = Visibility.Collapsed;
         MainRoot.Visibility = Visibility.Visible;
         SearchBox.Visibility = Visibility.Visible;
-        VaultNameText.Text = _dbPath is null
-            ? "Vault"
-            : Path.GetFileNameWithoutExtension(_dbPath);
+        VaultNameText.Text = DisplayVaultName();
         _totpTimer.Start();
         _autoLockTimer.Start();
         TouchActivity();
@@ -2218,6 +2689,8 @@ public sealed partial class MainWindow : Window
         MasterPassword.Password = string.Empty;
         _masterPassword = null;
         SetSyncStatus(IsSyncConfigured ? "Not synced" : "Local only");
+        UnlockError.IsOpen = false;
+        UnlockError.Severity = InfoBarSeverity.Error;
         UpdateDatabasePath();
         _busy = false;
         MasterPassword.Focus(FocusState.Programmatic);
@@ -2283,11 +2756,13 @@ public sealed partial class MainWindow : Window
             Header = "WebDAV file URL",
             Text = Settings.WebDavUrl ?? string.Empty,
             PlaceholderText = "https://dav.example.com/keepassity.kdbx",
+            IsReadOnly = _webDavSource,
         };
         var webdavUser = new TextBox
         {
             Header = "WebDAV username",
             Text = Settings.WebDavUsername ?? string.Empty,
+            IsReadOnly = _webDavSource,
         };
         var webdavPassword = new PasswordBox
         {
@@ -2367,8 +2842,12 @@ public sealed partial class MainWindow : Window
         content.Children.Add(syncOnSave);
         content.Children.Add(new TextBlock
         {
-            Text = "The URL must point to the .kdbx file. The WebDAV password is stored " +
-                   "with Windows DPAPI, not in the plain settings file.",
+            Text = _webDavSource
+                ? "This database was opened from WebDAV; the source URL is fixed for this " +
+                  "session. To switch sources, lock and use Open from WebDAV… on the unlock " +
+                  "page. The WebDAV password is stored with Windows DPAPI."
+                : "The URL must point to the .kdbx file. The WebDAV password is stored " +
+                  "with Windows DPAPI, not in the plain settings file.",
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],

@@ -10,9 +10,11 @@ A Windows-first, open-source password manager for KeePass **KDBX** databases, wi
 
 **Early development (v0.1.0).** The Windows app is usable against real KDBX databases today:
 it unlocks, browses, edits and saves entries, shows TOTP codes, keeps timestamped local
-backups, and syncs over WebDAV with conflict copies. It is **not ready for daily use as the
-only copy of your passwords** — there is no installer yet, the v1.0 acceptance gates have not
-been run, and keyfile/challenge-response credentials are not supported. The v1.0 scope is
+backups, and syncs over WebDAV with conflict copies. Databases can also be **opened directly
+from a WebDAV URL** (e.g. Jianguoyun): the app downloads an encrypted working copy, unlocks it
+locally, and syncs saves back; local files remain supported. It is **not ready for daily use as
+the only copy of your passwords** — there is no installer yet, the v1.0 acceptance gates have
+not been run, and keyfile/challenge-response credentials are not supported. The v1.0 scope is
 frozen by the maintainer.
 
 ## What v1.0 aims to be
