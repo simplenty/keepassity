@@ -91,7 +91,7 @@ jobs:
           artifact-name: keepassity-sbom
 
       - name: attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: "out/dist/*"
 
