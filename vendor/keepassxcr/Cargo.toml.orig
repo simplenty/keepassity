@@ -1,0 +1,85 @@
+[package]
+name = "keepassxcr"
+version = "0.3.1"
+edition = "2024"
+rust-version = "1.88"
+description = "A Rust reimplementation of keepassxc-cli, and a library for reading and writing KeePass KDBX 3.1/4.x databases"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/tynes/keepassxcr"
+homepage = "https://github.com/tynes/keepassxcr"
+documentation = "https://docs.rs/keepassxcr"
+readme = "README.md"
+keywords = ["keepass", "keepassxc", "kdbx", "password-manager", "cli"]
+categories = ["command-line-utilities", "cryptography", "authentication"]
+# Ship only what builds the crate. The test suites, fixtures, compatibility
+# harness and the KeePassXC submodule stay in the repository.
+include = ["/src/**/*.rs", "/assets/diceware.txt", "/README.md", "/CHANGELOG.md", "/LICENSE"]
+
+[lib]
+name = "keepassxcr"
+path = "src/lib.rs"
+
+[[bin]]
+name = "keepassxcr"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[dependencies]
+anyhow = { version = "1.0", optional = true }
+thiserror = "1.0"
+clap = { version = "4.5", features = ["derive"], optional = true }
+rpassword = { version = "7.3", optional = true }
+uuid = { version = "1.8", features = ["v4", "serde"] }
+rand = "0.8"
+sha1 = "0.10"
+sha2 = "0.10"
+hmac = "0.12"
+digest = "0.10"
+aes = "0.8"
+twofish = "0.7"
+cbc = "0.1"
+cipher = "0.4"
+chacha20 = "0.9"
+salsa20 = "0.10"
+# "zeroize" wipes Argon2's working memory after use.
+argon2 = { version = "0.5", features = ["zeroize"] }
+base64 = "0.22"
+flate2 = "1.0"
+quick-xml = "0.42"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+indicatif = { version = "0.17", optional = true }
+secrecy = "0.8"
+# "serde" lets the agent protocol carry key material in wiped buffers.
+zeroize = { version = "1.7", features = ["serde"] }
+libc = "0.2"
+arboard = { version = "3.4", optional = true }
+zxcvbn = { version = "2.2", optional = true }
+time = { version = "0.3", features = ["formatting", "parsing"] }
+hex = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"], optional = true }
+# YubiKey OTP interface: IOKit on macOS (opened shared), pure-Rust hidraw on Linux.
+hidapi = { version = "2.6.7", default-features = false, features = ["linux-native-basic-udev", "macos-shared-device"] }
+# Reading OpenSSH private keys for `ssh-add`.
+ssh-key = { version = "0.6.7", default-features = false, features = ["std", "ecdsa", "encryption"], optional = true }
+ssh-encoding = { version = "0.2", optional = true }
+
+[features]
+default = ["cli"]
+# The `keepassxcr` binary and the `cli` module. Library users can turn it off
+# with `default-features = false` to skip the CLI's dependencies.
+cli = ["dep:anyhow", "dep:clap", "dep:rpassword", "dep:indicatif", "dep:arboard", "dep:zxcvbn", "dep:tracing-subscriber", "dep:ssh-key", "dep:ssh-encoding"]
+# Testing only: KEEPASSXCR_SOFTWARE_YUBIKEY=<hex secret>[:fixed][:touch] replaces the
+# USB YubiKey with an emulated one. Never enable this for a build you use.
+software-yubikey = []
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+
+# Debug builds and tests run real KDFs (Argon2, AES-KDF) on the test fixtures;
+# optimizing dependencies keeps the test suite fast. Crates that depend on
+# keepassxcr ignore this.
+[profile.dev.package."*"]
+opt-level = 3
