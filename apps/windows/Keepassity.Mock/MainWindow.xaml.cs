@@ -1984,9 +1984,12 @@ public sealed partial class MainWindow : Window
         CustomFieldName.Text = custom?.Key ?? string.Empty;
         CustomFieldValue.Text = custom?.Value ?? string.Empty;
 
-        if (full.Totp is not null)
+        bool hasTotp = full.Totp is not null;
+        TotpSection.Visibility = hasTotp ? Visibility.Visible : Visibility.Collapsed;
+        TotpDivider.Visibility = TotpSection.Visibility;
+        AddTotpButton.Visibility = hasTotp ? Visibility.Collapsed : Visibility.Visible;
+        if (hasTotp)
         {
-            TotpSection.Visibility = Visibility.Visible;
             TotpCode.FontSize = 24;
             TotpRemainingText.Visibility = Visibility.Visible;
             TotpProgress.Visibility = Visibility.Visible;
@@ -1994,9 +1997,8 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            TotpSection.Visibility = Visibility.Visible;
             TotpCode.FontSize = 13;
-            TotpCode.Text = "No TOTP configured";
+            TotpCode.Text = string.Empty;
             TotpRemainingText.Text = string.Empty;
             TotpRemainingText.Visibility = Visibility.Collapsed;
             TotpProgress.Value = 0;
@@ -2019,6 +2021,8 @@ public sealed partial class MainWindow : Window
         DetailNotes.Text = string.Empty;
         CustomFieldsSection.Visibility = Visibility.Collapsed;
         TotpSection.Visibility = Visibility.Collapsed;
+        TotpDivider.Visibility = Visibility.Collapsed;
+        AddTotpButton.Visibility = Visibility.Collapsed;
         TotpProgress.Value = 0;
         TotpRemainingText.Text = string.Empty;
         TotpCode.Text = "—";
