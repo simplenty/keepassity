@@ -1776,15 +1776,15 @@ public sealed partial class MainWindow : Window
                 otherGroups.Add(item);
             }
         }
-        // The recycle bin stays directly below "All entries"; template groups are
-        // pinned to the bottom so a vault's XML order cannot move them around.
-        if (recycleBin is not null)
-        {
-            Groups.Add(recycleBin);
-        }
+        // Normal groups keep the vault order; the recycle bin sits second to
+        // last and template groups are pinned to the bottom.
         foreach (GroupItem item in otherGroups)
         {
             Groups.Add(item);
+        }
+        if (recycleBin is not null)
+        {
+            Groups.Add(recycleBin);
         }
         if (templates is not null)
         {
