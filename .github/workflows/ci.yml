@@ -127,7 +127,8 @@ jobs:
             @{ fixture = 'tests/fixtures/keepass-rs/test_db_kdbx4_with_password_aes.kdbx'; password = 'demopass' },
             @{ fixture = 'tests/fixtures/keepass-rs/test_db_kdbx4_with_totp_entry.kdbx'; password = 'test' }
           )
-          $exe = (Resolve-Path 'apps/windows/Keepassity.Mock/bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/Keepassity.Mock.exe').Path
+          $exe = (Get-ChildItem 'apps/windows/Keepassity.Mock/bin' -Recurse -Filter 'Keepassity.Mock.exe' |
+            Where-Object { $_.FullName -match '\\Release\\' } | Select-Object -First 1).FullName
           foreach ($case in $cases) {
             $report = Join-Path $env:RUNNER_TEMP ('selftest-' + [guid]::NewGuid().ToString('N') + '.log')
             $env:KEEPASSITY_SELFTEST_PASSWORD = $case.password
