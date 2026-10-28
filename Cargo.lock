@@ -725,7 +725,7 @@ dependencies = [
 name = "keepassity-core"
 version = "0.1.0"
 dependencies = [
- "hmac 0.12.1",
+ "hmac 0.13.0",
  "keepass",
  "keepassxcr",
  "proptest",
