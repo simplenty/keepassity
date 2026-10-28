@@ -27,11 +27,30 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
     <PackageReference Include="ZXing.Net" Version="0.16.11" />
   </ItemGroup>
-  <Target Name="CopyFfiNative" AfterTargets="Build">
+  <!-- The native FFI DLL is produced by building the Rust ffi crate in release mode.
+       Copy it next to the managed output for local runs, and into the publish output.
+       `dotnet publish` also drops the XAML .xbf files that WinUI needs at startup, so the
+       publish target copies both; a publish missing either is treated as an error instead
+       of silently producing a package that cannot start or open a database. -->
+  <PropertyGroup>
+    <FfiNativeDir>$(MSBuildThisFileDirectory)..\..\..\target\release\</FfiNativeDir>
+  </PropertyGroup>
+  <Target Name="CopyFfiNativeOnBuild" AfterTargets="Build">
     <ItemGroup>
-      <FfiNative Include="$(MSBuildThisFileDirectory)..\..\..\target\release\keepassity_ffi.dll" />
-      <FfiNative Include="$(MSBuildThisFileDirectory)..\..\..\target\release\keepassity_ffi.pdb" />
+      <FfiBuildNative Include="$(FfiNativeDir)keepassity_ffi.dll" Condition="Exists('$(FfiNativeDir)keepassity_ffi.dll')" />
+      <FfiBuildNative Include="$(FfiNativeDir)keepassity_ffi.pdb" Condition="Exists('$(FfiNativeDir)keepassity_ffi.pdb')" />
     </ItemGroup>
-    <Copy SourceFiles="@(FfiNative)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="Exists('$(MSBuildThisFileDirectory)..\..\..\target\release\keepassity_ffi.dll')" />
+    <Copy SourceFiles="@(FfiBuildNative)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="CopyNativeAndXamlToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <FfiPublishNative Include="$(FfiNativeDir)keepassity_ffi.dll" Condition="Exists('$(FfiNativeDir)keepassity_ffi.dll')" />
+      <FfiPublishNative Include="$(FfiNativeDir)keepassity_ffi.pdb" Condition="Exists('$(FfiNativeDir)keepassity_ffi.pdb')" />
+      <XamlPublishFiles Include="$(OutDir)**\*.xbf" />
+    </ItemGroup>
+    <Copy SourceFiles="@(FfiPublishNative)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(XamlPublishFiles)" DestinationFiles="@(XamlPublishFiles->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <Error Condition="!Exists('$(PublishDir)keepassity_ffi.dll')" Text="keepassity_ffi.dll is missing from the publish output ($(PublishDir)). Build it first: cargo build -p keepassity-ffi --release" />
+    <Error Condition="'@(XamlPublishFiles)' == ''" Text="XAML resources (*.xbf) were not found under $(OutDir); the published app would fail to start." />
   </Target>
 </Project>

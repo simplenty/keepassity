@@ -34,6 +34,15 @@ if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed with exit code $LASTEXITCODE."
 }
 
+$ffi = Join-Path $output "keepassity_ffi.dll"
+if (-not (Test-Path $ffi)) {
+    throw "Native FFI DLL is missing from the publish output: $ffi. Build it first: cargo build -p keepassity-ffi --release"
+}
+$xbf = @(Get-ChildItem $output -Filter "*.xbf" -File)
+if ($xbf.Count -eq 0) {
+    throw "XAML resources (*.xbf) are missing from the publish output: $output. The app would not start."
+}
+
 foreach ($name in @("README.md", "LICENSE", "NOTICE", "THIRD-PARTY-LICENSES.md")) {
     $source = Join-Path $root $name
     if (Test-Path $source) {
