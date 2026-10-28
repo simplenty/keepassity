@@ -24,13 +24,13 @@ jobs:
         with:
           dotnet-version: "8.0.x"
       - name: initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: csharp
           queries: security-and-quality
       - name: restore and build
         run: dotnet build apps/windows/Keepassity.sln -c Release
       - name: analyze
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:csharp"
