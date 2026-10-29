@@ -40,6 +40,7 @@ public sealed partial class MainWindow : Window
     private bool _webDavSource;
     private string? _sourceWebDavUrl;
     private string? _selectedGroupUuid;
+    private string? _recycleBinGroupUuid;
     private string? _rootGroupUuid;
     private EntryFullDto? _currentFull;
     private EntryItem? _currentSummary;
@@ -1771,12 +1772,17 @@ public sealed partial class MainWindow : Window
         _groupDtos.Clear();
         _selectableGroups.Clear();
         _groupNames.Clear();
+        _recycleBinGroupUuid = null;
         _rootGroupUuid = groups.FirstOrDefault(group => group.ParentUuid is null)?.Uuid;
         foreach (GroupDto group in groups)
         {
             _groupDtos.Add(group);
             string name = string.IsNullOrWhiteSpace(group.Name) ? "Vault" : group.Name;
             _groupNames[group.Uuid] = name;
+            if (_recycleBinGroupUuid is null && IsRecycleBinGroup(name))
+            {
+                _recycleBinGroupUuid = group.Uuid;
+            }
             if (group.Uuid != _rootGroupUuid && !string.IsNullOrWhiteSpace(group.Name))
             {
                 _selectableGroups.Add(group);
@@ -1788,7 +1794,9 @@ public sealed partial class MainWindow : Window
         }
 
         Groups.Clear();
-        Groups.Add(new GroupItem(null, "All entries", allEntries.Count, "\uE8FD"));
+        int activeEntryCount = allEntries.Count(entry =>
+            _recycleBinGroupUuid is null || entry.GroupUuid != _recycleBinGroupUuid);
+        Groups.Add(new GroupItem(null, "All entries", activeEntryCount, "\uE8FD"));
         GroupItem? recycleBin = null;
         GroupItem? templates = null;
         var otherGroups = new List<GroupItem>();
@@ -1813,19 +1821,19 @@ public sealed partial class MainWindow : Window
                 otherGroups.Add(item);
             }
         }
-        // Normal groups keep the vault order; the recycle bin sits second to
-        // last and template groups are pinned to the bottom.
+        // Normal groups keep the vault order; template groups are pinned above
+        // the recycle bin, which is always the last navigation item.
         foreach (GroupItem item in otherGroups)
         {
             Groups.Add(item);
         }
-        if (recycleBin is not null)
-        {
-            Groups.Add(recycleBin);
-        }
         if (templates is not null)
         {
             Groups.Add(templates);
+        }
+        if (recycleBin is not null)
+        {
+            Groups.Add(recycleBin);
         }
         PopulateNavigation(_selectedGroupUuid);
 
@@ -1834,6 +1842,9 @@ public sealed partial class MainWindow : Window
             : _groupNames.GetValueOrDefault(_selectedGroupUuid, "Entries");
         List<EntrySummaryDto> visible = _selectedGroupUuid is null
             ? allEntries
+                .Where(entry => _recycleBinGroupUuid is null ||
+                                entry.GroupUuid != _recycleBinGroupUuid)
+                .ToList()
             : allEntries.Where(entry => entry.GroupUuid == _selectedGroupUuid).ToList();
         PopulateEntries(visible, title);
 
@@ -2015,7 +2026,15 @@ public sealed partial class MainWindow : Window
         if (query.Length > 0)
         {
             List<SearchMatchDto> matches = await _core.SearchAsync(query);
-            PopulateEntries(matches.Select(match => match.Entry), "Search results");
+            IEnumerable<EntrySummaryDto> results = matches.Select(match => match.Entry);
+            if (_recycleBinGroupUuid is not null)
+            {
+                bool viewingRecycleBin = _selectedGroupUuid == _recycleBinGroupUuid;
+                results = viewingRecycleBin
+                    ? results.Where(entry => entry.GroupUuid == _recycleBinGroupUuid)
+                    : results.Where(entry => entry.GroupUuid != _recycleBinGroupUuid);
+            }
+            PopulateEntries(results, "Search results");
             return;
         }
         List<EntrySummaryDto> entries = await _core.ListEntriesAsync(_selectedGroupUuid);
