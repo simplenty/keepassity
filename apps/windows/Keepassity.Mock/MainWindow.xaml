@@ -380,20 +380,6 @@
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
                                                 HorizontalAlignment="Right" VerticalAlignment="Top">
-                                        <Button x:Name="AddTotpButton" Style="{StaticResource ToolbarButton}"
-                                                Visibility="Collapsed"
-                                                Click="TotpSetupButton_Click">
-                                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <FontIcon Glyph="&#xE710;" FontSize="12" />
-                                                <TextBlock Text="Add TOTP" />
-                                            </StackPanel>
-                                        </Button>
-                                        <Button Style="{StaticResource ToolbarButton}" Click="MoveEntryButton_Click">
-                                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <FontIcon Glyph="&#xE8DE;" FontSize="12" />
-                                                <TextBlock Text="Move" />
-                                            </StackPanel>
-                                        </Button>
                                         <Button Style="{StaticResource ToolbarButton}" Click="EditEntryButton_Click">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <FontIcon Glyph="&#xE70F;" FontSize="12" />
@@ -524,13 +510,6 @@
                                                 </StackPanel>
                                                 <StackPanel Grid.Column="1" Spacing="6"
                                                             HorizontalAlignment="Right" VerticalAlignment="Center">
-                                                    <Button Style="{StaticResource ToolbarButton}"
-                                                            Click="TotpSetupButton_Click">
-                                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                                            <FontIcon Glyph="&#xE70F;" FontSize="12" />
-                                                            <TextBlock Text="Edit TOTP" />
-                                                        </StackPanel>
-                                                    </Button>
                                                     <Button Style="{StaticResource ToolbarButton}"
                                                             Click="CopyTotpButton_Click">
                                                         <StackPanel Orientation="Horizontal" Spacing="6">

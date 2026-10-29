@@ -2178,13 +2178,6 @@ public sealed partial class MainWindow : Window
         if (entry.HasTotp)
         {
             Add("Copy TOTP", "\uE8C8", () => CopyEntryTotpAsync(entry));
-            Add("Edit TOTP", "\uE70F", () => RunEntryActionAsync(entry, () =>
-                TotpSetupButton_Click(this, new RoutedEventArgs())));
-        }
-        else
-        {
-            Add("Add TOTP", "\uE710", () => RunEntryActionAsync(entry, () =>
-                TotpSetupButton_Click(this, new RoutedEventArgs())));
         }
         flyout.Items.Add(new MenuFlyoutSeparator());
         Add("Edit entry", "\uE70F", () => RunEntryActionAsync(entry, () =>
@@ -2296,7 +2289,6 @@ public sealed partial class MainWindow : Window
 
         TotpSection.Visibility = hasTotp ? Visibility.Visible : Visibility.Collapsed;
         TotpDivider.Visibility = TotpSection.Visibility;
-        AddTotpButton.Visibility = hasTotp ? Visibility.Collapsed : Visibility.Visible;
         if (hasTotp)
         {
             TotpCode.FontSize = 24;
@@ -2341,7 +2333,6 @@ public sealed partial class MainWindow : Window
         NotesDivider.Visibility = Visibility.Collapsed;
         TotpSection.Visibility = Visibility.Collapsed;
         TotpDivider.Visibility = Visibility.Collapsed;
-        AddTotpButton.Visibility = Visibility.Collapsed;
         TotpProgress.Value = 0;
         TotpRemainingText.Text = string.Empty;
         TotpCode.Text = "—";
@@ -2590,6 +2581,57 @@ public sealed partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Height = 84,
         };
+        TotpConfigDto? existingTotp = _currentFull.Totp;
+        var totpSecret = new TextBox
+        {
+            Header = "Base32 secret",
+            Text = existingTotp?.SecretBase32 ?? string.Empty,
+            PlaceholderText = "JBSWY3DPEHPK3PXP",
+            FontFamily = new FontFamily("Consolas"),
+        };
+        var totpAlgorithm = new ComboBox
+        {
+            Header = "Algorithm",
+            ItemsSource = new[] { "SHA1", "SHA256", "SHA512" },
+            SelectedItem = existingTotp?.Algorithm ?? "SHA1",
+        };
+        var totpDigits = new ComboBox
+        {
+            Header = "Digits",
+            ItemsSource = new[] { "6", "8" },
+            SelectedItem = (existingTotp?.Digits ?? 6).ToString(),
+        };
+        var totpPeriod = new NumberBox
+        {
+            Header = "Period (seconds)",
+            Value = existingTotp?.Period ?? 30,
+            Minimum = 1,
+            Maximum = 300,
+        };
+        var totpHint = new TextBlock
+        {
+            Text = existingTotp is null
+                ? "No TOTP yet. Paste or import a Base32 secret to add one."
+                : "Leave the secret empty and save to remove TOTP.",
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+        };
+        var totpStatus = new TextBlock
+        {
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+        };
+        var totpFields = new StackPanel { Spacing = 12 };
+        totpFields.Children.Add(totpHint);
+        totpFields.Children.Add(BuildTotpImportRow(
+            totpSecret, totpAlgorithm, totpDigits, totpPeriod, totpStatus));
+        totpFields.Children.Add(totpSecret);
+        totpFields.Children.Add(totpAlgorithm);
+        totpFields.Children.Add(totpDigits);
+        totpFields.Children.Add(totpPeriod);
+
         var content = new StackPanel { Spacing = 14 };
         content.Children.Add(title);
         content.Children.Add(username);
@@ -2597,7 +2639,9 @@ public sealed partial class MainWindow : Window
         content.Children.Add(url);
         content.Children.Add(tags);
         content.Children.Add(notes);
-        UIElement form = CreateFormSection("Details", content);
+        var form = new StackPanel { Spacing = 20 };
+        form.Children.Add(CreateFormSection("Details", content));
+        form.Children.Add(CreateFormSection("One-time password", totpFields));
         if (await ShowDetailPanelAsync("Edit entry", form, "Save") !=
             RightPanelResult.Primary)
         {
@@ -2609,10 +2653,33 @@ public sealed partial class MainWindow : Window
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
-            await _core.UpdateEntryAsync(_currentFull.Uuid, title.Text.Trim(),
+            string uuid = _currentFull.Uuid;
+            await _core.UpdateEntryAsync(uuid, title.Text.Trim(),
                 username.Text.Trim(), password.Password, url.Text.Trim(), notes.Text, tagList);
+            string totpValue = totpSecret.Text.Trim();
+            if (totpValue.Length == 0)
+            {
+                if (existingTotp is not null)
+                {
+                    await _core.TotpDeleteAsync(uuid);
+                }
+            }
+            else
+            {
+                await _core.TotpSetAsync(uuid, new TotpConfigDto
+                {
+                    SecretBase32 = totpValue,
+                    Algorithm = totpAlgorithm.SelectedItem as string ?? "SHA1",
+                    Digits = int.TryParse(totpDigits.SelectedItem as string,
+                        out int parsedDigits)
+                        ? parsedDigits
+                        : 6,
+                    Period = (int)Math.Clamp(totpPeriod.Value, 1, 300),
+                    Encoder = "totp",
+                });
+            }
             await SaveAsync();
-            await ReloadVaultAsync(_currentFull.Uuid);
+            await ReloadVaultAsync(uuid);
             ShowToast("Entry updated and saved", InfoBarSeverity.Success);
         }
         catch (Exception ex)
@@ -2713,6 +2780,92 @@ public sealed partial class MainWindow : Window
         });
         section.Children.Add(card);
         return section;
+    }
+
+    private StackPanel BuildTotpImportRow(TextBox secret, ComboBox algorithm,
+        ComboBox digits, NumberBox period, TextBlock status)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var importFile = new Button
+        {
+            Content = CreateIconLabel("Import QR image…", "\uE8B7"),
+        };
+        var importClipboard = new Button
+        {
+            Content = CreateIconLabel("Paste QR / otpauth…", "\uE77F"),
+        };
+        async Task ApplyImportedUriAsync(string? uri)
+        {
+            if (string.IsNullOrWhiteSpace(uri) ||
+                !uri.StartsWith("otpauth://", StringComparison.OrdinalIgnoreCase))
+            {
+                status.Text = "No otpauth QR code found. Paste a Base32 secret instead.";
+                return;
+            }
+            try
+            {
+                TotpConfigDto parsed = await _core.ParseTotpUriAsync(uri);
+                secret.Text = parsed.SecretBase32;
+                algorithm.SelectedItem = parsed.Algorithm;
+                digits.SelectedItem = parsed.Digits.ToString();
+                period.Value = Math.Clamp(parsed.Period, 1, 300);
+                string account = string.Join(" / ",
+                    new[] { parsed.Issuer, parsed.Account }.Where(value =>
+                        !string.IsNullOrWhiteSpace(value)));
+                status.Text = account.Length == 0
+                    ? "QR imported. Review the parameters and save."
+                    : $"Imported {account}. Review and save.";
+            }
+            catch (Exception ex)
+            {
+                status.Text = $"Could not read otpauth URI: {ex.Message}";
+            }
+        }
+        importFile.Click += async (_, _) =>
+        {
+            try
+            {
+                var picker = new FileOpenPicker
+                {
+                    SuggestedStartLocation = PickerLocationId.PicturesLibrary,
+                };
+                foreach (string extension in new[]
+                         {
+                             ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff",
+                         })
+                {
+                    picker.FileTypeFilter.Add(extension);
+                }
+                WinRT.Interop.InitializeWithWindow.Initialize(picker,
+                    WinRT.Interop.WindowNative.GetWindowHandle(this));
+                StorageFile? file = await picker.PickSingleFileAsync();
+                if (file is not null)
+                {
+                    await ApplyImportedUriAsync(await QrDecoder.DecodeFileAsync(file));
+                }
+            }
+            catch (Exception ex)
+            {
+                status.Text = $"QR image failed: {ex.Message}";
+            }
+        };
+        importClipboard.Click += async (_, _) =>
+        {
+            try
+            {
+                await ApplyImportedUriAsync(await QrDecoder.DecodeClipboardAsync());
+            }
+            catch (Exception ex)
+            {
+                status.Text = $"Clipboard QR failed: {ex.Message}";
+            }
+        };
+        row.Children.Add(importFile);
+        row.Children.Add(importClipboard);
+        var wrapper = new StackPanel { Spacing = 8 };
+        wrapper.Children.Add(row);
+        wrapper.Children.Add(status);
+        return wrapper;
     }
 
     private Grid BuildPasswordRow(PasswordBox password)
