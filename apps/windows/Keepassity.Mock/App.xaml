@@ -14,7 +14,6 @@
             <CornerRadius x:Key="NavigationViewContentGridCornerRadius">0</CornerRadius>
             <Thickness x:Key="NavigationViewContentGridBorderThickness">0</Thickness>
             <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="Transparent" />
-            <CornerRadius x:Key="ListViewItemCornerRadius">8</CornerRadius>
 
             <Style x:Key="SectionLabel" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="11" />

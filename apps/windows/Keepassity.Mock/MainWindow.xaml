@@ -47,6 +47,44 @@
                    BasedOn="{StaticResource ToolbarButton}">
                 <Setter Property="Foreground" Value="{ThemeResource SystemFillColorCriticalBrush}" />
             </Style>
+            <Style x:Key="EntryListItemStyle" TargetType="ListViewItem"
+                   BasedOn="{StaticResource DefaultListViewItemStyle}">
+                <Setter Property="Padding" Value="12,8" />
+                <Setter Property="MinHeight" Value="52" />
+                <Setter Property="Margin" Value="4,2" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ListViewItem">
+                            <ListViewItemPresenter
+                                x:Name="Root"
+                                ContentTransitions="{TemplateBinding ContentTransitions}"
+                                Content="{TemplateBinding Content}"
+                                ContentTemplate="{TemplateBinding ContentTemplate}"
+                                Control.IsTemplateFocusTarget="True"
+                                FocusVisualMargin="{TemplateBinding FocusVisualMargin}"
+                                FocusVisualPrimaryBrush="{TemplateBinding FocusVisualPrimaryBrush}"
+                                FocusVisualPrimaryThickness="{TemplateBinding FocusVisualPrimaryThickness}"
+                                FocusVisualSecondaryBrush="{TemplateBinding FocusVisualSecondaryBrush}"
+                                FocusVisualSecondaryThickness="{TemplateBinding FocusVisualSecondaryThickness}"
+                                HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                ContentMargin="{TemplateBinding Padding}"
+                                PointerOverBackground="{ThemeResource ListViewItemBackgroundPointerOver}"
+                                PointerOverForeground="{ThemeResource ListViewItemForegroundPointerOver}"
+                                SelectedBackground="{ThemeResource ListViewItemBackgroundSelected}"
+                                SelectedForeground="{ThemeResource ListViewItemForegroundSelected}"
+                                SelectedPointerOverBackground="{ThemeResource ListViewItemBackgroundSelectedPointerOver}"
+                                PressedBackground="{ThemeResource ListViewItemBackgroundPressed}"
+                                SelectedPressedBackground="{ThemeResource ListViewItemBackgroundSelectedPressed}"
+                                DisabledOpacity="{ThemeResource ListViewItemDisabledThemeOpacity}"
+                                CornerRadius="10"
+                                CheckMode="{ThemeResource ListViewItemCheckMode}" />
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </Grid.Resources>
 
         <Grid.RowDefinitions>
@@ -265,62 +303,35 @@
                                 <ListView x:Name="EntryList" Grid.Row="2" SelectionMode="Single"
                                           SelectionChanged="EntryList_SelectionChanged"
                                           RightTapped="EntryList_RightTapped"
-                                          Background="Transparent" Padding="4,0,10,0"
-                                          ScrollViewer.VerticalScrollBarVisibility="Auto">
-                                    <ListView.Resources>
-                                        <CornerRadius x:Key="ListViewItemCornerRadius">8</CornerRadius>
-                                        <StaticResource x:Key="ListViewItemBackgroundSelected"
-                                                        ResourceKey="SubtleFillColorSecondaryBrush" />
-                                        <StaticResource x:Key="ListViewItemBackgroundSelectedPointerOver"
-                                                        ResourceKey="SubtleFillColorTertiaryBrush" />
-                                        <StaticResource x:Key="ListViewItemBackgroundSelectedPressed"
-                                                        ResourceKey="SubtleFillColorTertiaryBrush" />
-                                        <SolidColorBrush x:Key="ScrollBarThumbFill"
-                                                         Color="#66808080" />
-                                        <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver"
-                                                         Color="#99808080" />
-                                        <SolidColorBrush x:Key="ScrollBarThumbFillPressed"
-                                                         Color="#B3808080" />
-                                        <SolidColorBrush x:Key="ScrollBarTrackFill"
-                                                         Color="Transparent" />
-                                        <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver"
-                                                         Color="Transparent" />
-                                    </ListView.Resources>
-                                    <ListView.ItemContainerStyle>
-                                        <Style TargetType="ListViewItem">
-                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                            <Setter Property="Padding" Value="8,8" />
-                                            <Setter Property="MinHeight" Value="48" />
-                                            <Setter Property="Margin" Value="1" />
-                                        </Style>
-                                    </ListView.ItemContainerStyle>
+                                          ItemContainerStyle="{StaticResource EntryListItemStyle}"
+                                          Background="Transparent" Padding="2,4,8,0">
                                     <ListView.ItemTemplate>
                                         <DataTemplate x:DataType="local:EntryItem">
-                                            <Grid ColumnSpacing="10">
+                                            <Grid ColumnSpacing="12">
                                                 <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="32" />
+                                                    <ColumnDefinition Width="36" />
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <Border Width="32" Height="32" CornerRadius="16"
+                                                <Border Width="36" Height="36" CornerRadius="18"
                                                         Background="{x:Bind AvatarBrush}">
-                                                    <TextBlock Text="{x:Bind Initial}" FontSize="12"
+                                                    <TextBlock Text="{x:Bind Initial}" FontSize="13"
                                                                FontWeight="SemiBold"
                                                                HorizontalAlignment="Center"
                                                                VerticalAlignment="Center"
                                                                Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
                                                 </Border>
-                                                <StackPanel Grid.Column="1" Spacing="2"
+                                                <StackPanel Grid.Column="1" Spacing="3"
                                                             VerticalAlignment="Center">
-                                                    <TextBlock Text="{x:Bind Title}" FontSize="13"
+                                                    <TextBlock Text="{x:Bind Title}" FontSize="14"
                                                                FontWeight="SemiBold"
                                                                TextTrimming="CharacterEllipsis" />
-                                                    <TextBlock Text="{x:Bind Secondary}" FontSize="11"
+                                                    <TextBlock Text="{x:Bind Secondary}" FontSize="12"
                                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                                TextTrimming="CharacterEllipsis" />
                                                 </StackPanel>
                                                 <Border Grid.Column="2" VerticalAlignment="Center"
-                                                        Padding="7,2" CornerRadius="5"
+                                                        Padding="7,3" CornerRadius="5"
                                                         Background="{ThemeResource SubtleFillColorSecondaryBrush}"
                                                         Visibility="{x:Bind TotpVisibility}">
                                                     <StackPanel Orientation="Horizontal" Spacing="3">
