@@ -2250,13 +2250,10 @@ public sealed partial class MainWindow : Window
         }
         _currentFull = full;
         DetailTitle.Text = full.Title;
-        string host = Uri.TryCreate(full.Url, UriKind.Absolute, out Uri? uri)
-            ? uri.Host
-            : full.Url;
         string groupName = _groupNames.GetValueOrDefault(full.GroupUuid, "Vault");
-        DetailSubtitle.Text = string.IsNullOrEmpty(host)
-            ? groupName
-            : $"{host}  ·  {groupName}";
+        // The website is already a field below; keep the header to a short
+        // group label so long URLs do not get awkwardly ellipsized up here.
+        DetailSubtitle.Text = groupName;
         DetailUsername.Text = full.Username;
         DetailUrl.Text = full.Url;
         DetailNotes.Text = full.Notes;
@@ -2284,15 +2281,14 @@ public sealed partial class MainWindow : Window
         NotesSection.Visibility = hasNotes ? Visibility.Visible : Visibility.Collapsed;
         NotesDivider.Visibility = NotesSection.Visibility;
         UsernameDivider.Visibility = hasUsername &&
-            (hasPassword || hasUrl || hasTags || hasTotp || hasCustom || hasNotes)
+            (hasPassword || hasUrl || hasTags)
             ? Visibility.Visible
             : Visibility.Collapsed;
         PasswordDivider.Visibility = hasPassword &&
-            (hasUrl || hasTags || hasTotp || hasCustom || hasNotes)
+            (hasUrl || hasTags)
             ? Visibility.Visible
             : Visibility.Collapsed;
-        UrlDivider.Visibility = hasUrl &&
-            (hasTags || hasTotp || hasCustom || hasNotes)
+        UrlDivider.Visibility = hasUrl && hasTags
             ? Visibility.Visible
             : Visibility.Collapsed;
 
