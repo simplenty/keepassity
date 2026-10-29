@@ -2,6 +2,7 @@
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
@@ -1971,6 +1972,7 @@ public sealed partial class MainWindow : Window
             RefreshEntries();
         };
         flyout.Items.Add(totpOnly);
+        flyout.Placement = FlyoutPlacementMode.Bottom;
         flyout.ShowAt(ListOptionsButton);
     }
 
@@ -2530,14 +2532,15 @@ public sealed partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Height = 84,
         };
-        var content = new StackPanel { Spacing = 10 };
+        var content = new StackPanel { Spacing = 14 };
         content.Children.Add(groupChoice);
         content.Children.Add(title);
         content.Children.Add(username);
         content.Children.Add(BuildPasswordRow(password));
         content.Children.Add(url);
         content.Children.Add(notes);
-        if (await ShowDetailPanelAsync("New entry", content, "Create",
+        UIElement form = CreateFormSection("Details", content);
+        if (await ShowDetailPanelAsync("New entry", form, "Create",
                 primaryGlyph: "\uE710") !=
                 RightPanelResult.Primary ||
             groupChoice.SelectedItem is not GroupDto group)
@@ -2587,14 +2590,15 @@ public sealed partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Height = 84,
         };
-        var content = new StackPanel { Spacing = 10 };
+        var content = new StackPanel { Spacing = 14 };
         content.Children.Add(title);
         content.Children.Add(username);
         content.Children.Add(BuildPasswordRow(password));
         content.Children.Add(url);
         content.Children.Add(tags);
         content.Children.Add(notes);
-        if (await ShowDetailPanelAsync("Edit entry", content, "Save") !=
+        UIElement form = CreateFormSection("Details", content);
+        if (await ShowDetailPanelAsync("Edit entry", form, "Save") !=
             RightPanelResult.Primary)
         {
             return;
@@ -2687,6 +2691,28 @@ public sealed partial class MainWindow : Window
         {
             ShowToast(ex.Message, InfoBarSeverity.Error);
         }
+    }
+
+    private static UIElement CreateFormSection(string label, UIElement content)
+    {
+        var card = new Border
+        {
+            Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+            BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(18),
+            Child = content,
+        };
+        var section = new StackPanel { Spacing = 8 };
+        section.Children.Add(new TextBlock
+        {
+            Text = label,
+            Style = (Style)Application.Current.Resources["SectionLabel"],
+            Margin = new Thickness(2, 0, 0, 0),
+        });
+        section.Children.Add(card);
+        return section;
     }
 
     private Grid BuildPasswordRow(PasswordBox password)
@@ -3384,7 +3410,7 @@ public sealed partial class MainWindow : Window
         _detailPanel = new Grid
         {
             Visibility = Visibility.Collapsed,
-            Margin = new Thickness(-24, -14, -24, -12),
+            Margin = new Thickness(-32, -22, -32, -24),
         };
         _detailPanel.Background =
             (Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"];
@@ -3393,7 +3419,7 @@ public sealed partial class MainWindow : Window
             new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         _detailPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var header = new Grid { Padding = new Thickness(24, 14, 24, 10) };
+        var header = new Grid { Padding = new Thickness(32, 22, 32, 18) };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(
             new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -3405,7 +3431,7 @@ public sealed partial class MainWindow : Window
             FontSize = 22,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(14, 0, 0, 0),
+            Margin = new Thickness(16, 0, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
         Grid.SetColumn(_detailPanelTitle, 1);
@@ -3415,12 +3441,13 @@ public sealed partial class MainWindow : Window
         _detailPanelContent = new ContentControl
         {
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Margin = new Thickness(24, 0, 24, 0),
+            Margin = new Thickness(32, 0, 32, 0),
         };
         var scroll = new ScrollViewer
         {
             Content = _detailPanelContent,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Padding = new Thickness(0, 0, 8, 0),
         };
         Grid.SetRow(scroll, 1);
         _detailPanel.Children.Add(scroll);
@@ -3430,7 +3457,7 @@ public sealed partial class MainWindow : Window
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
             Spacing = 8,
-            Padding = new Thickness(24, 12, 24, 18),
+            Padding = new Thickness(32, 16, 32, 24),
         };
         Grid.SetRow(_detailPanelActions, 2);
         _detailPanel.Children.Add(_detailPanelActions);
