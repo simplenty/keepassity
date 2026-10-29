@@ -3189,7 +3189,7 @@ public sealed partial class MainWindow : Window
             }
         };
         content.Children.Add(diagnostics);
-        if (await ShowRightPanelAsync("Settings", content, "Save") !=
+        if (await ShowRightPanelAsync("Settings", content, "Save", closeText: null) !=
             RightPanelResult.Primary)
         {
             return;
@@ -3297,22 +3297,10 @@ public sealed partial class MainWindow : Window
             return;
         }
         _rightPanel = new Grid { Visibility = Visibility.Collapsed };
-        _rightPanel.Background =
-            (Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"];
         _rightPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _rightPanel.RowDefinitions.Add(
             new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         _rightPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-        // Compose the same base + layer surface as WorkspaceFrame so full-width
-        // pages keep the workspace tint instead of turning into a flat sheet.
-        var surface = new Border
-        {
-            Background = WorkspaceFrame.Background,
-            IsHitTestVisible = false,
-        };
-        Grid.SetRowSpan(surface, 3);
-        _rightPanel.Children.Add(surface);
 
         var header = new Grid { Padding = new Thickness(32, 22, 32, 18) };
         _rightPanelTitle = new TextBlock
@@ -3351,6 +3339,28 @@ public sealed partial class MainWindow : Window
         WorkspacePanel.Children.Add(_rightPanel);
     }
 
+    private void SetRightPanelUnderlyingVisible(bool visible)
+    {
+        foreach (UIElement child in WorkspacePanel.Children)
+        {
+            if (!ReferenceEquals(child, _rightPanel))
+            {
+                child.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+    }
+
+    private void SetDetailPanelUnderlyingVisible(bool visible)
+    {
+        foreach (UIElement child in DetailPane.Children)
+        {
+            if (!ReferenceEquals(child, _detailPanel))
+            {
+                child.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+    }
+
     private async Task<RightPanelResult> ShowRightPanelAsync(string title, UIElement content,
         string primaryText, string? secondaryText = null, string? closeText = "Cancel",
         string primaryGlyph = "\uE74E")
@@ -3386,9 +3396,11 @@ public sealed partial class MainWindow : Window
         primary.Click += (_, _) => Finish(RightPanelResult.Primary);
         _rightPanelActions.Children.Add(primary);
 
+        SetRightPanelUnderlyingVisible(false);
         _rightPanel!.Visibility = Visibility.Visible;
         RightPanelResult result = await completion.Task;
         _rightPanel.Visibility = Visibility.Collapsed;
+        SetRightPanelUnderlyingVisible(true);
         _rightPanelContent.Content = null;
         _rightPanelActions.Children.Clear();
         _rightPanelOpen = false;
@@ -3415,20 +3427,10 @@ public sealed partial class MainWindow : Window
             Visibility = Visibility.Collapsed,
             Margin = new Thickness(-32, -22, -32, -24),
         };
-        _detailPanel.Background =
-            (Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"];
         _detailPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _detailPanel.RowDefinitions.Add(
             new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         _detailPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-        var surface = new Border
-        {
-            Background = WorkspaceFrame.Background,
-            IsHitTestVisible = false,
-        };
-        Grid.SetRowSpan(surface, 3);
-        _detailPanel.Children.Add(surface);
 
         var header = new Grid { Padding = new Thickness(32, 22, 32, 18) };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -3512,9 +3514,11 @@ public sealed partial class MainWindow : Window
         primary.Click += (_, _) => Finish(RightPanelResult.Primary);
         _detailPanelActions.Children.Add(primary);
 
+        SetDetailPanelUnderlyingVisible(false);
         _detailPanel!.Visibility = Visibility.Visible;
         RightPanelResult result = await completion.Task;
         _detailPanel.Visibility = Visibility.Collapsed;
+        SetDetailPanelUnderlyingVisible(true);
         _detailPanelContent.Content = null;
         _detailPanelActions.Children.Clear();
         _detailPanelOpen = false;
