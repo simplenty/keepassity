@@ -17,7 +17,7 @@
                 <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
             <Style x:Key="FieldValue" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="13" />
+                <Setter Property="FontSize" Value="14" />
                 <Setter Property="VerticalAlignment" Value="Center" />
                 <Setter Property="TextTrimming" Value="CharacterEllipsis" />
             </Style>
@@ -359,26 +359,26 @@
                             </Grid>
 
                             <!-- detail -->
-                            <Grid x:Name="DetailPane" Grid.Column="1" Padding="24,14,24,12">
+                            <Grid x:Name="DetailPane" Grid.Column="1" Padding="32,22,32,24">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="*" />
                                 </Grid.RowDefinitions>
 
-                                <Grid Margin="0,0,0,14" ColumnSpacing="12">
+                                <Grid Margin="0,0,0,20" ColumnSpacing="16">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <StackPanel Spacing="2" Margin="0,0,8,0">
-                                        <TextBlock x:Name="DetailTitle" Text="GitHub" FontSize="20"
+                                    <StackPanel Spacing="5" Margin="0,0,12,0">
+                                        <TextBlock x:Name="DetailTitle" Text="GitHub" FontSize="22"
                                                    FontWeight="SemiBold"
                                                    TextTrimming="CharacterEllipsis" />
-                                        <TextBlock x:Name="DetailSubtitle" Text="github.com · Work" FontSize="11"
+                                        <TextBlock x:Name="DetailSubtitle" Text="github.com · Work" FontSize="12"
                                                    TextTrimming="CharacterEllipsis"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     </StackPanel>
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2"
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
                                                 HorizontalAlignment="Right" VerticalAlignment="Top">
                                         <Button x:Name="AddTotpButton" Style="{StaticResource ToolbarButton}"
                                                 Visibility="Collapsed"
@@ -409,11 +409,17 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                                    <StackPanel Spacing="14">
+                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
+                                    <StackPanel Spacing="20">
                                         <!-- login fields -->
-                                        <StackPanel Spacing="0">
-                                            <Grid x:Name="UsernameRow" ColumnSpacing="8" Padding="0,10">
+                                        <StackPanel Spacing="8">
+                                            <TextBlock Text="Details" Style="{StaticResource SectionLabel}"
+                                                       Margin="2,0,0,0" />
+                                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                    BorderThickness="1" CornerRadius="10" Padding="18,2">
+                                                <StackPanel Spacing="0">
+                                            <Grid x:Name="UsernameRow" ColumnSpacing="8" Padding="0,12">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="96" />
                                                     <ColumnDefinition Width="*" />
@@ -429,7 +435,7 @@
                                             </Grid>
                                             <Border x:Name="UsernameDivider" Height="1"
                                                     Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                                            <Grid x:Name="PasswordRow" ColumnSpacing="8" Padding="0,4">
+                                            <Grid x:Name="PasswordRow" ColumnSpacing="8" Padding="0,12">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="96" />
                                                     <ColumnDefinition Width="*" />
@@ -452,7 +458,7 @@
                                             </Grid>
                                             <Border x:Name="PasswordDivider" Height="1"
                                                     Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                                            <Grid x:Name="UrlRow" ColumnSpacing="8" Padding="0,4">
+                                            <Grid x:Name="UrlRow" ColumnSpacing="8" Padding="0,12">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="96" />
                                                     <ColumnDefinition Width="*" />
@@ -473,7 +479,7 @@
                                             </Grid>
                                             <Border x:Name="UrlDivider" Height="1"
                                                     Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                                            <Grid x:Name="TagsRow" ColumnSpacing="8" Padding="0,10">
+                                            <Grid x:Name="TagsRow" ColumnSpacing="8" Padding="0,12">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="96" />
                                                     <ColumnDefinition Width="*" />
@@ -484,83 +490,100 @@
                                                            Style="{StaticResource FieldValue}"
                                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                             </Grid>
+                                                </StackPanel>
+                                            </Border>
                                         </StackPanel>
 
                                         <!-- TOTP -->
-                                        <Border x:Name="TotpDivider" Height="1"
-                                                Visibility="Collapsed"
-                                                Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                                        <Grid x:Name="TotpSection" Padding="0,2" ColumnSpacing="12"
-                                              Visibility="Collapsed">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel Spacing="2" Margin="0,0,8,0">
-                                                <TextBlock Text="One-time password" Style="{StaticResource SectionLabel}" />
-                                                <TextBlock x:Name="TotpCode" Text="—" FontSize="24"
-                                                           FontWeight="SemiBold" FontFamily="Consolas"
-                                                           CharacterSpacing="18"
-                                                           TextTrimming="CharacterEllipsis"
-                                                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                                                <TextBlock x:Name="TotpRemainingText" Text=""
-                                                           FontSize="10"
-                                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                                                <ProgressBar x:Name="TotpProgress" Height="3"
-                                                             Minimum="0" Maximum="30" Value="0"
-                                                             Margin="0,5,0,0"
-                                                             HorizontalAlignment="Stretch" />
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2"
-                                                        HorizontalAlignment="Right" VerticalAlignment="Center">
-                                                <Button Style="{StaticResource ToolbarButton}"
-                                                        Click="TotpSetupButton_Click">
-                                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                                        <FontIcon Glyph="&#xE70F;" FontSize="12" />
-                                                        <TextBlock Text="Edit TOTP" />
-                                                    </StackPanel>
-                                                </Button>
-                                                <Button Style="{StaticResource ToolbarButton}"
-                                                        Click="CopyTotpButton_Click">
-                                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                                        <FontIcon Glyph="&#xE8C8;" FontSize="12" />
-                                                        <TextBlock Text="Copy" />
-                                                    </StackPanel>
-                                                </Button>
-                                            </StackPanel>
-                                        </Grid>
-
-                                        <!-- custom fields -->
-                                        <Border x:Name="CustomFieldsDivider" Height="1"
-                                                Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                                        <StackPanel x:Name="CustomFieldsSection" Spacing="4" Visibility="Collapsed">
-                                            <TextBlock Text="Custom fields" Style="{StaticResource SectionLabel}" />
-                                            <Grid ColumnSpacing="8">
+                                        <Border x:Name="TotpDivider" Height="0"
+                                                Background="Transparent" />
+                                        <Border x:Name="TotpSection" Visibility="Collapsed"
+                                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                BorderThickness="1" CornerRadius="10" Padding="18,16">
+                                            <Grid ColumnSpacing="16">
                                                 <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="96" />
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock x:Name="CustomFieldName" Text="Field"
-                                                           Style="{StaticResource FieldLabel}"
-                                                           FontSize="11" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock x:Name="CustomFieldValue" Grid.Column="1" Text=""
-                                                           Style="{StaticResource FieldValue}" />
-                                                <Button Grid.Column="2" Style="{StaticResource IconButton}"
-                                                        Click="CopyCustomFieldButton_Click" ToolTipService.ToolTip="Copy">
-                                                    <FontIcon Glyph="&#xE8C8;" FontSize="12" />
-                                                </Button>
+                                                <StackPanel Spacing="6" Margin="0,0,12,0">
+                                                    <TextBlock Text="One-time password" Style="{StaticResource SectionLabel}" />
+                                                    <TextBlock x:Name="TotpCode" Text="—" FontSize="28"
+                                                               FontWeight="SemiBold" FontFamily="Consolas"
+                                                               CharacterSpacing="20"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                                    <TextBlock x:Name="TotpRemainingText" Text=""
+                                                               FontSize="11"
+                                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                                    <ProgressBar x:Name="TotpProgress" Height="4"
+                                                                 CornerRadius="2"
+                                                                 Minimum="0" Maximum="30" Value="0"
+                                                                 Margin="0,8,0,0"
+                                                                 HorizontalAlignment="Stretch" />
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="1" Spacing="6"
+                                                            HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                    <Button Style="{StaticResource ToolbarButton}"
+                                                            Click="TotpSetupButton_Click">
+                                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                                            <FontIcon Glyph="&#xE70F;" FontSize="12" />
+                                                            <TextBlock Text="Edit TOTP" />
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <Button Style="{StaticResource ToolbarButton}"
+                                                            Click="CopyTotpButton_Click">
+                                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                                            <FontIcon Glyph="&#xE8C8;" FontSize="12" />
+                                                            <TextBlock Text="Copy" />
+                                                        </StackPanel>
+                                                    </Button>
+                                                </StackPanel>
                                             </Grid>
-                                        </StackPanel>
+                                        </Border>
+
+                                        <!-- custom fields -->
+                                        <Border x:Name="CustomFieldsDivider" Height="0"
+                                                Background="Transparent" />
+                                        <Border x:Name="CustomFieldsSection" Visibility="Collapsed"
+                                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                BorderThickness="1" CornerRadius="10" Padding="18,16">
+                                            <StackPanel Spacing="10">
+                                                <TextBlock Text="Custom fields" Style="{StaticResource SectionLabel}" />
+                                                <Grid ColumnSpacing="12">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="104" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock x:Name="CustomFieldName" Text="Field"
+                                                               Style="{StaticResource FieldLabel}"
+                                                               FontSize="12" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock x:Name="CustomFieldValue" Grid.Column="1" Text=""
+                                                               Style="{StaticResource FieldValue}" />
+                                                    <Button Grid.Column="2" Style="{StaticResource IconButton}"
+                                                            Click="CopyCustomFieldButton_Click" ToolTipService.ToolTip="Copy">
+                                                        <FontIcon Glyph="&#xE8C8;" FontSize="12" />
+                                                    </Button>
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
 
                                         <!-- notes -->
-                                        <Border x:Name="NotesDivider" Height="1"
-                                                Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                                        <StackPanel x:Name="NotesSection" Spacing="4">
-                                            <TextBlock Text="Notes" Style="{StaticResource SectionLabel}" />
-                                            <TextBlock x:Name="DetailNotes" TextWrapping="Wrap" FontSize="13"
-                                                       Text="Personal account. Recovery codes are stored in the off-line backup." />
-                                        </StackPanel>
+                                        <Border x:Name="NotesDivider" Height="0"
+                                                Background="Transparent" />
+                                        <Border x:Name="NotesSection"
+                                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                BorderThickness="1" CornerRadius="10" Padding="18,16">
+                                            <StackPanel Spacing="8">
+                                                <TextBlock Text="Notes" Style="{StaticResource SectionLabel}" />
+                                                <TextBlock x:Name="DetailNotes" TextWrapping="Wrap" FontSize="14"
+                                                           LineHeight="21"
+                                                           Text="Personal account. Recovery codes are stored in the off-line backup." />
+                                            </StackPanel>
+                                        </Border>
                                     </StackPanel>
                                 </ScrollViewer>
                             </Grid>
