@@ -265,35 +265,7 @@
                                 <ListView x:Name="EntryList" Grid.Row="2" SelectionMode="Single"
                                           SelectionChanged="EntryList_SelectionChanged"
                                           RightTapped="EntryList_RightTapped"
-                                          Background="Transparent" Padding="4,0,10,0"
-                                          ScrollViewer.VerticalScrollBarVisibility="Auto">
-                                    <ListView.Resources>
-                                        <CornerRadius x:Key="ListViewItemCornerRadius">8</CornerRadius>
-                                        <StaticResource x:Key="ListViewItemBackgroundSelected"
-                                                        ResourceKey="SubtleFillColorSecondaryBrush" />
-                                        <StaticResource x:Key="ListViewItemBackgroundSelectedPointerOver"
-                                                        ResourceKey="SubtleFillColorTertiaryBrush" />
-                                        <StaticResource x:Key="ListViewItemBackgroundSelectedPressed"
-                                                        ResourceKey="SubtleFillColorTertiaryBrush" />
-                                        <SolidColorBrush x:Key="ScrollBarThumbFill"
-                                                         Color="#66808080" />
-                                        <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver"
-                                                         Color="#99808080" />
-                                        <SolidColorBrush x:Key="ScrollBarThumbFillPressed"
-                                                         Color="#B3808080" />
-                                        <SolidColorBrush x:Key="ScrollBarTrackFill"
-                                                         Color="Transparent" />
-                                        <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver"
-                                                         Color="Transparent" />
-                                    </ListView.Resources>
-                                    <ListView.ItemContainerStyle>
-                                        <Style TargetType="ListViewItem">
-                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                            <Setter Property="Padding" Value="8,8" />
-                                            <Setter Property="MinHeight" Value="48" />
-                                            <Setter Property="Margin" Value="1" />
-                                        </Style>
-                                    </ListView.ItemContainerStyle>
+                                          Background="Transparent" Padding="0">
                                     <ListView.ItemTemplate>
                                         <DataTemplate x:DataType="local:EntryItem">
                                             <Grid ColumnSpacing="10">
