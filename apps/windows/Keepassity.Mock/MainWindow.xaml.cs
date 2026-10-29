@@ -3304,34 +3304,37 @@ public sealed partial class MainWindow : Window
             new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         _rightPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var header = new Grid { Padding = new Thickness(24, 14, 24, 10) };
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        header.ColumnDefinitions.Add(
-            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var back = CreateToolbarButton("Back", "\uE72B");
-        back.Click += (_, _) => CloseRightPanel();
-        header.Children.Add(back);
+        // Compose the same base + layer surface as WorkspaceFrame so full-width
+        // pages keep the workspace tint instead of turning into a flat sheet.
+        var surface = new Border
+        {
+            Background = WorkspaceFrame.Background,
+            IsHitTestVisible = false,
+        };
+        Grid.SetRowSpan(surface, 3);
+        _rightPanel.Children.Add(surface);
+
+        var header = new Grid { Padding = new Thickness(32, 22, 32, 18) };
         _rightPanelTitle = new TextBlock
         {
-            FontSize = 24,
+            FontSize = 22,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(14, 0, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
-        Grid.SetColumn(_rightPanelTitle, 1);
         header.Children.Add(_rightPanelTitle);
         _rightPanel.Children.Add(header);
 
         _rightPanelContent = new ContentControl
         {
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Margin = new Thickness(24, 0, 24, 0),
+            Margin = new Thickness(32, 0, 32, 0),
         };
         var scroll = new ScrollViewer
         {
             Content = _rightPanelContent,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Padding = new Thickness(0, 0, 8, 0),
         };
         Grid.SetRow(scroll, 1);
         _rightPanel.Children.Add(scroll);
@@ -3341,7 +3344,7 @@ public sealed partial class MainWindow : Window
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
             Spacing = 8,
-            Padding = new Thickness(24, 12, 24, 18),
+            Padding = new Thickness(32, 16, 32, 24),
         };
         Grid.SetRow(_rightPanelActions, 2);
         _rightPanel.Children.Add(_rightPanelActions);
@@ -3418,6 +3421,14 @@ public sealed partial class MainWindow : Window
         _detailPanel.RowDefinitions.Add(
             new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         _detailPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var surface = new Border
+        {
+            Background = WorkspaceFrame.Background,
+            IsHitTestVisible = false,
+        };
+        Grid.SetRowSpan(surface, 3);
+        _detailPanel.Children.Add(surface);
 
         var header = new Grid { Padding = new Thickness(32, 22, 32, 18) };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
