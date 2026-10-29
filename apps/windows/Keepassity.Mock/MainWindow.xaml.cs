@@ -2110,6 +2110,134 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void EntryList_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject source)
+        {
+            return;
+        }
+        ListViewItem? container = FindAncestor<ListViewItem>(source);
+        if (container?.DataContext is not EntryItem entry)
+        {
+            return;
+        }
+        EntryList.SelectedItem = entry;
+        BuildEntryContextMenu(entry).ShowAt(container);
+        e.Handled = true;
+    }
+
+    private MenuFlyout BuildEntryContextMenu(EntryItem entry)
+    {
+        var flyout = new MenuFlyout();
+        void Add(string text, string glyph, Func<Task> action, bool danger = false)
+        {
+            var item = new MenuFlyoutItem
+            {
+                Text = text,
+                Icon = new FontIcon { Glyph = glyph, FontSize = 12 },
+            };
+            if (danger)
+            {
+                item.Foreground =
+                    (Brush)Application.Current.Resources["SystemFillColorCriticalBrush"];
+            }
+            item.Click += async (_, _) =>
+            {
+                try
+                {
+                    await action();
+                }
+                catch (Exception ex)
+                {
+                    ShowToast(ex.Message, InfoBarSeverity.Error);
+                }
+            };
+            flyout.Items.Add(item);
+        }
+
+        if (!string.IsNullOrWhiteSpace(entry.Username))
+        {
+            Add("Copy username", "\uE8C8", () =>
+            {
+                CopyText(entry.Username, "Username copied");
+                return Task.CompletedTask;
+            });
+        }
+        Add("Copy password", "\uE8C8", () => CopyEntryPasswordAsync(entry));
+        if (!string.IsNullOrWhiteSpace(entry.Url))
+        {
+            Add("Copy website", "\uE8C8", () =>
+            {
+                CopyText(entry.Url, "Website copied");
+                return Task.CompletedTask;
+            });
+            Add("Open website", "\uE8A7", () => OpenEntryUrlAsync(entry));
+        }
+        if (entry.HasTotp)
+        {
+            Add("Copy TOTP", "\uE8C8", () => CopyEntryTotpAsync(entry));
+            Add("Edit TOTP", "\uE70F", () => RunEntryActionAsync(entry, () =>
+                TotpSetupButton_Click(this, new RoutedEventArgs())));
+        }
+        else
+        {
+            Add("Add TOTP", "\uE710", () => RunEntryActionAsync(entry, () =>
+                TotpSetupButton_Click(this, new RoutedEventArgs())));
+        }
+        flyout.Items.Add(new MenuFlyoutSeparator());
+        Add("Edit entry", "\uE70F", () => RunEntryActionAsync(entry, () =>
+            EditEntryButton_Click(this, new RoutedEventArgs())));
+        Add("Move entry", "\uE8DE", () => RunEntryActionAsync(entry, () =>
+            MoveEntryButton_Click(this, new RoutedEventArgs())));
+        Add("Delete entry", "\uE74D", () => RunEntryActionAsync(entry, () =>
+            DeleteEntryButton_Click(this, new RoutedEventArgs())), danger: true);
+        return flyout;
+    }
+
+    private async Task CopyEntryPasswordAsync(EntryItem entry)
+    {
+        EntryFullDto full = await _core.GetEntryAsync(entry.Uuid);
+        CopyText(full.PasswordSecret, "Password copied");
+    }
+
+    private async Task CopyEntryTotpAsync(EntryItem entry)
+    {
+        TotpCodeDto? code = await _core.TotpCodeAsync(entry.Uuid);
+        if (code is null)
+        {
+            ShowToast("No TOTP configured for this entry.", InfoBarSeverity.Warning);
+            return;
+        }
+        CopyText(code.Code, "One-time code copied");
+    }
+
+    private async Task OpenEntryUrlAsync(EntryItem entry)
+    {
+        if (Uri.TryCreate(entry.Url, UriKind.Absolute, out Uri? uri))
+        {
+            await Launcher.LaunchUriAsync(uri);
+        }
+    }
+
+    private async Task RunEntryActionAsync(EntryItem entry, Action action)
+    {
+        await ShowEntryAsync(entry);
+        action();
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? node) where T : DependencyObject
+    {
+        while (node is not null)
+        {
+            if (node is T match)
+            {
+                return match;
+            }
+            node = VisualTreeHelper.GetParent(node);
+        }
+        return null;
+    }
+
     private async Task ShowEntryAsync(EntryItem summary)
     {
         int generation = ++_showGeneration;
