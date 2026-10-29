@@ -60,6 +60,12 @@ public sealed partial class MainWindow : Window
     private StackPanel? _rightPanelActions;
     private TaskCompletionSource<RightPanelResult>? _rightPanelCompletion;
     private bool _rightPanelOpen;
+    private Grid? _detailPanel;
+    private TextBlock? _detailPanelTitle;
+    private ContentControl? _detailPanelContent;
+    private StackPanel? _detailPanelActions;
+    private TaskCompletionSource<RightPanelResult>? _detailPanelCompletion;
+    private bool _detailPanelOpen;
 
     private enum RightPanelResult
     {
@@ -951,7 +957,7 @@ public sealed partial class MainWindow : Window
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
         });
         content.Children.Add(choices);
-        if (await ShowRightPanelAsync("Restore backup", content, "Restore") !=
+        if (await ShowDetailPanelAsync("Restore backup", content, "Restore") !=
                 RightPanelResult.Primary ||
             choices.SelectedItem is not BackupEntry selected)
         {
@@ -1895,7 +1901,7 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        CloseRightPanel();
+        ClosePanels();
         _selectedGroupUuid = tag == "all" ? null : tag;
         try
         {
@@ -1973,7 +1979,7 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        CloseRightPanel();
+        ClosePanels();
         switch (tag)
         {
             case "sync":
@@ -2037,10 +2043,37 @@ public sealed partial class MainWindow : Window
 
         CustomFieldDto? custom = full.CustomFields.FirstOrDefault(field => !IsTotpField(field.Key));
         CustomFieldsSection.Visibility = custom is null ? Visibility.Collapsed : Visibility.Visible;
+        CustomFieldsDivider.Visibility = CustomFieldsSection.Visibility;
         CustomFieldName.Text = custom?.Key ?? string.Empty;
         CustomFieldValue.Text = custom?.Value ?? string.Empty;
 
+        bool hasUsername = !string.IsNullOrWhiteSpace(full.Username);
+        bool hasPassword = !string.IsNullOrEmpty(full.PasswordSecret);
+        bool hasUrl = !string.IsNullOrWhiteSpace(full.Url);
+        bool hasTags = full.Tags.Count > 0;
+        bool hasNotes = !string.IsNullOrWhiteSpace(full.Notes);
+        bool hasCustom = custom is not null;
         bool hasTotp = full.Totp is not null;
+
+        UsernameRow.Visibility = hasUsername ? Visibility.Visible : Visibility.Collapsed;
+        PasswordRow.Visibility = hasPassword ? Visibility.Visible : Visibility.Collapsed;
+        UrlRow.Visibility = hasUrl ? Visibility.Visible : Visibility.Collapsed;
+        TagsRow.Visibility = hasTags ? Visibility.Visible : Visibility.Collapsed;
+        NotesSection.Visibility = hasNotes ? Visibility.Visible : Visibility.Collapsed;
+        NotesDivider.Visibility = NotesSection.Visibility;
+        UsernameDivider.Visibility = hasUsername &&
+            (hasPassword || hasUrl || hasTags || hasTotp || hasCustom || hasNotes)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        PasswordDivider.Visibility = hasPassword &&
+            (hasUrl || hasTags || hasTotp || hasCustom || hasNotes)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        UrlDivider.Visibility = hasUrl &&
+            (hasTags || hasTotp || hasCustom || hasNotes)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
         TotpSection.Visibility = hasTotp ? Visibility.Visible : Visibility.Collapsed;
         TotpDivider.Visibility = TotpSection.Visibility;
         AddTotpButton.Visibility = hasTotp ? Visibility.Collapsed : Visibility.Visible;
@@ -2075,7 +2108,17 @@ public sealed partial class MainWindow : Window
         DetailUrl.Text = string.Empty;
         DetailTags.Text = string.Empty;
         DetailNotes.Text = string.Empty;
+        UsernameRow.Visibility = Visibility.Collapsed;
+        PasswordRow.Visibility = Visibility.Collapsed;
+        UrlRow.Visibility = Visibility.Collapsed;
+        TagsRow.Visibility = Visibility.Collapsed;
+        UsernameDivider.Visibility = Visibility.Collapsed;
+        PasswordDivider.Visibility = Visibility.Collapsed;
+        UrlDivider.Visibility = Visibility.Collapsed;
         CustomFieldsSection.Visibility = Visibility.Collapsed;
+        CustomFieldsDivider.Visibility = Visibility.Collapsed;
+        NotesSection.Visibility = Visibility.Collapsed;
+        NotesDivider.Visibility = Visibility.Collapsed;
         TotpSection.Visibility = Visibility.Collapsed;
         TotpDivider.Visibility = Visibility.Collapsed;
         AddTotpButton.Visibility = Visibility.Collapsed;
@@ -2273,10 +2316,10 @@ public sealed partial class MainWindow : Window
         content.Children.Add(groupChoice);
         content.Children.Add(title);
         content.Children.Add(username);
-        content.Children.Add(password);
+        content.Children.Add(BuildPasswordRow(password));
         content.Children.Add(url);
         content.Children.Add(notes);
-        if (await ShowRightPanelAsync("New entry", content, "Create") !=
+        if (await ShowDetailPanelAsync("New entry", content, "Create") !=
                 RightPanelResult.Primary ||
             groupChoice.SelectedItem is not GroupDto group)
         {
@@ -2328,11 +2371,11 @@ public sealed partial class MainWindow : Window
         var content = new StackPanel { Spacing = 10 };
         content.Children.Add(title);
         content.Children.Add(username);
-        content.Children.Add(password);
+        content.Children.Add(BuildPasswordRow(password));
         content.Children.Add(url);
         content.Children.Add(tags);
         content.Children.Add(notes);
-        if (await ShowRightPanelAsync("Edit entry", content, "Save") !=
+        if (await ShowDetailPanelAsync("Edit entry", content, "Save") !=
             RightPanelResult.Primary)
         {
             return;
@@ -2370,7 +2413,7 @@ public sealed partial class MainWindow : Window
         };
         choices.SelectedItem = _selectableGroups.FirstOrDefault(group =>
             group.Uuid == _currentFull.GroupUuid) ?? _selectableGroups[0];
-        if (await ShowRightPanelAsync("Move entry", choices, "Move") !=
+        if (await ShowDetailPanelAsync("Move entry", choices, "Move") !=
                 RightPanelResult.Primary ||
             choices.SelectedItem is not GroupDto target ||
             _currentFull is null)
@@ -2426,7 +2469,25 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void GeneratePasswordButton_Click(object sender, RoutedEventArgs e)
+    private Grid BuildPasswordRow(PasswordBox password)
+    {
+        var row = new Grid { ColumnSpacing = 8 };
+        row.ColumnDefinitions.Add(
+            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.Children.Add(password);
+        var generate = new Button
+        {
+            Content = "Generate",
+            VerticalAlignment = VerticalAlignment.Bottom,
+        };
+        generate.Click += async (_, _) => await GeneratePasswordIntoAsync(password);
+        Grid.SetColumn(generate, 1);
+        row.Children.Add(generate);
+        return row;
+    }
+
+    private async Task GeneratePasswordIntoAsync(PasswordBox target)
     {
         if (!_core.IsOpen)
         {
@@ -2435,46 +2496,9 @@ public sealed partial class MainWindow : Window
         try
         {
             PasswordGenerateDto generated = await _core.GeneratePasswordAsync();
-            var preview = new TextBox
-            {
-                Text = generated.Password,
-                IsReadOnly = true,
-                FontFamily = new FontFamily("Consolas"),
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-            };
-            var content = new StackPanel { Spacing = 8 };
-            content.Children.Add(preview);
-            content.Children.Add(new TextBlock
-            {
-                Text = $"{generated.EntropyBits:F0} bits of entropy",
-                FontSize = 11,
-                Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-            });
-            RightPanelResult result = await ShowRightPanelAsync(
-                "Password generator",
-                content,
-                _currentFull is null ? "Copy" : "Use password",
-                _currentFull is null ? null : "Copy");
-            if (result == RightPanelResult.Primary)
-            {
-                if (_currentFull is null)
-                {
-                    CopyText(generated.Password, "Generated password copied");
-                }
-                else
-                {
-                    EntryFullDto current = _currentFull;
-                    await _core.UpdateEntryAsync(current.Uuid, current.Title, current.Username,
-                        generated.Password, current.Url, current.Notes, current.Tags);
-                    await SaveAsync();
-                    await ReloadVaultAsync(current.Uuid);
-                    ShowToast("Password replaced and saved", InfoBarSeverity.Success);
-                }
-            }
-            else if (result == RightPanelResult.Secondary)
-            {
-                CopyText(generated.Password, "Generated password copied");
-            }
+            target.Password = generated.Password;
+            target.Focus(FocusState.Programmatic);
+            ShowToast("Password generated; Save to keep it.", InfoBarSeverity.Informational);
         }
         catch (Exception ex)
         {
@@ -2603,7 +2627,7 @@ public sealed partial class MainWindow : Window
         content.Children.Add(algorithm);
         content.Children.Add(digits);
         content.Children.Add(period);
-        RightPanelResult result = await ShowRightPanelAsync(
+        RightPanelResult result = await ShowDetailPanelAsync(
             existing is null ? "Set up TOTP" : "Edit TOTP",
             content,
             "Save",
@@ -2686,7 +2710,7 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        CloseRightPanel();
+        ClosePanels();
         _busy = true;
         try
         {
@@ -2968,9 +2992,18 @@ public sealed partial class MainWindow : Window
 
     private void RightPanel_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (_rightPanelOpen && e.Key == VirtualKey.Escape)
+        if (e.Key != VirtualKey.Escape)
+        {
+            return;
+        }
+        if (_rightPanelOpen)
         {
             CloseRightPanel();
+            e.Handled = true;
+        }
+        else if (_detailPanelOpen)
+        {
+            CloseDetailPanel();
             e.Handled = true;
         }
     }
@@ -3044,6 +3077,7 @@ public sealed partial class MainWindow : Window
         {
             return RightPanelResult.Close;
         }
+        CloseDetailPanel();
         EnsureRightPanel();
         _rightPanelOpen = true;
         _rightPanelTitle!.Text = title;
@@ -3090,6 +3124,136 @@ public sealed partial class MainWindow : Window
         {
             _rightPanelCompletion?.TrySetResult(RightPanelResult.Close);
         }
+    }
+
+    private void EnsureDetailPanel()
+    {
+        if (_detailPanel is not null)
+        {
+            return;
+        }
+        _detailPanel = new Grid
+        {
+            Visibility = Visibility.Collapsed,
+            Margin = new Thickness(-24, -14, -24, -12),
+        };
+        _detailPanel.Background =
+            (Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"];
+        _detailPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _detailPanel.RowDefinitions.Add(
+            new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        _detailPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var header = new Grid { Padding = new Thickness(24, 14, 24, 10) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(
+            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var back = new Button
+        {
+            Content = "← Back",
+            Style = (Style)Root.Resources["ToolbarButton"],
+        };
+        back.Click += (_, _) => CloseDetailPanel();
+        header.Children.Add(back);
+        _detailPanelTitle = new TextBlock
+        {
+            FontSize = 22,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(14, 0, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        Grid.SetColumn(_detailPanelTitle, 1);
+        header.Children.Add(_detailPanelTitle);
+        _detailPanel.Children.Add(header);
+
+        _detailPanelContent = new ContentControl
+        {
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(24, 0, 24, 0),
+        };
+        var scroll = new ScrollViewer
+        {
+            Content = _detailPanelContent,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        };
+        Grid.SetRow(scroll, 1);
+        _detailPanel.Children.Add(scroll);
+
+        _detailPanelActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8,
+            Padding = new Thickness(24, 12, 24, 18),
+        };
+        Grid.SetRow(_detailPanelActions, 2);
+        _detailPanel.Children.Add(_detailPanelActions);
+        Grid.SetRow(_detailPanel, 0);
+        Grid.SetRowSpan(_detailPanel, 2);
+        DetailPane.Children.Add(_detailPanel);
+    }
+
+    private async Task<RightPanelResult> ShowDetailPanelAsync(string title, UIElement content,
+        string primaryText, string? secondaryText = null, string? closeText = "Cancel")
+    {
+        if (_detailPanelOpen)
+        {
+            return RightPanelResult.Close;
+        }
+        CloseRightPanel();
+        EnsureDetailPanel();
+        _detailPanelOpen = true;
+        _detailPanelTitle!.Text = title;
+        _detailPanelContent!.Content = content;
+        _detailPanelActions!.Children.Clear();
+        var completion = new TaskCompletionSource<RightPanelResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _detailPanelCompletion = completion;
+        void Finish(RightPanelResult result) => completion.TrySetResult(result);
+
+        if (!string.IsNullOrWhiteSpace(closeText))
+        {
+            var close = new Button { Content = closeText };
+            close.Click += (_, _) => Finish(RightPanelResult.Close);
+            _detailPanelActions.Children.Add(close);
+        }
+        if (!string.IsNullOrWhiteSpace(secondaryText))
+        {
+            var secondary = new Button { Content = secondaryText };
+            secondary.Click += (_, _) => Finish(RightPanelResult.Secondary);
+            _detailPanelActions.Children.Add(secondary);
+        }
+        var primary = new Button
+        {
+            Content = primaryText,
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"],
+        };
+        primary.Click += (_, _) => Finish(RightPanelResult.Primary);
+        _detailPanelActions.Children.Add(primary);
+
+        _detailPanel!.Visibility = Visibility.Visible;
+        RightPanelResult result = await completion.Task;
+        _detailPanel.Visibility = Visibility.Collapsed;
+        _detailPanelContent.Content = null;
+        _detailPanelActions.Children.Clear();
+        _detailPanelOpen = false;
+        _detailPanelCompletion = null;
+        return result;
+    }
+
+    private void CloseDetailPanel()
+    {
+        if (_detailPanelOpen)
+        {
+            _detailPanelCompletion?.TrySetResult(RightPanelResult.Close);
+        }
+    }
+
+    private void ClosePanels()
+    {
+        CloseRightPanel();
+        CloseDetailPanel();
     }
 
     private void ShowToast(string message, InfoBarSeverity severity)

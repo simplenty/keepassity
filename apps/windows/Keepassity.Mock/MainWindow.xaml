@@ -317,7 +317,7 @@
                             </Grid>
 
                             <!-- detail -->
-                            <Grid Grid.Column="1" Padding="24,14,24,12">
+                            <Grid x:Name="DetailPane" Grid.Column="1" Padding="24,14,24,12">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="*" />
@@ -351,7 +351,7 @@
                                     <StackPanel Spacing="14">
                                         <!-- login fields -->
                                         <StackPanel Spacing="0">
-                                            <Grid ColumnSpacing="8" Padding="0,10">
+                                            <Grid x:Name="UsernameRow" ColumnSpacing="8" Padding="0,10">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="96" />
                                                     <ColumnDefinition Width="*" />
@@ -365,12 +365,12 @@
                                                     <FontIcon Glyph="&#xE8C8;" FontSize="12" />
                                                 </Button>
                                             </Grid>
-                                            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                                            <Grid ColumnSpacing="8" Padding="0,4">
+                                            <Border x:Name="UsernameDivider" Height="1"
+                                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                                            <Grid x:Name="PasswordRow" ColumnSpacing="8" Padding="0,4">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="96" />
                                                     <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="Auto" />
                                                     <ColumnDefinition Width="Auto" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
@@ -387,13 +387,10 @@
                                                         Click="CopyPasswordButton_Click" ToolTipService.ToolTip="Copy">
                                                     <FontIcon Glyph="&#xE8C8;" FontSize="12" />
                                                 </Button>
-                                                <Button Grid.Column="4" Style="{StaticResource IconButton}"
-                                                        Click="GeneratePasswordButton_Click" ToolTipService.ToolTip="Generate">
-                                                    <FontIcon Glyph="&#xE8D7;" FontSize="12" />
-                                                </Button>
                                             </Grid>
-                                            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                                            <Grid ColumnSpacing="8" Padding="0,4">
+                                            <Border x:Name="PasswordDivider" Height="1"
+                                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                                            <Grid x:Name="UrlRow" ColumnSpacing="8" Padding="0,4">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="96" />
                                                     <ColumnDefinition Width="*" />
@@ -412,8 +409,9 @@
                                                     <FontIcon Glyph="&#xE8A7;" FontSize="12" />
                                                 </Button>
                                             </Grid>
-                                            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                                            <Grid ColumnSpacing="8" Padding="0,10">
+                                            <Border x:Name="UrlDivider" Height="1"
+                                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                                            <Grid x:Name="TagsRow" ColumnSpacing="8" Padding="0,10">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="96" />
                                                     <ColumnDefinition Width="*" />
@@ -461,7 +459,8 @@
                                         </Grid>
 
                                         <!-- custom fields -->
-                                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                                        <Border x:Name="CustomFieldsDivider" Height="1"
+                                                Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
                                         <StackPanel x:Name="CustomFieldsSection" Spacing="4" Visibility="Collapsed">
                                             <TextBlock Text="Custom fields" Style="{StaticResource SectionLabel}" />
                                             <Grid ColumnSpacing="8">
@@ -483,8 +482,9 @@
                                         </StackPanel>
 
                                         <!-- notes -->
-                                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                                        <StackPanel Spacing="4">
+                                        <Border x:Name="NotesDivider" Height="1"
+                                                Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                                        <StackPanel x:Name="NotesSection" Spacing="4">
                                             <TextBlock Text="Notes" Style="{StaticResource SectionLabel}" />
                                             <TextBlock x:Name="DetailNotes" TextWrapping="Wrap" FontSize="13"
                                                        Text="Personal account. Recovery codes are stored in the off-line backup." />
