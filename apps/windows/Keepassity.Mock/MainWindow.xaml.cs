@@ -88,7 +88,6 @@ public sealed partial class MainWindow : Window
         ApplyTitleBarTheme();
         Root.ActualThemeChanged += (_, _) => ApplyTitleBarTheme();
         SearchBox.Visibility = Visibility.Collapsed;
-        TrySetMica();
         EntryList.ItemsSource = Entries;
         ParseArguments();
         if (_dbPath is null &&
@@ -243,6 +242,7 @@ public sealed partial class MainWindow : Window
             "Dark" => ElementTheme.Dark,
             _ => ElementTheme.Default,
         };
+        ApplyWindowBackdrop();
     }
 
     private void TouchActivity()
@@ -368,15 +368,35 @@ public sealed partial class MainWindow : Window
         return _dbPath is null ? "Vault" : Path.GetFileNameWithoutExtension(_dbPath);
     }
 
-    private void TrySetMica()
+    private void ApplyWindowBackdrop()
     {
+        Color pageColor = Root.RequestedTheme switch
+        {
+            ElementTheme.Light => Color.FromArgb(255, 243, 243, 243),
+            ElementTheme.Dark => Color.FromArgb(255, 32, 32, 32),
+            _ => Root.ActualTheme == ElementTheme.Light
+                ? Color.FromArgb(255, 243, 243, 243)
+                : Color.FromArgb(255, 32, 32, 32),
+        };
         try
         {
-            SystemBackdrop = new MicaBackdrop();
+            if (Root.RequestedTheme == ElementTheme.Default)
+            {
+                // Mica follows the system theme; only use it when the app does too.
+                SystemBackdrop = new MicaBackdrop();
+                Root.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            }
+            else
+            {
+                SystemBackdrop = null;
+                Root.Background = new SolidColorBrush(pageColor);
+            }
         }
         catch
         {
             // Mica is unavailable on some Windows builds; keep the solid fallback.
+            SystemBackdrop = null;
+            Root.Background = new SolidColorBrush(pageColor);
         }
     }
 
@@ -957,7 +977,8 @@ public sealed partial class MainWindow : Window
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
         });
         content.Children.Add(choices);
-        if (await ShowDetailPanelAsync("Restore backup", content, "Restore") !=
+        if (await ShowDetailPanelAsync("Restore backup", content, "Restore",
+                primaryGlyph: "\uE777") !=
                 RightPanelResult.Primary ||
             choices.SelectedItem is not BackupEntry selected)
         {
@@ -2319,7 +2340,8 @@ public sealed partial class MainWindow : Window
         content.Children.Add(BuildPasswordRow(password));
         content.Children.Add(url);
         content.Children.Add(notes);
-        if (await ShowDetailPanelAsync("New entry", content, "Create") !=
+        if (await ShowDetailPanelAsync("New entry", content, "Create",
+                primaryGlyph: "\uE710") !=
                 RightPanelResult.Primary ||
             groupChoice.SelectedItem is not GroupDto group)
         {
@@ -2413,7 +2435,8 @@ public sealed partial class MainWindow : Window
         };
         choices.SelectedItem = _selectableGroups.FirstOrDefault(group =>
             group.Uuid == _currentFull.GroupUuid) ?? _selectableGroups[0];
-        if (await ShowDetailPanelAsync("Move entry", choices, "Move") !=
+        if (await ShowDetailPanelAsync("Move entry", choices, "Move",
+                primaryGlyph: "\uE8DE") !=
                 RightPanelResult.Primary ||
             choices.SelectedItem is not GroupDto target ||
             _currentFull is null)
@@ -2478,7 +2501,7 @@ public sealed partial class MainWindow : Window
         row.Children.Add(password);
         var generate = new Button
         {
-            Content = "Generate",
+            Content = CreateIconLabel("Generate", "\uE945"),
             VerticalAlignment = VerticalAlignment.Bottom,
         };
         generate.Click += async (_, _) => await GeneratePasswordIntoAsync(password);
@@ -2990,6 +3013,42 @@ public sealed partial class MainWindow : Window
 
     // ------------------------------------------------------- right-side panel
 
+    private static StackPanel CreateIconLabel(string text, string glyph)
+    {
+        var panel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+        };
+        panel.Children.Add(new FontIcon { Glyph = glyph, FontSize = 12 });
+        panel.Children.Add(new TextBlock
+        {
+            Text = text,
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        return panel;
+    }
+
+    private Button CreateToolbarButton(string text, string glyph)
+    {
+        return new Button
+        {
+            Content = CreateIconLabel(text, glyph),
+            Style = (Style)Root.Resources["ToolbarButton"],
+        };
+    }
+
+    private static Button CreateActionButton(string text, string glyph, bool accent)
+    {
+        var button = new Button { Content = CreateIconLabel(text, glyph) };
+        if (accent)
+        {
+            button.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
+        }
+        return button;
+    }
+
     private void RightPanel_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Key != VirtualKey.Escape)
@@ -3026,11 +3085,7 @@ public sealed partial class MainWindow : Window
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(
             new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var back = new Button
-        {
-            Content = "← Back",
-            Style = (Style)Root.Resources["ToolbarButton"],
-        };
+        var back = CreateToolbarButton("Back", "\uE72B");
         back.Click += (_, _) => CloseRightPanel();
         header.Children.Add(back);
         _rightPanelTitle = new TextBlock
@@ -3071,7 +3126,8 @@ public sealed partial class MainWindow : Window
     }
 
     private async Task<RightPanelResult> ShowRightPanelAsync(string title, UIElement content,
-        string primaryText, string? secondaryText = null, string? closeText = "Cancel")
+        string primaryText, string? secondaryText = null, string? closeText = "Cancel",
+        string primaryGlyph = "\uE74E")
     {
         if (_rightPanelOpen)
         {
@@ -3090,21 +3146,17 @@ public sealed partial class MainWindow : Window
 
         if (!string.IsNullOrWhiteSpace(closeText))
         {
-            var close = new Button { Content = closeText };
+            var close = CreateActionButton(closeText, "\uE711", accent: false);
             close.Click += (_, _) => Finish(RightPanelResult.Close);
             _rightPanelActions.Children.Add(close);
         }
         if (!string.IsNullOrWhiteSpace(secondaryText))
         {
-            var secondary = new Button { Content = secondaryText };
+            var secondary = CreateActionButton(secondaryText, "\uE74D", accent: false);
             secondary.Click += (_, _) => Finish(RightPanelResult.Secondary);
             _rightPanelActions.Children.Add(secondary);
         }
-        var primary = new Button
-        {
-            Content = primaryText,
-            Style = (Style)Application.Current.Resources["AccentButtonStyle"],
-        };
+        var primary = CreateActionButton(primaryText, primaryGlyph, accent: true);
         primary.Click += (_, _) => Finish(RightPanelResult.Primary);
         _rightPanelActions.Children.Add(primary);
 
@@ -3148,11 +3200,7 @@ public sealed partial class MainWindow : Window
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(
             new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var back = new Button
-        {
-            Content = "← Back",
-            Style = (Style)Root.Resources["ToolbarButton"],
-        };
+        var back = CreateToolbarButton("Back", "\uE72B");
         back.Click += (_, _) => CloseDetailPanel();
         header.Children.Add(back);
         _detailPanelTitle = new TextBlock
@@ -3195,7 +3243,8 @@ public sealed partial class MainWindow : Window
     }
 
     private async Task<RightPanelResult> ShowDetailPanelAsync(string title, UIElement content,
-        string primaryText, string? secondaryText = null, string? closeText = "Cancel")
+        string primaryText, string? secondaryText = null, string? closeText = "Cancel",
+        string primaryGlyph = "\uE74E")
     {
         if (_detailPanelOpen)
         {
@@ -3214,21 +3263,17 @@ public sealed partial class MainWindow : Window
 
         if (!string.IsNullOrWhiteSpace(closeText))
         {
-            var close = new Button { Content = closeText };
+            var close = CreateActionButton(closeText, "\uE711", accent: false);
             close.Click += (_, _) => Finish(RightPanelResult.Close);
             _detailPanelActions.Children.Add(close);
         }
         if (!string.IsNullOrWhiteSpace(secondaryText))
         {
-            var secondary = new Button { Content = secondaryText };
+            var secondary = CreateActionButton(secondaryText, "\uE74D", accent: false);
             secondary.Click += (_, _) => Finish(RightPanelResult.Secondary);
             _detailPanelActions.Children.Add(secondary);
         }
-        var primary = new Button
-        {
-            Content = primaryText,
-            Style = (Style)Application.Current.Resources["AccentButtonStyle"],
-        };
+        var primary = CreateActionButton(primaryText, primaryGlyph, accent: true);
         primary.Click += (_, _) => Finish(RightPanelResult.Primary);
         _detailPanelActions.Children.Add(primary);
 
