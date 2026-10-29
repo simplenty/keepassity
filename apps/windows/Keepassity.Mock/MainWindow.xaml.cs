@@ -54,6 +54,8 @@ public sealed partial class MainWindow : Window
     private bool _busy;
     private bool _suppressNav;
     private int _showGeneration;
+    private string _entrySort = "title";
+    private bool _onlyTotp;
     private Grid? _rightPanel;
     private TextBlock? _rightPanelTitle;
     private ContentControl? _rightPanelContent;
@@ -1894,14 +1896,37 @@ public sealed partial class MainWindow : Window
 
     private void PopulateEntries(IEnumerable<EntrySummaryDto> entries, string title)
     {
+        List<EntrySummaryDto> visible = entries.ToList();
+        if (_onlyTotp)
+        {
+            visible = visible.Where(entry => entry.HasTotp).ToList();
+        }
+        visible = _entrySort switch
+        {
+            "modified" => visible.OrderByDescending(entry => entry.ModifiedUnix).ToList(),
+            "group" => visible
+                .OrderBy(entry => _groupNames.GetValueOrDefault(entry.GroupUuid, string.Empty),
+                    StringComparer.CurrentCultureIgnoreCase)
+                .ThenBy(entry => entry.Title, StringComparer.CurrentCultureIgnoreCase)
+                .ToList(),
+            _ => visible
+                .OrderBy(entry => entry.Title, StringComparer.CurrentCultureIgnoreCase)
+                .ToList(),
+        };
+
         Entries.Clear();
-        foreach (EntrySummaryDto entry in entries)
+        foreach (EntrySummaryDto entry in visible)
         {
             string groupName = _groupNames.GetValueOrDefault(entry.GroupUuid, "Vault");
             Entries.Add(new EntryItem(entry, groupName));
         }
         CurrentGroupTitle.Text = title;
-        EntryCountText.Text = $"{Entries.Count} {(Entries.Count == 1 ? "entry" : "entries")}";
+        EntryCountText.Text = $"{Entries.Count} {(Entries.Count == 1 ? "entry" : "entries")}" +
+                              (_onlyTotp ? " · TOTP only" : string.Empty);
+        EmptyListState.Visibility = Entries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        EmptyListHint.Text = _onlyTotp
+            ? "No entries with TOTP in this view. Clear the filter to see all entries."
+            : "Create the first entry with New.";
         if (Entries.Count > 0)
         {
             EntryList.SelectedIndex = 0;
@@ -1910,6 +1935,54 @@ public sealed partial class MainWindow : Window
         {
             EntryList.SelectedIndex = -1;
             ClearDetail();
+        }
+    }
+
+    private void ListOptionsButton_Click(object sender, RoutedEventArgs e)
+    {
+        var flyout = new MenuFlyout();
+        void AddSort(string label, string value)
+        {
+            var item = new RadioMenuFlyoutItem
+            {
+                Text = label,
+                GroupName = "entry-sort",
+                IsChecked = _entrySort == value,
+            };
+            item.Click += (_, _) =>
+            {
+                _entrySort = value;
+                RefreshEntries();
+            };
+            flyout.Items.Add(item);
+        }
+        AddSort("Sort by title", "title");
+        AddSort("Sort by recently modified", "modified");
+        AddSort("Sort by group", "group");
+        flyout.Items.Add(new MenuFlyoutSeparator());
+        var totpOnly = new ToggleMenuFlyoutItem
+        {
+            Text = "Only entries with TOTP",
+            IsChecked = _onlyTotp,
+        };
+        totpOnly.Click += (_, _) =>
+        {
+            _onlyTotp = totpOnly.IsChecked;
+            RefreshEntries();
+        };
+        flyout.Items.Add(totpOnly);
+        flyout.ShowAt(ListOptionsButton);
+    }
+
+    private async void RefreshEntries()
+    {
+        try
+        {
+            await LoadSelectedGroupAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, InfoBarSeverity.Error);
         }
     }
 
@@ -3349,6 +3422,12 @@ public sealed class EntryItem
         Url = entry.Url;
         GroupName = groupName;
         HasTotp = entry.HasTotp;
+        Secondary = !string.IsNullOrWhiteSpace(entry.Username)
+            ? entry.Username
+            : Uri.TryCreate(entry.Url, UriKind.Absolute, out Uri? uri) &&
+              !string.IsNullOrWhiteSpace(uri.Host)
+                ? uri.Host
+                : groupName;
         Initial = entry.Title.Length > 0 ? entry.Title[..1].ToUpperInvariant() : "?";
         int hash = 0;
         foreach (char character in entry.Uuid)
@@ -3364,6 +3443,7 @@ public sealed class EntryItem
     public string Username { get; }
     public string Url { get; }
     public string GroupName { get; }
+    public string Secondary { get; }
     public bool HasTotp { get; }
     public string Initial { get; }
     public Brush AvatarBrush { get; }
