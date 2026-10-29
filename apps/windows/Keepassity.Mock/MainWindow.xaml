@@ -264,6 +264,7 @@
 
                                 <ListView x:Name="EntryList" Grid.Row="2" SelectionMode="Single"
                                           SelectionChanged="EntryList_SelectionChanged"
+                                          RightTapped="EntryList_RightTapped"
                                           Background="Transparent" Padding="4,0,10,0"
                                           ScrollViewer.VerticalScrollBarVisibility="Auto">
                                     <ListView.Resources>
