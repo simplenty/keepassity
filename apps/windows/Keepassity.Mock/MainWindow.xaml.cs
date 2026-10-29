@@ -54,6 +54,19 @@ public sealed partial class MainWindow : Window
     private bool _busy;
     private bool _suppressNav;
     private int _showGeneration;
+    private Grid? _rightPanel;
+    private TextBlock? _rightPanelTitle;
+    private ContentControl? _rightPanelContent;
+    private StackPanel? _rightPanelActions;
+    private TaskCompletionSource<RightPanelResult>? _rightPanelCompletion;
+    private bool _rightPanelOpen;
+
+    private enum RightPanelResult
+    {
+        Primary,
+        Secondary,
+        Close,
+    }
 
     private AppSettings Settings => _settingsStore.Current;
 
@@ -104,6 +117,8 @@ public sealed partial class MainWindow : Window
             new PointerEventHandler((_, _) => TouchActivity()), true);
         Root.AddHandler(UIElement.KeyDownEvent,
             new KeyEventHandler((_, _) => TouchActivity()), true);
+        Root.AddHandler(UIElement.KeyDownEvent,
+            new KeyEventHandler(RightPanel_KeyDown), true);
         Root.Loaded += Root_Loaded;
         Closed += (_, _) =>
         {
@@ -936,16 +951,8 @@ public sealed partial class MainWindow : Window
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
         });
         content.Children.Add(choices);
-        var dialog = new ContentDialog
-        {
-            Title = "Restore backup",
-            Content = content,
-            PrimaryButtonText = "Restore",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = Root.XamlRoot,
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary ||
+        if (await ShowRightPanelAsync("Restore backup", content, "Restore") !=
+                RightPanelResult.Primary ||
             choices.SelectedItem is not BackupEntry selected)
         {
             return;
@@ -1888,6 +1895,7 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
+        CloseRightPanel();
         _selectedGroupUuid = tag == "all" ? null : tag;
         try
         {
@@ -1965,6 +1973,7 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
+        CloseRightPanel();
         switch (tag)
         {
             case "sync":
@@ -2267,16 +2276,8 @@ public sealed partial class MainWindow : Window
         content.Children.Add(password);
         content.Children.Add(url);
         content.Children.Add(notes);
-        var dialog = new ContentDialog
-        {
-            Title = "New entry",
-            Content = content,
-            PrimaryButtonText = "Create",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = Root.XamlRoot,
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary ||
+        if (await ShowRightPanelAsync("New entry", content, "Create") !=
+                RightPanelResult.Primary ||
             groupChoice.SelectedItem is not GroupDto group)
         {
             return;
@@ -2331,16 +2332,8 @@ public sealed partial class MainWindow : Window
         content.Children.Add(url);
         content.Children.Add(tags);
         content.Children.Add(notes);
-        var dialog = new ContentDialog
-        {
-            Title = "Edit entry",
-            Content = content,
-            PrimaryButtonText = "Save",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = Root.XamlRoot,
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await ShowRightPanelAsync("Edit entry", content, "Save") !=
+            RightPanelResult.Primary)
         {
             return;
         }
@@ -2377,16 +2370,8 @@ public sealed partial class MainWindow : Window
         };
         choices.SelectedItem = _selectableGroups.FirstOrDefault(group =>
             group.Uuid == _currentFull.GroupUuid) ?? _selectableGroups[0];
-        var dialog = new ContentDialog
-        {
-            Title = "Move entry",
-            Content = choices,
-            PrimaryButtonText = "Move",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = Root.XamlRoot,
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary ||
+        if (await ShowRightPanelAsync("Move entry", choices, "Move") !=
+                RightPanelResult.Primary ||
             choices.SelectedItem is not GroupDto target ||
             _currentFull is null)
         {
@@ -2465,18 +2450,12 @@ public sealed partial class MainWindow : Window
                 FontSize = 11,
                 Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
             });
-            var dialog = new ContentDialog
-            {
-                Title = "Generated password",
-                Content = content,
-                PrimaryButtonText = _currentFull is null ? "Copy" : "Use password",
-                SecondaryButtonText = _currentFull is null ? null : "Copy",
-                CloseButtonText = "Cancel",
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = Root.XamlRoot,
-            };
-            ContentDialogResult result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Primary)
+            RightPanelResult result = await ShowRightPanelAsync(
+                "Password generator",
+                content,
+                _currentFull is null ? "Copy" : "Use password",
+                _currentFull is null ? null : "Copy");
+            if (result == RightPanelResult.Primary)
             {
                 if (_currentFull is null)
                 {
@@ -2492,7 +2471,7 @@ public sealed partial class MainWindow : Window
                     ShowToast("Password replaced and saved", InfoBarSeverity.Success);
                 }
             }
-            else if (result == ContentDialogResult.Secondary)
+            else if (result == RightPanelResult.Secondary)
             {
                 CopyText(generated.Password, "Generated password copied");
             }
@@ -2624,18 +2603,12 @@ public sealed partial class MainWindow : Window
         content.Children.Add(algorithm);
         content.Children.Add(digits);
         content.Children.Add(period);
-        var dialog = new ContentDialog
-        {
-            Title = existing is null ? "Set up TOTP" : "Edit TOTP",
-            Content = content,
-            PrimaryButtonText = "Save",
-            SecondaryButtonText = existing is null ? null : "Remove",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = Root.XamlRoot,
-        };
-        ContentDialogResult result = await dialog.ShowAsync();
-        if (result == ContentDialogResult.Secondary)
+        RightPanelResult result = await ShowRightPanelAsync(
+            existing is null ? "Set up TOTP" : "Edit TOTP",
+            content,
+            "Save",
+            existing is null ? null : "Remove");
+        if (result == RightPanelResult.Secondary)
         {
             try
             {
@@ -2650,7 +2623,7 @@ public sealed partial class MainWindow : Window
             }
             return;
         }
-        if (result != ContentDialogResult.Primary)
+        if (result != RightPanelResult.Primary)
         {
             return;
         }
@@ -2713,6 +2686,7 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
+        CloseRightPanel();
         _busy = true;
         try
         {
@@ -2945,16 +2919,8 @@ public sealed partial class MainWindow : Window
             }
         };
         content.Children.Add(diagnostics);
-        var dialog = new ContentDialog
-        {
-            Title = "Settings",
-            Content = content,
-            PrimaryButtonText = "Save",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = Root.XamlRoot,
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await ShowRightPanelAsync("Settings", content, "Save") !=
+            RightPanelResult.Primary)
         {
             return;
         }
@@ -2995,6 +2961,134 @@ public sealed partial class MainWindow : Window
         {
             ShowToast("WebDAV settings saved. Syncing…", InfoBarSeverity.Informational);
             _ = SyncAsync(startup: true);
+        }
+    }
+
+    // ------------------------------------------------------- right-side panel
+
+    private void RightPanel_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (_rightPanelOpen && e.Key == VirtualKey.Escape)
+        {
+            CloseRightPanel();
+            e.Handled = true;
+        }
+    }
+
+    private void EnsureRightPanel()
+    {
+        if (_rightPanel is not null)
+        {
+            return;
+        }
+        _rightPanel = new Grid { Visibility = Visibility.Collapsed };
+        _rightPanel.Background =
+            (Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"];
+        _rightPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _rightPanel.RowDefinitions.Add(
+            new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        _rightPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var header = new Grid { Padding = new Thickness(24, 14, 24, 10) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(
+            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var back = new Button
+        {
+            Content = "← Back",
+            Style = (Style)Root.Resources["ToolbarButton"],
+        };
+        back.Click += (_, _) => CloseRightPanel();
+        header.Children.Add(back);
+        _rightPanelTitle = new TextBlock
+        {
+            FontSize = 24,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(14, 0, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        Grid.SetColumn(_rightPanelTitle, 1);
+        header.Children.Add(_rightPanelTitle);
+        _rightPanel.Children.Add(header);
+
+        _rightPanelContent = new ContentControl
+        {
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(24, 0, 24, 0),
+        };
+        var scroll = new ScrollViewer
+        {
+            Content = _rightPanelContent,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        };
+        Grid.SetRow(scroll, 1);
+        _rightPanel.Children.Add(scroll);
+
+        _rightPanelActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8,
+            Padding = new Thickness(24, 12, 24, 18),
+        };
+        Grid.SetRow(_rightPanelActions, 2);
+        _rightPanel.Children.Add(_rightPanelActions);
+        WorkspacePanel.Children.Add(_rightPanel);
+    }
+
+    private async Task<RightPanelResult> ShowRightPanelAsync(string title, UIElement content,
+        string primaryText, string? secondaryText = null, string? closeText = "Cancel")
+    {
+        if (_rightPanelOpen)
+        {
+            return RightPanelResult.Close;
+        }
+        EnsureRightPanel();
+        _rightPanelOpen = true;
+        _rightPanelTitle!.Text = title;
+        _rightPanelContent!.Content = content;
+        _rightPanelActions!.Children.Clear();
+        var completion = new TaskCompletionSource<RightPanelResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _rightPanelCompletion = completion;
+        void Finish(RightPanelResult result) => completion.TrySetResult(result);
+
+        if (!string.IsNullOrWhiteSpace(closeText))
+        {
+            var close = new Button { Content = closeText };
+            close.Click += (_, _) => Finish(RightPanelResult.Close);
+            _rightPanelActions.Children.Add(close);
+        }
+        if (!string.IsNullOrWhiteSpace(secondaryText))
+        {
+            var secondary = new Button { Content = secondaryText };
+            secondary.Click += (_, _) => Finish(RightPanelResult.Secondary);
+            _rightPanelActions.Children.Add(secondary);
+        }
+        var primary = new Button
+        {
+            Content = primaryText,
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"],
+        };
+        primary.Click += (_, _) => Finish(RightPanelResult.Primary);
+        _rightPanelActions.Children.Add(primary);
+
+        _rightPanel!.Visibility = Visibility.Visible;
+        RightPanelResult result = await completion.Task;
+        _rightPanel.Visibility = Visibility.Collapsed;
+        _rightPanelContent.Content = null;
+        _rightPanelActions.Children.Clear();
+        _rightPanelOpen = false;
+        _rightPanelCompletion = null;
+        return result;
+    }
+
+    private void CloseRightPanel()
+    {
+        if (_rightPanelOpen)
+        {
+            _rightPanelCompletion?.TrySetResult(RightPanelResult.Close);
         }
     }
 
