@@ -34,11 +34,11 @@ UninstallDisplayIcon={app}\Keepassity.Mock.exe
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{autoprograms}\keepassity"; Filename: "{app}\Keepassity.Mock.exe"; Parameters: "--light"
-Name: "{autodesktop}\keepassity"; Filename: "{app}\Keepassity.Mock.exe"; Parameters: "--light"
+Name: "{autoprograms}\keepassity"; Filename: "{app}\Keepassity.Mock.exe"
+Name: "{autodesktop}\keepassity"; Filename: "{app}\Keepassity.Mock.exe"
 
 [Run]
-Filename: "{app}\Keepassity.Mock.exe"; Parameters: "--light"; Description: "Launch keepassity"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Keepassity.Mock.exe"; Description: "Launch keepassity"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

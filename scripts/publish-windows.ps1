@@ -82,7 +82,7 @@ $launcher = Join-Path $output "Run keepassity.cmd"
 Set-Content -LiteralPath $launcher -Encoding Ascii -Value @(
     "@echo off",
     'powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -LiteralPath ''%~dp0Keepassity.Mock.exe'' -ErrorAction SilentlyContinue" >nul 2>nul',
-    'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "& ''%~dp0Keepassity.Mock.exe'' --light"'
+    'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "& ''%~dp0Keepassity.Mock.exe''"'
 )
 try {
     Unblock-File -LiteralPath $exe -ErrorAction SilentlyContinue

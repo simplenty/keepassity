@@ -83,8 +83,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        bool forceLight = Environment.GetCommandLineArgs().Contains("--light");
-        ApplyThemePreference(forceLight ? "Light" : Settings.Theme);
+        ApplyThemePreference(Settings.Theme);
         Title = "keepassity";
         RestoreWindowBounds();
         ExtendsContentIntoTitleBar = true;
