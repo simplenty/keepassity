@@ -95,7 +95,6 @@
         <!-- Integrated title bar (window chrome + search in one surface). -->
         <Grid x:Name="AppTitleBar" Grid.Row="0" Padding="16,0,0,0"
               Background="Transparent">
-            <Border x:Name="TitleBarDragArea" Background="Transparent" />
             <Grid ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -105,12 +104,16 @@
                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Button x:Name="HamburgerButton" Style="{StaticResource IconButton}"
                             Click="HamburgerButton_Click"
+                            IsDoubleTapEnabled="True"
+                            DoubleTapped="TitleBarButton_DoubleTapped"
                             ToolTipService.ToolTip="Toggle navigation">
                         <FontIcon Glyph="&#xE700;" FontSize="14" />
                     </Button>
                     <Button x:Name="BackButton" Style="{StaticResource IconButton}"
                             Visibility="Collapsed"
                             Click="BackButton_Click"
+                            IsDoubleTapEnabled="True"
+                            DoubleTapped="TitleBarButton_DoubleTapped"
                             ToolTipService.ToolTip="Back">
                         <FontIcon Glyph="&#xE72B;" FontSize="14" />
                     </Button>
@@ -123,6 +126,11 @@
                                VerticalAlignment="Center" Margin="2,0,0,0" />
                 </StackPanel>
 
+                <!-- Only this middle strip is a window drag region. The left
+                     buttons stay client content so double-clicking the
+                     hamburger cannot maximize or restore the window. -->
+                <Border x:Name="TitleBarDragArea" Grid.Column="1"
+                        Background="Transparent" />
                 <AutoSuggestBox x:Name="SearchBox" Grid.Column="1" Width="360"
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
                                 PlaceholderText="Search" TextChanged="SearchBox_TextChanged">
@@ -208,8 +216,6 @@
                                 IsSettingsVisible="False"
                                 OpenPaneLength="232"
                                 Background="Transparent"
-                                PaneOpened="NavView_PaneOpened"
-                                PaneClosed="NavView_PaneClosed"
                                 SelectionChanged="NavView_SelectionChanged"
                                 ItemInvoked="NavView_ItemInvoked">
                     <NavigationView.Resources>
@@ -250,9 +256,11 @@
                         </NavigationViewItem>
                     </NavigationView.FooterMenuItems>
 
-                </NavigationView>
-                <!-- Workspace is a sibling overlay so NavigationView cannot clip its frame. -->
-                <Grid x:Name="WorkspaceHost" Margin="232,0,0,0">
+                    <NavigationView.Content>
+                        <!-- The workspace lives inside the NavigationView content
+                             area so the pane and content share one layout instead
+                             of two independently positioned overlays. -->
+                        <Grid x:Name="WorkspaceHost">
                     <!-- The workspace owns its frame: rounded top-left only; right
                          and bottom are square and sit on the window edge. -->
                     <Border x:Name="WorkspaceFrame" Margin="0" CornerRadius="8,0,0,0"
@@ -583,6 +591,8 @@
                         </Grid>
                     </Border>
                 </Grid>
+                    </NavigationView.Content>
+                </NavigationView>
             </Grid>
         </Grid>
 
