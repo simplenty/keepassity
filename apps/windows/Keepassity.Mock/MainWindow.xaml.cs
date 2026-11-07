@@ -2024,25 +2024,16 @@ public sealed partial class MainWindow : Window
         NavView.IsPaneOpen = !NavView.IsPaneOpen;
     }
 
+    private void TitleBarButton_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        // Buttons in the title bar must never fall through to the caption's
+        // double-click maximize/restore behavior.
+        e.Handled = true;
+    }
+
     private void BackButton_Click(object sender, RoutedEventArgs e)
     {
         ClosePanels();
-    }
-
-    private void NavView_PaneOpened(NavigationView sender, object args)
-    {
-        UpdateWorkspaceHostMargin();
-    }
-
-    private void NavView_PaneClosed(NavigationView sender, object args)
-    {
-        UpdateWorkspaceHostMargin();
-    }
-
-    private void UpdateWorkspaceHostMargin()
-    {
-        WorkspaceHost.Margin = new Thickness(
-            NavView.IsPaneOpen ? NavView.OpenPaneLength : 0, 0, 0, 0);
     }
 
     private void UpdateBackButtonVisibility()
