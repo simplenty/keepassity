@@ -102,8 +102,19 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Border Width="26" Height="26" CornerRadius="6"
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Button x:Name="HamburgerButton" Style="{StaticResource IconButton}"
+                            Click="HamburgerButton_Click"
+                            ToolTipService.ToolTip="Toggle navigation">
+                        <FontIcon Glyph="&#xE700;" FontSize="14" />
+                    </Button>
+                    <Button x:Name="BackButton" Style="{StaticResource IconButton}"
+                            Visibility="Collapsed"
+                            Click="BackButton_Click"
+                            ToolTipService.ToolTip="Back">
+                        <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                    </Button>
+                    <Border Width="26" Height="26" CornerRadius="6" Margin="4,0,0,0"
                             Background="{ThemeResource AccentFillColorDefaultBrush}">
                         <FontIcon Glyph="&#xE72E;" FontSize="13"
                                   Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
@@ -197,6 +208,8 @@
                                 IsSettingsVisible="False"
                                 OpenPaneLength="232"
                                 Background="Transparent"
+                                PaneOpened="NavView_PaneOpened"
+                                PaneClosed="NavView_PaneClosed"
                                 SelectionChanged="NavView_SelectionChanged"
                                 ItemInvoked="NavView_ItemInvoked">
                     <NavigationView.Resources>
@@ -239,7 +252,7 @@
 
                 </NavigationView>
                 <!-- Workspace is a sibling overlay so NavigationView cannot clip its frame. -->
-                <Grid Margin="232,0,0,0">
+                <Grid x:Name="WorkspaceHost" Margin="232,0,0,0">
                     <!-- The workspace owns its frame: rounded top-left only; right
                          and bottom are square and sit on the window edge. -->
                     <Border x:Name="WorkspaceFrame" Margin="0" CornerRadius="8,0,0,0"

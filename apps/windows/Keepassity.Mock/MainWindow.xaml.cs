@@ -2019,6 +2019,39 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void HamburgerButton_Click(object sender, RoutedEventArgs e)
+    {
+        NavView.IsPaneOpen = !NavView.IsPaneOpen;
+    }
+
+    private void BackButton_Click(object sender, RoutedEventArgs e)
+    {
+        ClosePanels();
+    }
+
+    private void NavView_PaneOpened(NavigationView sender, object args)
+    {
+        UpdateWorkspaceHostMargin();
+    }
+
+    private void NavView_PaneClosed(NavigationView sender, object args)
+    {
+        UpdateWorkspaceHostMargin();
+    }
+
+    private void UpdateWorkspaceHostMargin()
+    {
+        WorkspaceHost.Margin = new Thickness(
+            NavView.IsPaneOpen ? NavView.OpenPaneLength : 0, 0, 0, 0);
+    }
+
+    private void UpdateBackButtonVisibility()
+    {
+        BackButton.Visibility = _rightPanelOpen || _detailPanelOpen
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
     private async Task LoadSelectedGroupAsync()
     {
         string? query = SearchBox.Text.Trim();
@@ -3543,6 +3576,7 @@ public sealed partial class MainWindow : Window
         CloseDetailPanel();
         EnsureRightPanel();
         _rightPanelOpen = true;
+        UpdateBackButtonVisibility();
         _rightPanelTitle!.Text = title;
         _rightPanelContent!.Content = content;
         _rightPanelActions!.Children.Clear();
@@ -3576,6 +3610,7 @@ public sealed partial class MainWindow : Window
         _rightPanelActions.Children.Clear();
         _rightPanelOpen = false;
         _rightPanelCompletion = null;
+        UpdateBackButtonVisibility();
         return result;
     }
 
@@ -3661,6 +3696,7 @@ public sealed partial class MainWindow : Window
         CloseRightPanel();
         EnsureDetailPanel();
         _detailPanelOpen = true;
+        UpdateBackButtonVisibility();
         _detailPanelTitle!.Text = title;
         _detailPanelContent!.Content = content;
         _detailPanelActions!.Children.Clear();
@@ -3694,6 +3730,7 @@ public sealed partial class MainWindow : Window
         _detailPanelActions.Children.Clear();
         _detailPanelOpen = false;
         _detailPanelCompletion = null;
+        UpdateBackButtonVisibility();
         return result;
     }
 
