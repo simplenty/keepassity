@@ -109,14 +109,6 @@
                             ToolTipService.ToolTip="Toggle navigation">
                         <FontIcon Glyph="&#xE700;" FontSize="14" />
                     </Button>
-                    <Button x:Name="BackButton" Style="{StaticResource IconButton}"
-                            Visibility="Collapsed"
-                            Click="BackButton_Click"
-                            IsDoubleTapEnabled="True"
-                            DoubleTapped="TitleBarButton_DoubleTapped"
-                            ToolTipService.ToolTip="Back">
-                        <FontIcon Glyph="&#xE72B;" FontSize="14" />
-                    </Button>
                     <Border Width="26" Height="26" CornerRadius="6" Margin="4,0,0,0"
                             Background="{ThemeResource AccentFillColorDefaultBrush}">
                         <FontIcon Glyph="&#xE72E;" FontSize="13"
