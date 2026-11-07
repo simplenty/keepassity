@@ -452,6 +452,80 @@ public sealed partial class MainWindow : Window
         storyboard.Begin();
     }
 
+    /// <summary>Slide and fade a full-width or detail-column page into view.</summary>
+    private static void AnimatePanelIn(Grid panel, double offset = 28, int milliseconds = 220)
+    {
+        var transform = new TranslateTransform { X = offset };
+        panel.RenderTransform = transform;
+        panel.Opacity = 0;
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var duration = new Duration(TimeSpan.FromMilliseconds(milliseconds));
+        var storyboard = new Storyboard();
+        var slide = new DoubleAnimation { To = 0, Duration = duration, EasingFunction = ease };
+        Storyboard.SetTarget(slide, transform);
+        Storyboard.SetTargetProperty(slide, "X");
+        var fade = new DoubleAnimation { To = 1, Duration = duration, EasingFunction = ease };
+        Storyboard.SetTarget(fade, panel);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+        storyboard.Children.Add(slide);
+        storyboard.Children.Add(fade);
+        storyboard.Begin();
+    }
+
+    /// <summary>Fade a page out before the caller restores the content below it.</summary>
+    private static Task AnimatePanelOutAsync(Grid panel, double offset = 18,
+        int milliseconds = 140)
+    {
+        var completion = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var transform = panel.RenderTransform as TranslateTransform ?? new TranslateTransform();
+        panel.RenderTransform = transform;
+        var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
+        var duration = new Duration(TimeSpan.FromMilliseconds(milliseconds));
+        var storyboard = new Storyboard();
+        var slide = new DoubleAnimation { To = offset, Duration = duration, EasingFunction = ease };
+        Storyboard.SetTarget(slide, transform);
+        Storyboard.SetTargetProperty(slide, "X");
+        var fade = new DoubleAnimation { To = 0, Duration = duration, EasingFunction = ease };
+        Storyboard.SetTarget(fade, panel);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+        storyboard.Children.Add(slide);
+        storyboard.Children.Add(fade);
+        storyboard.Completed += (_, _) =>
+        {
+            panel.Visibility = Visibility.Collapsed;
+            panel.Opacity = 1;
+            transform.X = 0;
+            completion.TrySetResult();
+        };
+        storyboard.Begin();
+        return completion.Task;
+    }
+
+    /// <summary>Small cross-fade when the selected entry details change.</summary>
+    private void AnimateDetailContent()
+    {
+        if (_detailPanelOpen)
+        {
+            return;
+        }
+        var transform = new TranslateTransform { X = 7 };
+        DetailPane.RenderTransform = transform;
+        DetailPane.Opacity = 0.72;
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var duration = new Duration(TimeSpan.FromMilliseconds(170));
+        var storyboard = new Storyboard();
+        var slide = new DoubleAnimation { To = 0, Duration = duration, EasingFunction = ease };
+        Storyboard.SetTarget(slide, transform);
+        Storyboard.SetTargetProperty(slide, "X");
+        var fade = new DoubleAnimation { To = 1, Duration = duration, EasingFunction = ease };
+        Storyboard.SetTarget(fade, DetailPane);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+        storyboard.Children.Add(slide);
+        storyboard.Children.Add(fade);
+        storyboard.Begin();
+    }
+
     // ---------------------------------------------------------------- sync
 
     private bool IsSyncConfigured =>
@@ -2336,6 +2410,7 @@ public sealed partial class MainWindow : Window
             TotpProgress.Visibility = Visibility.Collapsed;
             _currentTotpCode = null;
         }
+        AnimateDetailContent();
     }
 
     private void ClearDetail()
@@ -3581,8 +3656,9 @@ public sealed partial class MainWindow : Window
 
         SetRightPanelUnderlyingVisible(false);
         _rightPanel!.Visibility = Visibility.Visible;
+        AnimatePanelIn(_rightPanel);
         RightPanelResult result = await completion.Task;
-        _rightPanel.Visibility = Visibility.Collapsed;
+        await AnimatePanelOutAsync(_rightPanel);
         SetRightPanelUnderlyingVisible(true);
         _rightPanelContent.Content = null;
         _rightPanelActions.Children.Clear();
@@ -3699,8 +3775,9 @@ public sealed partial class MainWindow : Window
 
         SetDetailPanelUnderlyingVisible(false);
         _detailPanel!.Visibility = Visibility.Visible;
+        AnimatePanelIn(_detailPanel);
         RightPanelResult result = await completion.Task;
-        _detailPanel.Visibility = Visibility.Collapsed;
+        await AnimatePanelOutAsync(_detailPanel);
         SetDetailPanelUnderlyingVisible(true);
         _detailPanelContent.Content = null;
         _detailPanelActions.Children.Clear();
