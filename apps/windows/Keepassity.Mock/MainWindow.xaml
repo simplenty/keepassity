@@ -318,6 +318,12 @@
                                           RightTapped="EntryList_RightTapped"
                                           ItemContainerStyle="{StaticResource EntryListItemStyle}"
                                           Background="Transparent" Padding="2,4,8,0">
+                                    <ListView.ItemContainerTransitions>
+                                        <TransitionCollection>
+                                            <AddDeleteThemeTransition />
+                                            <RepositionThemeTransition />
+                                        </TransitionCollection>
+                                    </ListView.ItemContainerTransitions>
                                     <ListView.ItemTemplate>
                                         <DataTemplate x:DataType="local:EntryItem">
                                             <Grid ColumnSpacing="12">
