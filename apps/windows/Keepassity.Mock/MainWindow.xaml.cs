@@ -2075,21 +2075,19 @@ public sealed partial class MainWindow : Window
         }
 
         bool recycleBin = IsRecycleBinGroup(group.Name);
-        bool templates = IsTemplatesGroup(group.Name);
         if (!recycleBin)
         {
             Add("New entry here", "\uE710",
                 () => NewEntryInGroupAsync(group.Uuid!));
         }
-        if (recycleBin || templates)
+        if (recycleBin)
         {
             return flyout;
         }
 
         flyout.Items.Add(new MenuFlyoutSeparator());
         Add("Rename group…", "\uE70F", () => RenameGroupPromptAsync(group));
-        Add("Delete group", "\uE74D", () => DeleteGroupAsync(group),
-            enabled: group.CountValue == 0, danger: true);
+        Add("Delete group", "\uE74D", () => DeleteGroupAsync(group), danger: true);
         return flyout;
     }
 
@@ -2135,15 +2133,13 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        if (group.CountValue > 0)
-        {
-            ShowToast("Only empty groups can be deleted.", InfoBarSeverity.Warning);
-            return;
-        }
+        bool hasEntries = group.CountValue > 0;
         var dialog = new ContentDialog
         {
-            Title = "Delete group?",
-            Content = $"The empty group \"{group.Name}\" will be removed.",
+            Title = hasEntries ? "Delete group and contents?" : "Delete group?",
+            Content = hasEntries
+                ? $"\"{group.Name}\" and everything inside it will be permanently deleted. This cannot be undone."
+                : $"The empty group \"{group.Name}\" will be removed.",
             PrimaryButtonText = "Delete",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close,
