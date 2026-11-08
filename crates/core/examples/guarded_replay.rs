@@ -25,7 +25,9 @@ fn main() {
         eprintln!("usage: guarded_replay <file.kdbx> [password]");
         std::process::exit(4);
     };
-    let password = std::env::args().nth(2).unwrap_or_else(|| "demopass".to_string());
+    let password = std::env::args()
+        .nth(2)
+        .unwrap_or_else(|| "demopass".to_string());
     let mut bytes = Vec::new();
     match std::fs::File::open(&path).and_then(|mut file| file.read_to_end(&mut bytes)) {
         Ok(_) => {}
