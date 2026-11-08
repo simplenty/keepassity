@@ -403,6 +403,13 @@ fn dispatch(state: &mut HandleState, command: &Value) -> Result<String, FfiError
                 ));
             }
             remove_group(&mut database.root, uuid).ok_or_else(FfiError::not_found)?;
+            // Groups have no dedicated tombstone table in KDBX, so record the
+            // deletion as a DeletedObject; the sync merge uses it to keep a
+            // remote copy from resurrecting the group.
+            database.deleted_objects.push(DeletedObject {
+                uuid,
+                deletion_time: xml_datetime_from_unix(now_unix()),
+            });
             Ok(json!({"deleted": true}).to_string())
         }),
         "list_entries" => with_database(state, |database| {

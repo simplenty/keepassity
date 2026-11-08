@@ -727,9 +727,23 @@ public sealed partial class MainWindow : Window
         SyncState state, string url, string username)
     {
         byte[] bytes = await dav.DownloadAsync();
-        await WriteLocalBytesAsync(_dbPath!, bytes);
-        await ReopenFromLocalAsync();
         string sha = Sha256Hex(bytes);
+        bool contentChanged = true;
+        if (!string.IsNullOrEmpty(state.Sha256))
+        {
+            contentChanged = !string.Equals(sha, state.Sha256, StringComparison.OrdinalIgnoreCase);
+        }
+        else if (_dbPath is not null && File.Exists(_dbPath))
+        {
+            byte[] localBytes = await File.ReadAllBytesAsync(_dbPath);
+            contentChanged = !string.Equals(sha, Sha256Hex(localBytes),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        if (contentChanged)
+        {
+            await WriteLocalBytesAsync(_dbPath!, bytes);
+            await ReopenFromLocalAsync();
+        }
         await _core.SyncCommitAsync(metadata.ETag, sha);
         state.Etag = metadata.ETag;
         state.Sha256 = sha;
@@ -739,7 +753,10 @@ public sealed partial class MainWindow : Window
         state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         _syncStates.Save(url, username, _dbPath!, state);
         SetSyncStatus("Synced");
-        ShowToast("Downloaded remote changes", InfoBarSeverity.Success);
+        if (contentChanged)
+        {
+            ShowToast("Downloaded remote changes", InfoBarSeverity.Success);
+        }
     }
 
     private async Task MergeRemoteAsync(WebDavClient dav, WebDavFileInfo metadata,
