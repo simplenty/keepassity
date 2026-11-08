@@ -73,6 +73,75 @@ internal static class AppSelfTest
                         throw new InvalidOperationException("TOTP code was not generated.");
                     }
                     Record($"totp: {totp.Code.Length} digits, period {totp.Period}s");
+                    // The UI pre-fetches the next window before the boundary; the FFI
+                    // accepts an explicit at_unix second for that code.
+                    long period = Math.Max(1, totp.Period);
+                    long nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                    long nextWindow = ((nowUnix / period) + 1) * period;
+                    TotpCodeDto? prefetched = core.TotpCodeAsync(totpEntry.Uuid, nextWindow)
+                        .GetAwaiter().GetResult();
+                    if (prefetched is null ||
+                        prefetched.Code.Length != totp.Code.Length ||
+                        prefetched.Remaining != prefetched.Period)
+                    {
+                        throw new InvalidOperationException("TOTP next-window prefetch failed.");
+                    }
+                    Record($"totp prefetch: next window, {prefetched.Remaining}s remaining");
+                }
+
+                Record("generating passwords");
+                PasswordGenerateDto digitsOnly = core.GeneratePasswordAsync(
+                    length: 32, excludeAmbiguous: false, lowercase: false,
+                    uppercase: false, digits: true, symbols: false)
+                    .GetAwaiter().GetResult();
+                if (digitsOnly.Password.Length != 32 ||
+                    digitsOnly.Password.Any(character => character is < '0' or > '9') ||
+                    digitsOnly.EntropyBits <= 0)
+                {
+                    throw new InvalidOperationException(
+                        "Password generator character classes were not applied.");
+                }
+                PasswordGenerateDto generated = core.GeneratePasswordAsync()
+                    .GetAwaiter().GetResult();
+                if (generated.Password.Length != 20 || generated.EntropyBits <= 0)
+                {
+                    throw new InvalidOperationException(
+                        "Password generator defaults are wrong.");
+                }
+                try
+                {
+                    core.GeneratePasswordAsync(8, true, false, false, false, false)
+                        .GetAwaiter().GetResult();
+                    throw new InvalidOperationException(
+                        "An empty character class set was accepted.");
+                }
+                catch (CoreException ex) when (ex.Code == "InvalidArgument")
+                {
+                    Record("password: empty class set rejected by core");
+                }
+                Record($"password: 32 digits {digitsOnly.EntropyBits:F1} bits, " +
+                       $"default 20 chars {generated.EntropyBits:F1} bits");
+
+                Record("storing credential");
+                var credentials = new CredentialStore();
+                if (credentials.Available)
+                {
+                    const string credentialUrl = "https://selftest.invalid/db.kdbx";
+                    const string credentialUser = "selftest";
+                    credentials.SavePassword(credentialUrl, credentialUser, "selftest-value");
+                    if (!credentials.HasPassword(credentialUrl, credentialUser) ||
+                        credentials.LoadPassword(credentialUrl, credentialUser) !=
+                        "selftest-value")
+                    {
+                        throw new InvalidOperationException("Credential round trip failed.");
+                    }
+                    if (!credentials.DeletePassword(credentialUrl, credentialUser) ||
+                        credentials.HasPassword(credentialUrl, credentialUser) ||
+                        credentials.DeletePassword(credentialUrl, credentialUser))
+                    {
+                        throw new InvalidOperationException("Credential delete failed.");
+                    }
+                    Record("credential: store/load/delete round trip");
                 }
 
                 Record("saving copy");

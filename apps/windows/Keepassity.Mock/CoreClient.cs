@@ -257,15 +257,28 @@ public sealed class CoreClient : IDisposable
             group_uuid = groupUuid,
         })).ConfigureAwait(false);
 
-    public async Task<TotpCodeDto?> TotpCodeAsync(string uuid)
+    /// <summary>
+    /// Generates a one-time password code. Pass <paramref name="atUnix"/> to
+    /// compute the code for a specific Unix second (used to pre-fetch the next
+    /// TOTP window); null asks the core for the current window.
+    /// </summary>
+    public async Task<TotpCodeDto?> TotpCodeAsync(string uuid, long? atUnix = null)
     {
         try
         {
-            return await CallAsync<TotpCodeDto>(JsonSerializer.Serialize(new
-            {
-                command = "totp_code",
-                uuid,
-            })).ConfigureAwait(false);
+            string command = atUnix is null
+                ? JsonSerializer.Serialize(new
+                {
+                    command = "totp_code",
+                    uuid,
+                })
+                : JsonSerializer.Serialize(new
+                {
+                    command = "totp_code",
+                    uuid,
+                    at_unix = Math.Max(0, atUnix.Value),
+                });
+            return await CallAsync<TotpCodeDto>(command).ConfigureAwait(false);
         }
         catch (CoreException ex) when (ex.Code == "NotFound")
         {
@@ -295,12 +308,25 @@ public sealed class CoreClient : IDisposable
             uuid,
         })).ConfigureAwait(false);
 
+    /// <summary>
+    /// Generates a random password through the core. The character classes are
+    /// passed to the core so entropy matches the actual alphabet; symbols stay
+    /// comma/quote free so the result is safe in every password box.
+    /// </summary>
     public async Task<PasswordGenerateDto> GeneratePasswordAsync(int length = 20,
-        bool excludeAmbiguous = true)
+        bool excludeAmbiguous = true, bool lowercase = true, bool uppercase = true,
+        bool digits = true, bool symbols = true)
         => await CallAsync<PasswordGenerateDto>(JsonSerializer.Serialize(new
         {
             command = "password_generate",
-            length,
+            length = Math.Clamp(length, 1, 256),
+            classes = new
+            {
+                lowercase,
+                uppercase,
+                digits,
+                symbols,
+            },
             exclude_ambiguous = excludeAmbiguous,
         })).ConfigureAwait(false);
 

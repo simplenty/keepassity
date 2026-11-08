@@ -150,11 +150,53 @@
                                FontSize="11"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
 
+                    <!-- Recent databases: local paths only, never vault content or
+                         passwords. Shown on the start page when there is no current
+                         database selected. -->
+                    <StackPanel x:Name="RecentDatabasesSection" Visibility="Collapsed"
+                                Margin="0,18,0,0">
+                        <TextBlock Text="Recent databases" FontSize="12" FontWeight="SemiBold"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <StackPanel x:Name="RecentDatabasesPanel" Spacing="6"
+                                    Margin="0,8,0,0" />
+                    </StackPanel>
+
                     <!-- Only shown when there is a database to unlock. -->
                     <StackPanel x:Name="UnlockFormSection" Visibility="Collapsed">
                         <InfoBar x:Name="UnlockError" IsOpen="False" Severity="Error"
                                  Title="Cannot unlock" IsClosable="False"
                                  Margin="0,12,0,0" />
+                        <!-- Recovery entry points shown after an unlock failure: a
+                             diagnostics export and the backup folder location. -->
+                        <StackPanel x:Name="UnlockFailureActions" Spacing="10"
+                                    Margin="0,12,0,0" Visibility="Collapsed">
+                            <TextBlock x:Name="UnlockFailureHint" FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                            <TextBlock x:Name="UnlockBackupPathText" FontSize="11"
+                                       IsTextSelectionEnabled="True" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="UnlockDiagnosticsButton"
+                                        Style="{StaticResource ToolbarButton}"
+                                        ToolTipService.ToolTip="Export logs and settings (no secrets)"
+                                        Click="UnlockDiagnosticsButton_Click">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon Glyph="&#xE74E;" FontSize="12" />
+                                        <TextBlock Text="Export diagnostics" />
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="UnlockBackupFolderButton"
+                                        Style="{StaticResource ToolbarButton}"
+                                        ToolTipService.ToolTip="Open the folder with timestamped database backups"
+                                        Click="UnlockBackupFolderButton_Click">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon Glyph="&#xE8B7;" FontSize="12" />
+                                        <TextBlock Text="Backup folder" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
                         <StackPanel Spacing="6" Margin="0,20,0,0">
                             <TextBlock Text="Master password" FontSize="12"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
