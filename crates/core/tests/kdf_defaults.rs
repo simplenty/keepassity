@@ -3,10 +3,10 @@
 //!
 //! They are calibrated, not arbitrary: the v1.0 requirement asks for roughly
 //! 0.5-1 s of KDF work per unlock on the reference machine. Measured with the
-//! real reader (crates/core/tests/perf_paths_500.rs, method in
-//! workshop/docs/verify/perf-2026-11-09.md), 64 MiB / I=3 / P=2 unlocked in
-//! ~0.32 s and 128 MiB / I=6 / P=4 in ~0.71 s, so the latter is the default for
-//! files written by this backend.
+//! real reader (crates/core/tests/perf_paths_500.rs), 64 MiB / I=3 / P=2
+//! unlocked in ~0.32 s and 128 MiB / I=6 / P=4 in ~0.71 s, so the latter is the
+//! default for files written by this backend (see `docs/compatibility.md` for
+//! the user-facing write-format statement).
 //!
 //! Existing databases keep the parameters recorded in their own header, so this
 //! only affects new databases. If the default moves, this test and the

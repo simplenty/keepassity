@@ -29,8 +29,8 @@ planned for v1.x and is expected to consume the same core directly.
 
 - **`crates/core` stays platform-neutral.** No `cfg(windows)`, file IO, HTTP, environment
   variables or UI types. Platform work belongs in the shell.
-- **`crates/ffi` is a contract.** Commands and JSON payloads are versioned in
-  `.agents/contracts/` in the private process repository; changes need an ADR.
+- **`crates/ffi` is a contract.** Commands and JSON payloads are versioned by the
+  DTO contract (kept with the project process documentation); changes need an ADR.
 - **The WinUI project owns platform integration.** It creates windows and dialogs, hosts the
   tray icon, clears the clipboard and stores credentials with DPAPI. File and WebDAV IO goes
   through the application-services layer; `crates/core` stays pure.
