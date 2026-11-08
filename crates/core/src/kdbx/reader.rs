@@ -61,6 +61,44 @@ fn classify_open_error(error: &impl fmt::Debug) -> KdbxReadError {
     }
 }
 
+/// Run one upstream `keepass` reader call and turn a panic into a parse error.
+///
+/// The upstream `keepass` crate (0.17) panics instead of returning an error for
+/// a few malformed header shapes (for example a variant dictionary whose length
+/// field points past the end of the buffer: `byteorder::read_u64` indexes out of
+/// bounds). A KDBX file is untrusted input - it arrives from WebDAV, a shared
+/// folder or the file manager - so a malformed file must surface as a normal
+/// read error, not abort the application or the fuzzer. The panic message
+/// carries no secret material; it is dropped here and the reason is reported as
+/// "malformed header" instead.
+fn guard_keepass<T>(
+    call: impl FnOnce() -> Result<T, keepass::error::DatabaseOpenError>,
+) -> Result<T, KdbxReadError> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(call)) {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(error)) => Err(classify_open_error(&error)),
+        Err(_) => Err(KdbxReadError::Corrupt(
+            "malformed KDBX header (the upstream reader panicked; file rejected)".to_string(),
+        )),
+    }
+}
+
+fn open_with_keepass(bytes: &[u8], password: &str) -> Result<KpDatabase, KdbxReadError> {
+    guard_keepass(|| {
+        let mut cursor = Cursor::new(bytes);
+        let key = DatabaseKey::new().with_password(password);
+        KpDatabase::open(&mut cursor, key)
+    })
+}
+
+fn xml_with_keepass(bytes: &[u8], password: &str) -> Result<Vec<u8>, KdbxReadError> {
+    guard_keepass(|| {
+        let mut cursor = Cursor::new(bytes);
+        let key = DatabaseKey::new().with_password(password);
+        KpDatabase::get_xml(&mut cursor, key)
+    })
+}
+
 /// Parse a KDBX byte buffer into the core model.
 ///
 /// * `password` is used only to derive the key; it never enters errors/dumps.
@@ -82,15 +120,8 @@ pub fn parse(bytes: &[u8], password: &str) -> Result<Database, KdbxReadError> {
         }
     })?;
 
-    let mut model_cursor = Cursor::new(bytes);
-    let key = DatabaseKey::new().with_password(password);
-    let kp =
-        KpDatabase::open(&mut model_cursor, key).map_err(|error| classify_open_error(&error))?;
-
-    let mut xml_cursor = Cursor::new(bytes);
-    let xml_key = DatabaseKey::new().with_password(password);
-    let xml = KpDatabase::get_xml(&mut xml_cursor, xml_key)
-        .map_err(|error| classify_open_error(&error))?;
+    let kp = open_with_keepass(bytes, password)?;
+    let xml = xml_with_keepass(bytes, password)?;
     let xml_hash = {
         let digest = Sha256::digest(&xml);
         let mut out = String::with_capacity(digest.len() * 2);
