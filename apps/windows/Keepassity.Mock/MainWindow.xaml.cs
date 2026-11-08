@@ -428,27 +428,61 @@ public sealed partial class MainWindow : Window
         titleBar.ButtonPressedForegroundColor = foreground;
     }
 
-    /// <summary>Two-pane workspace slides in from the bottom-right corner.</summary>
+    /// <summary>The two workspace columns slide in independently.</summary>
     private void AnimateWorkspace()
     {
-        var transform = new TranslateTransform { X = 56, Y = 72 };
-        WorkspacePanel.RenderTransform = transform;
-        WorkspacePanel.Opacity = 0;
+        // Clear any previous whole-workspace animation state and animate the
+        // middle list and the detail column as separate surfaces instead.
+        WorkspacePanel.Opacity = 1;
+        WorkspacePanel.RenderTransform = null;
+
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var duration = new Duration(TimeSpan.FromMilliseconds(280));
+        var middleTransform = new TranslateTransform { X = -14, Y = 22 };
+        var detailTransform = new TranslateTransform { X = 14, Y = 22 };
+        EntryColumn.RenderTransform = middleTransform;
+        EntryColumn.Opacity = 0;
+        DetailPane.RenderTransform = detailTransform;
+        DetailPane.Opacity = 0;
+
         var storyboard = new Storyboard();
-        var duration = new Duration(TimeSpan.FromMilliseconds(320));
-        var slideX = new DoubleAnimation { To = 0, Duration = duration, EasingFunction = ease };
-        Storyboard.SetTarget(slideX, transform);
-        Storyboard.SetTargetProperty(slideX, "X");
-        var slideY = new DoubleAnimation { To = 0, Duration = duration, EasingFunction = ease };
-        Storyboard.SetTarget(slideY, transform);
-        Storyboard.SetTargetProperty(slideY, "Y");
-        var fade = new DoubleAnimation { To = 1, Duration = duration, EasingFunction = ease };
-        Storyboard.SetTarget(fade, WorkspacePanel);
-        Storyboard.SetTargetProperty(fade, "Opacity");
-        storyboard.Children.Add(slideX);
-        storyboard.Children.Add(slideY);
-        storyboard.Children.Add(fade);
+        void AddSlide(string property, TranslateTransform transform, double to)
+        {
+            var slide = new DoubleAnimation
+            {
+                To = to,
+                Duration = duration,
+                EasingFunction = ease,
+            };
+            Storyboard.SetTarget(slide, transform);
+            Storyboard.SetTargetProperty(slide, property);
+            storyboard.Children.Add(slide);
+        }
+        AddSlide("X", middleTransform, 0);
+        AddSlide("Y", middleTransform, 0);
+        var middleFade = new DoubleAnimation
+        {
+            To = 1,
+            Duration = duration,
+            EasingFunction = ease,
+        };
+        Storyboard.SetTarget(middleFade, EntryColumn);
+        Storyboard.SetTargetProperty(middleFade, "Opacity");
+        storyboard.Children.Add(middleFade);
+
+        AddSlide("X", detailTransform, 0);
+        AddSlide("Y", detailTransform, 0);
+        var detailFade = new DoubleAnimation
+        {
+            To = 1,
+            Duration = duration,
+            EasingFunction = ease,
+            BeginTime = TimeSpan.FromMilliseconds(70),
+        };
+        Storyboard.SetTarget(detailFade, DetailPane);
+        Storyboard.SetTargetProperty(detailFade, "Opacity");
+        storyboard.Children.Add(detailFade);
+
         storyboard.Begin();
     }
 
@@ -2123,6 +2157,12 @@ public sealed partial class MainWindow : Window
             return;
         }
         List<EntrySummaryDto> entries = await _core.ListEntriesAsync(_selectedGroupUuid);
+        if (_selectedGroupUuid is null && _recycleBinGroupUuid is not null)
+        {
+            entries = entries
+                .Where(entry => entry.GroupUuid != _recycleBinGroupUuid)
+                .ToList();
+        }
         string title = _selectedGroupUuid is null
             ? "All entries"
             : _groupNames.GetValueOrDefault(_selectedGroupUuid, "Entries");
