@@ -95,6 +95,37 @@ internal static class AppSelfTest
                 throw new InvalidOperationException("Launch argument parsing is wrong.");
             }
             Record("launch arguments: --db and file-association paths recognized");
+            // The single-instance hand-off sends the path over WM_COPYDATA; the
+            // receiver validates signature, size and the .kdbx path before the UI
+            // acts on it. Keep the pure helpers covered by the smoke test.
+            Record("checking single-instance payload");
+            byte[] ipcPayload = SingleInstanceRelay.EncodePath(databasePath)
+                ?? throw new InvalidOperationException(
+                    "The database path could not be encoded for the single-instance hand-off.");
+            string? ipcDecoded = SingleInstanceRelay.DecodePath(ipcPayload);
+            if (ipcDecoded is null ||
+                !SingleInstanceRelay.TryNormalizeDatabasePath(ipcDecoded,
+                    out string normalizedIpcPath) ||
+                normalizedIpcPath != Path.GetFullPath(databasePath))
+            {
+                throw new InvalidOperationException(
+                    "Single-instance payload encoding round trip failed.");
+            }
+            if (SingleInstanceRelay.DecodePath(
+                    new byte[SingleInstanceRelay.MaxPayloadBytes + 2]) is not null ||
+                SingleInstanceRelay.DecodePath(new byte[] { 0x41 }) is not null)
+            {
+                throw new InvalidOperationException(
+                    "Malformed single-instance payloads were accepted.");
+            }
+            if (SingleInstanceRelay.TryNormalizeDatabasePath(executable, out _) ||
+                SingleInstanceRelay.TryNormalizeDatabasePath(
+                    new string('a', SingleInstanceRelay.MaxPathCharacters + 1), out _))
+            {
+                throw new InvalidOperationException(
+                    "Invalid single-instance paths were accepted.");
+            }
+            Record("single-instance: payload encode/decode and path validation");
             Record("copying fixture");
             File.Copy(databasePath, temp, true);
             using (var core = new CoreClient())
