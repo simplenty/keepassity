@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Drill driver: uses the real application services (Keepassity.Core: backup,
+       WebDAV client, sync state store, remote working copies) and the real
+       native core through the FFI v1 C ABI. No WinUI dependency, so the drills
+       run headless. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>DrillRunner</AssemblyName>
+    <RootNamespace>Keepassity.Drills.Runner</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\apps\windows\Keepassity.Core\Keepassity.Core.csproj" />
+  </ItemGroup>
+</Project>
