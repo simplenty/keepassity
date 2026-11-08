@@ -2015,6 +2015,27 @@ public sealed partial class MainWindow : Window
         _suppressNav = false;
     }
 
+    private void SelectNavItem(NavigationViewItem? item)
+    {
+        bool previousSuppress = _suppressNav;
+        _suppressNav = true;
+        NavView.SelectedItem = item;
+        _suppressNav = previousSuppress;
+    }
+
+    private void RestoreGroupNavSelection()
+    {
+        string tag = _selectedGroupUuid ?? "all";
+        NavigationViewItem? item = NavView.MenuItems
+            .OfType<NavigationViewItem>()
+            .FirstOrDefault(candidate => (candidate.Tag as string) == tag);
+        item ??= NavView.MenuItems.OfType<NavigationViewItem>().FirstOrDefault();
+        if (item is not null)
+        {
+            SelectNavItem(item);
+        }
+    }
+
     private static bool IsRecycleBinGroup(string name)
     {
         string value = name.Trim();
@@ -3482,6 +3503,11 @@ public sealed partial class MainWindow : Window
 
     private async void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_rightPanelOpen)
+        {
+            return;
+        }
+        SelectNavItem(SettingsNavItem);
         var theme = new RadioButtons
         {
             Header = "Appearance",
@@ -3670,8 +3696,13 @@ public sealed partial class MainWindow : Window
             }
         };
         content.Children.Add(diagnostics);
-        if (await ShowRightPanelAsync("Settings", content, "Save", closeText: null) !=
-            RightPanelResult.Primary)
+        RightPanelResult settingsResult =
+            await ShowRightPanelAsync("Settings", content, "Save", closeText: "Cancel");
+        if (ReferenceEquals(NavView.SelectedItem, SettingsNavItem))
+        {
+            RestoreGroupNavSelection();
+        }
+        if (settingsResult != RightPanelResult.Primary)
         {
             return;
         }
