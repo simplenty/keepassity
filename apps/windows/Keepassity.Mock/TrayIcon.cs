@@ -4,22 +4,43 @@ using H.NotifyIcon.Core;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using System.Runtime.InteropServices;
-using Windows.Graphics;
 using Windows.UI;
+using WinRT.Interop;
 
 namespace Keepassity.Mock;
 
-/// <summary>WinUI notification-area icon with a WinUI tray menu.</summary>
+/// <summary>
+/// WinUI notification-area icon with a native WinUI menu surface.
+///
+/// There is no first-party tray-icon API in WinUI 3; the supported approach is
+/// Shell_NotifyIcon (provides the icon and the WM_CONTEXTMENU callback) plus a
+/// WinUI <see cref="MenuFlyout"/> for the menu. A flyout needs a XamlRoot, so a
+/// small invisible host window is moved to the notification icon before showing
+/// the menu. This is the same pattern the WinUIEx TrayIcon uses: the host is
+/// positioned with Shell_NotifyIconGetRect, the flyout is shown with
+/// Position=(0,0) and an ExclusionRect covering the icon, and the host takes the
+/// foreground so the menu is above the taskbar and the overflow flyout.
+/// </summary>
 public sealed class TrayIcon : IDisposable
 {
+    private const int GwlExStyle = -20;
+    private const nint WsExTransparent = 0x00000020;
+    private const nint WsExToolWindow = 0x00000080;
+    private const nint WsExLayered = 0x00080000;
+    private const uint LwaAlpha = 0x00000002;
+
     private readonly TaskbarIcon _icon;
-    private readonly Action _show;
-    private readonly Action _lock;
-    private readonly Action _exit;
-    private Window? _menuWindow;
+    private readonly MenuFlyout _menu;
+    private readonly MenuFlyoutItem _lockItem;
+    private Window? _anchorWindow;
+    private Border? _anchor;
     private ElementTheme _theme;
+    private IntPtr _previousForeground;
+    private bool _actionInvoked;
+    private bool _anchorLoaded;
     private bool _disposed;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -39,42 +60,93 @@ public sealed class TrayIcon : IDisposable
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct MonitorInfo
+    private struct NotifyIconIdentifier
     {
-        public int Size;
-        public NativeRect Monitor;
-        public NativeRect Work;
-        public uint Flags;
-    }
-
-    private enum TaskbarEdge
-    {
-        Top,
-        Bottom,
-        Left,
-        Right,
+        public uint Size;
+        public IntPtr Window;
+        public uint Id;
+        public Guid Guid;
     }
 
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out NativePoint point);
 
     [DllImport("user32.dll")]
-    private static extern IntPtr MonitorFromPoint(NativePoint point, uint flags);
+    private static extern IntPtr GetForegroundWindow();
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr window);
 
-    [DllImport("shcore.dll")]
-    private static extern int GetDpiForMonitor(IntPtr monitor, int dpiType,
-        out uint dpiX, out uint dpiY);
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetWindowLongPtr(nint window, int index);
+
+    [DllImport("user32.dll")]
+    private static extern nint SetWindowLongPtr(nint window, int index, nint value);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetLayeredWindowAttributes(nint window, uint colorKey,
+        byte alpha, uint flags);
+
+    [DllImport("shell32.dll")]
+    private static extern int Shell_NotifyIconGetRect(ref NotifyIconIdentifier identifier,
+        out NativeRect iconLocation);
 
     public TrayIcon(string toolTip, ElementTheme theme, Action show, Action lockAction,
         Action exit)
     {
         _theme = theme;
-        _show = show;
-        _lock = lockAction;
-        _exit = exit;
+
+        var showItem = new MenuFlyoutItem
+        {
+            Text = "Show keepassity",
+            Icon = CreateIcon("\uE8A7"),
+        };
+        showItem.Click += (_, _) =>
+        {
+            _actionInvoked = true;
+            Invoke(show);
+        };
+
+        _lockItem = new MenuFlyoutItem
+        {
+            Text = "Lock",
+            Icon = CreateIcon("\uE72E"),
+            IsEnabled = false,
+        };
+        _lockItem.Click += (_, _) =>
+        {
+            _actionInvoked = true;
+            Invoke(lockAction);
+        };
+
+        var exitItem = new MenuFlyoutItem
+        {
+            Text = "Exit keepassity",
+            Icon = CreateIcon("\uE7E8"),
+        };
+        exitItem.Click += (_, _) =>
+        {
+            _actionInvoked = true;
+            Invoke(exit);
+        };
+
+        _menu = new MenuFlyout
+        {
+            Items =
+            {
+                showItem,
+                _lockItem,
+                new MenuFlyoutSeparator(),
+                exitItem,
+            },
+        };
+        _menu.Opened += OnMenuOpened;
+        _menu.Closed += (_, _) => OnMenuClosed();
+        _menu.ShouldConstrainToRootBounds = false;
+
         _icon = new TaskbarIcon
         {
             ToolTipText = toolTip,
@@ -83,7 +155,7 @@ public sealed class TrayIcon : IDisposable
             NoLeftClickDelay = true,
             LeftClickCommand = new TrayCommand(show),
             DoubleClickCommand = new TrayCommand(show),
-            RightClickCommand = new TrayCommand(ShowMenuAtCursor),
+            RightClickCommand = new TrayCommand(OpenMenuAtIcon),
             IconSource = new GeneratedIconSource
             {
                 Text = "K",
@@ -100,193 +172,57 @@ public sealed class TrayIcon : IDisposable
 
     public UIElement? Element => _icon;
 
-    public string? LastError { get; }
-
     public void ApplyTheme(ElementTheme theme)
     {
         _theme = theme;
         _icon.RequestedTheme = theme;
-        if (_menuWindow?.Content is FrameworkElement root)
+        if (_anchorWindow?.Content is FrameworkElement root)
         {
             root.RequestedTheme = theme;
         }
     }
 
-    private void ShowMenuAtCursor()
+    /// <summary>
+    /// Reflects the vault state in the menu and the tray tooltip. The Lock command
+    /// is only meaningful while a database is open.
+    /// </summary>
+    public void SetVaultState(bool unlocked, string? databaseName)
     {
-        if (_disposed || _icon.DispatcherQueue is null)
+        if (_disposed)
         {
             return;
         }
-        _icon.DispatcherQueue.TryEnqueue(ShowMenuOnUiThread);
+        _lockItem.IsEnabled = unlocked;
+        string state = unlocked ? "unlocked" : "locked";
+        _icon.ToolTipText = string.IsNullOrWhiteSpace(databaseName)
+            ? $"keepassity - {state}"
+            : $"keepassity - {databaseName} ({state})";
     }
 
-    private void ShowMenuOnUiThread()
+    /// <summary>
+    /// Test hook: opens the context menu at a physical screen position so an
+    /// automated capture can inspect the rendered menu without pointer input.
+    /// </summary>
+    public void ShowMenuAt(int x, int y)
     {
-        if (_disposed || !GetCursorPos(out NativePoint point))
+        if (_disposed)
         {
             return;
         }
-        EnsureMenuWindow();
-        if (_menuWindow is null)
+        ShowMenu(x, y, 0, 0);
+    }
+
+    /// <summary>
+    /// Test hook: opens the context menu anchored to the notification icon (the
+    /// same path a real right-click uses) instead of at explicit coordinates.
+    /// </summary>
+    public void ShowMenuAtIconForTest()
+    {
+        if (_disposed)
         {
             return;
         }
-
-        IntPtr monitor = MonitorFromPoint(point, 2 /* MONITOR_DEFAULTTONEAREST */);
-        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
-        bool hasWorkArea = monitor != IntPtr.Zero && GetMonitorInfo(monitor, ref info);
-        double scale = GetScale(monitor);
-        int width = (int)Math.Round(240 * scale);
-        int height = (int)Math.Round(156 * scale);
-        TaskbarEdge edge = hasWorkArea ? GetTaskbarEdge(info) : TaskbarEdge.Bottom;
-
-        int x;
-        int y;
-        switch (edge)
-        {
-            case TaskbarEdge.Top:
-                x = point.X + 8;
-                y = point.Y + 8;
-                break;
-            case TaskbarEdge.Left:
-                x = point.X + 8;
-                y = point.Y;
-                break;
-            case TaskbarEdge.Right:
-                x = point.X - width - 8;
-                y = point.Y;
-                break;
-            default:
-                x = point.X + 8;
-                y = point.Y - height - 8;
-                break;
-        }
-        if (hasWorkArea)
-        {
-            x = Math.Clamp(x, info.Work.Left, Math.Max(info.Work.Left, info.Work.Right - width));
-            y = Math.Clamp(y, info.Work.Top, Math.Max(info.Work.Top, info.Work.Bottom - height));
-        }
-
-        _menuWindow.AppWindow.Move(new PointInt32(x, y));
-        _menuWindow.AppWindow.Resize(new SizeInt32(width, height));
-        _menuWindow.Activate();
-    }
-
-    private void EnsureMenuWindow()
-    {
-        if (_menuWindow is not null)
-        {
-            return;
-        }
-
-        var items = new StackPanel { Spacing = 2 };
-        AddMenuItem(items, "Show keepassity", "\uE8A7", _show);
-        AddMenuItem(items, "Lock", "\uE72E", _lock);
-        items.Children.Add(new Border
-        {
-            Height = 1,
-            Margin = new Thickness(8, 4, 8, 4),
-            Background = (Brush)Application.Current.Resources["DividerStrokeColorDefaultBrush"],
-        });
-        AddMenuItem(items, "Exit keepassity", "\uE7E8", _exit, danger: true);
-
-        var root = new Border
-        {
-            RequestedTheme = _theme,
-            Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
-            BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(6),
-            Child = items,
-        };
-        _menuWindow = new Window
-        {
-            Content = root,
-            ExtendsContentIntoTitleBar = true,
-        };
-        OverlappedPresenter presenter = OverlappedPresenter.Create();
-        presenter.IsAlwaysOnTop = true;
-        presenter.IsResizable = false;
-        _menuWindow.AppWindow.SetPresenter(presenter);
-        _menuWindow.AppWindow.IsShownInSwitchers = false;
-        _menuWindow.AppWindow.Resize(new SizeInt32(240, 156));
-        _menuWindow.Activated += (_, args) =>
-        {
-            if (args.WindowActivationState == WindowActivationState.Deactivated)
-            {
-                _menuWindow?.AppWindow.Hide();
-            }
-        };
-    }
-
-    private void AddMenuItem(StackPanel panel, string text, string glyph, Action action,
-        bool danger = false)
-    {
-        var content = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 10,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 14 });
-        content.Children.Add(new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center });
-        var button = new Button
-        {
-            Content = content,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            HorizontalContentAlignment = HorizontalAlignment.Left,
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-            BorderThickness = new Thickness(0),
-            CornerRadius = new CornerRadius(5),
-            Padding = new Thickness(10, 8, 10, 8),
-        };
-        if (danger)
-        {
-            button.Foreground =
-                (Brush)Application.Current.Resources["SystemFillColorCriticalBrush"];
-        }
-        button.Click += (_, _) =>
-        {
-            _menuWindow?.AppWindow.Hide();
-            Invoke(action);
-        };
-        panel.Children.Add(button);
-    }
-
-    private static double GetScale(IntPtr monitor)
-    {
-        if (monitor != IntPtr.Zero &&
-            GetDpiForMonitor(monitor, 0 /* MDT_EFFECTIVE_DPI */, out uint dpiX, out _) == 0 &&
-            dpiX > 0)
-        {
-            return dpiX / 96.0;
-        }
-        return 1.0;
-    }
-
-    private static TaskbarEdge GetTaskbarEdge(MonitorInfo info)
-    {
-        if (info.Work.Top > info.Monitor.Top)
-        {
-            return TaskbarEdge.Top;
-        }
-        if (info.Work.Bottom < info.Monitor.Bottom)
-        {
-            return TaskbarEdge.Bottom;
-        }
-        if (info.Work.Left > info.Monitor.Left)
-        {
-            return TaskbarEdge.Left;
-        }
-        if (info.Work.Right < info.Monitor.Right)
-        {
-            return TaskbarEdge.Right;
-        }
-        // Auto-hidden taskbar: default to the usual bottom edge. The menu is
-        // clamped to the work area afterwards.
-        return TaskbarEdge.Bottom;
+        OpenMenuAtIcon();
     }
 
     public void ShowInfo(string title, string message)
@@ -297,6 +233,272 @@ public sealed class TrayIcon : IDisposable
         }
         _icon.ShowNotification(title, message);
     }
+
+    private void OpenMenuAtIcon()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        if (TryGetIconRect(out int x, out int y, out int width, out int height))
+        {
+            ShowMenu(x, y, width, height);
+            return;
+        }
+        if (GetCursorPos(out NativePoint point))
+        {
+            ShowMenu(point.X, point.Y, 0, 0);
+        }
+    }
+
+    private bool TryGetIconRect(out int x, out int y, out int width, out int height)
+    {
+        x = y = width = height = 0;
+        try
+        {
+            H.NotifyIcon.Core.TrayIcon tray = _icon.TrayIcon;
+            if (tray is null)
+            {
+                return false;
+            }
+            NotifyIconIdentifier identifier = new()
+            {
+                Size = (uint)Marshal.SizeOf<NotifyIconIdentifier>(),
+                Window = (IntPtr)tray.WindowHandle,
+                Id = 0,
+                Guid = tray.Id,
+            };
+            int hresult = Shell_NotifyIconGetRect(ref identifier, out NativeRect rect);
+            if (hresult < 0 || rect.Right <= rect.Left || rect.Bottom <= rect.Top)
+            {
+                return false;
+            }
+            x = rect.Left;
+            y = rect.Top;
+            width = rect.Right - rect.Left;
+            height = rect.Bottom - rect.Top;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void ShowMenu(int x, int y, int iconWidth, int iconHeight)
+    {
+        if (_menu.IsOpen)
+        {
+            CloseMenu();
+            return;
+        }
+        EnsureAnchorWindow();
+        if (_anchorWindow is null || _anchor is null)
+        {
+            return;
+        }
+        try
+        {
+            _previousForeground = GetForegroundWindow();
+            _actionInvoked = false;
+            _iconWidth = iconWidth;
+            _iconHeight = iconHeight;
+            _anchorX = x;
+            _anchorY = y;
+            _anchorWindow.AppWindow.MoveAndResize(
+                new Windows.Graphics.RectInt32(x, y, 1, 1));
+            if (!_anchorLoaded || _anchor.XamlRoot is null)
+            {
+                _anchor.Loaded -= OnAnchorLoaded;
+                _anchor.Loaded += OnAnchorLoaded;
+                _anchorWindow.AppWindow.Show();
+                return;
+            }
+            PresentMenu();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("tray menu failed to open", ex);
+        }
+    }
+
+    private int _iconWidth;
+    private int _iconHeight;
+    private int _anchorX;
+    private int _anchorY;
+
+    private void OnAnchorLoaded(object sender, RoutedEventArgs e)
+    {
+        _anchor!.Loaded -= OnAnchorLoaded;
+        _anchorLoaded = true;
+        PresentMenu();
+    }
+
+    private void PresentMenu()
+    {
+        if (_disposed || _anchorWindow is null || _anchor is null || _menu.IsOpen)
+        {
+            return;
+        }
+        nint handle = WindowNative.GetWindowHandle(_anchorWindow);
+        double scale = _anchor.XamlRoot?.RasterizationScale ?? 1.0;
+        _anchorWindow.Activate();
+        _anchorWindow.AppWindow.Show();
+        _ = SetForegroundWindow(handle);
+        try
+        {
+            _menu.ShowAt(_anchor, new FlyoutShowOptions
+            {
+                Position = new Windows.Foundation.Point(0, 0),
+                Placement = ChoosePlacement(),
+                ExclusionRect = new Windows.Foundation.Rect(
+                    0, 0, _iconWidth / scale, _iconHeight / scale),
+            });
+            AppLog.Info("tray menu shown");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("tray menu failed to open", ex);
+        }
+    }
+
+    /// <summary>
+    /// Picks the side of the anchor with more room. Menus anchored near the top
+    /// edge (top taskbar) open down and to the right; menus near the bottom edge
+    /// open up. Near the right edge the menu is right-aligned to stay on screen.
+    /// </summary>
+    private FlyoutPlacementMode ChoosePlacement()
+    {
+        DisplayArea area = DisplayArea.GetFromPoint(
+            new Windows.Graphics.PointInt32(_anchorX, _anchorY),
+            DisplayAreaFallback.Nearest);
+        Windows.Graphics.RectInt32 work = area.WorkArea;
+        TrayMenuPlacement.Result placement = TrayMenuPlacement.Choose(
+            _anchorX, _anchorY, _iconWidth, _iconHeight,
+            work.Y, work.X + work.Width, work.Y + work.Height);
+        bool below = placement.Side == TrayMenuPlacement.VerticalSide.Below;
+        return below
+            ? (placement.RightAligned
+                ? FlyoutPlacementMode.BottomEdgeAlignedRight
+                : FlyoutPlacementMode.BottomEdgeAlignedLeft)
+            : (placement.RightAligned
+                ? FlyoutPlacementMode.TopEdgeAlignedRight
+                : FlyoutPlacementMode.TopEdgeAlignedLeft);
+    }
+
+    private void OnMenuOpened(object? sender, object e)
+    {
+        // The flyout presenter is a separate visual root and does not inherit the
+        // app theme from the anchor element, so pin the theme explicitly.
+        if (sender is FrameworkElement presenter)
+        {
+            presenter.RequestedTheme = _theme;
+        }
+        AppLog.Info("tray menu opened");
+    }
+
+    private void CloseMenu()
+    {
+        try
+        {
+            _menu.Hide();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("tray menu failed to close", ex);
+        }
+    }
+
+    private void OnMenuClosed()
+    {
+        AppLog.Info("tray menu closed");
+        try
+        {
+            _anchorWindow?.AppWindow.Hide();
+        }
+        catch
+        {
+            // Best-effort cleanup.
+        }
+        RestorePreviousForeground();
+    }
+
+    private void RestorePreviousForeground()
+    {
+        IntPtr previous = _previousForeground;
+        _previousForeground = IntPtr.Zero;
+        if (previous == IntPtr.Zero || _actionInvoked || _disposed)
+        {
+            return;
+        }
+        IntPtr foreground = GetForegroundWindow();
+        _ = GetWindowThreadProcessId(foreground, out uint foregroundProcess);
+        if (foregroundProcess != (uint)Environment.ProcessId)
+        {
+            // The user dismissed the menu by activating another application;
+            // leave that application in front.
+            return;
+        }
+        _ = SetForegroundWindow(previous);
+    }
+
+    private void EnsureAnchorWindow()
+    {
+        if (_anchorWindow is not null)
+        {
+            return;
+        }
+
+        _anchor = new Border
+        {
+            Width = 1,
+            Height = 1,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+        };
+        var root = new Grid
+        {
+            RequestedTheme = _theme,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+        };
+        root.Children.Add(_anchor);
+
+        var window = new Window { Content = root };
+        nint handle = WindowNative.GetWindowHandle(window);
+        Microsoft.UI.WindowId windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(handle);
+        AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
+        appWindow.IsShownInSwitchers = false;
+        if (appWindow.Presenter is OverlappedPresenter presenter)
+        {
+            presenter.IsAlwaysOnTop = true;
+            presenter.IsResizable = false;
+            presenter.IsMaximizable = false;
+            presenter.IsMinimizable = false;
+            presenter.SetBorderAndTitleBar(false, false);
+        }
+        MakeTransparent(handle);
+        window.Activated += (_, args) =>
+        {
+            if (args.WindowActivationState == WindowActivationState.Deactivated && _menu.IsOpen)
+            {
+                CloseMenu();
+            }
+        };
+        appWindow.Hide();
+        _anchorWindow = window;
+        AppLog.Info("tray menu anchor window ready");
+    }
+
+    private static void MakeTransparent(nint handle)
+    {
+        nint style = GetWindowLongPtr(handle, GwlExStyle);
+        style |= WsExToolWindow | WsExTransparent | WsExLayered;
+        _ = SetWindowLongPtr(handle, GwlExStyle, style);
+        _ = SetLayeredWindowAttributes(handle, 0, 0, LwaAlpha);
+    }
+
+    private static FontIcon CreateIcon(string glyph) => new() { Glyph = glyph, FontSize = 14 };
 
     private static void Invoke(Action action)
     {
@@ -333,10 +535,21 @@ public sealed class TrayIcon : IDisposable
         {
             return;
         }
+        if (_menu.IsOpen)
+        {
+            try
+            {
+                _menu.Hide();
+            }
+            catch
+            {
+                // Best-effort cleanup.
+            }
+        }
         _disposed = true;
         try
         {
-            _menuWindow?.Close();
+            _anchorWindow?.Close();
         }
         catch
         {

@@ -101,6 +101,26 @@ try
     // credential store round trips, reports presence and deletes credentials.
     SettingsAndCredentialTests.Run(Check);
 
+    // M3-09: tray menu flyout placement (pure geometry; the WinUI host only maps
+    // the result to FlyoutPlacementMode).
+    TrayMenuPlacement.Result topTaskbar = TrayMenuPlacement.Choose(
+        anchorX: 1800, anchorY: 300, iconWidth: 24, iconHeight: 24,
+        workTop: 48, workRight: 2560, workBottom: 1600);
+    Check("tray menu opens below the icon on a top taskbar",
+        topTaskbar.Side == TrayMenuPlacement.VerticalSide.Below,
+        topTaskbar.Side.ToString());
+    Check("tray menu is left aligned away from the right edge", !topTaskbar.RightAligned);
+    TrayMenuPlacement.Result bottomTaskbar = TrayMenuPlacement.Choose(
+        anchorX: 1200, anchorY: 1500, iconWidth: 24, iconHeight: 24,
+        workTop: 0, workRight: 2560, workBottom: 1550);
+    Check("tray menu opens above the icon on a bottom taskbar",
+        bottomTaskbar.Side == TrayMenuPlacement.VerticalSide.Above,
+        bottomTaskbar.Side.ToString());
+    TrayMenuPlacement.Result rightEdge = TrayMenuPlacement.Choose(
+        anchorX: 2500, anchorY: 300, iconWidth: 24, iconHeight: 24,
+        workTop: 48, workRight: 2560, workBottom: 1600);
+    Check("tray menu right aligns near the right screen edge", rightEdge.RightAligned);
+
     // M4-01: WebDavClient against an in-process WebDAV mock on a CJK path; also
     // proves the client sends the percent-encoded request target.
     WebDavNonAsciiPathTests.Run(Check);

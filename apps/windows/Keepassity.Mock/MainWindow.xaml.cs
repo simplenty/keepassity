@@ -72,6 +72,8 @@ public sealed partial class MainWindow : Window
     private TaskCompletionSource<RightPanelResult>? _detailPanelCompletion;
     private bool _detailPanelOpen;
     private readonly RecentDatabaseStore _recentDatabases = new();
+    private readonly List<Microsoft.UI.Dispatching.DispatcherQueueTimer> _trayMenuDemoTimers =
+        new();
     private SessionLockMonitor? _sessionLockMonitor;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _networkReplayTimer;
     private bool _sessionLockPending;
@@ -174,6 +176,7 @@ public sealed partial class MainWindow : Window
         {
             _trayIcon = new TrayIcon("keepassity", Root.ActualTheme,
                 ShowFromTray, LockFromTray, ExitFromTray);
+            _trayIcon.SetVaultState(_core.IsOpen, DisplayVaultName());
             if (_trayIcon.Element is UIElement trayElement &&
                 !Root.Children.Contains(trayElement))
             {
@@ -198,12 +201,20 @@ public sealed partial class MainWindow : Window
 
     private void LockFromTray()
     {
-        AppWindow.Show();
-        Activate();
-        if (_core.IsOpen)
+        if (!_core.IsOpen)
         {
-            _ = LockVaultAsync();
+            return;
         }
+        if (_busy)
+        {
+            _trayIcon?.ShowInfo("keepassity",
+                "Busy saving or syncing; the vault was not locked. Try again in a moment.");
+            return;
+        }
+        // Lock in place: a tray lock must not raise the window (and with it the
+        // decrypted workspace) just to lock. If the window is visible it stays
+        // visible and switches to the unlock surface.
+        _ = LockVaultAsync();
     }
 
     private void ExitFromTray()
@@ -471,6 +482,7 @@ public sealed partial class MainWindow : Window
     private async void Root_Loaded(object sender, RoutedEventArgs e)
     {
         InitializeTray();
+        ScheduleTrayMenuDemo();
         // The HWND may not have existed during construction on some WinAppSDK
         // versions; retry once the window is loaded.
         if (_sessionLockMonitor is null)
@@ -487,6 +499,92 @@ public sealed partial class MainWindow : Window
             MasterPassword.Password = devPassword;
             await UnlockAsync();
         }
+    }
+
+    /// <summary>
+    /// Test hook for automated visual checks. KEEPASSITY_TRAY_MENU_AT="x,y" opens
+    /// the tray menu at that physical screen position shortly after startup.
+    /// KEEPASSITY_TRAY_MENU_SCHEDULE="1500,x,y;6000,x,y;7000,x,y" provides an
+    /// explicit list of delay/position entries (each call toggles the menu), which
+    /// lets a harness compare a first open with a repeated open in one process.
+    /// </summary>
+    private void ScheduleTrayMenuDemo()
+    {
+        if (_trayIcon is null)
+        {
+            return;
+        }
+        bool anchorToIcon = string.Equals(
+            Environment.GetEnvironmentVariable("KEEPASSITY_TRAY_MENU_ANCHOR"),
+            "icon", StringComparison.OrdinalIgnoreCase);
+        string? schedule = Environment.GetEnvironmentVariable("KEEPASSITY_TRAY_MENU_SCHEDULE");
+        string? point = Environment.GetEnvironmentVariable("KEEPASSITY_TRAY_MENU_AT");
+        int pointX = 0;
+        int pointY = 0;
+        bool hasPoint = point is not null && TryParsePoint(point, out pointX, out pointY);
+        if (string.IsNullOrWhiteSpace(schedule))
+        {
+            if (!hasPoint)
+            {
+                return;
+            }
+            schedule = "1500," + point;
+        }
+        foreach (string entry in schedule.Split(';',
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            string[] parts = entry.Split(',');
+            if (parts.Length != 3 ||
+                !int.TryParse(parts[0].Trim(), out int delay) ||
+                !int.TryParse(parts[1].Trim(), out int x) ||
+                !int.TryParse(parts[2].Trim(), out int y))
+            {
+                AppLog.Warn("tray menu test schedule entry must be delay,x,y");
+                continue;
+            }
+            AddTrayMenuDemoTimer(TimeSpan.FromMilliseconds(Math.Max(100, delay)),
+                repeating: false, anchorToIcon, x, y);
+        }
+        // Repeating open/close cycle for interactive verification: keeps the menu
+        // appearing regularly so an external capture tool can catch it even when
+        // the reviewer misses the first window.
+        if (int.TryParse(Environment.GetEnvironmentVariable("KEEPASSITY_TRAY_MENU_CYCLE_MS"),
+                out int cycle) && cycle >= 500 && hasPoint)
+        {
+            AddTrayMenuDemoTimer(TimeSpan.FromMilliseconds(cycle),
+                repeating: true, anchorToIcon, pointX, pointY);
+        }
+    }
+
+    private static bool TryParsePoint(string specification, out int x, out int y)
+    {
+        x = 0;
+        y = 0;
+        string[] parts = specification.Split(',');
+        return parts.Length == 2 &&
+            int.TryParse(parts[0].Trim(), out x) &&
+            int.TryParse(parts[1].Trim(), out y);
+    }
+
+    private void AddTrayMenuDemoTimer(TimeSpan interval, bool repeating, bool anchorToIcon,
+        int x, int y)
+    {
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = interval;
+        timer.IsRepeating = repeating;
+        timer.Tick += (_, _) =>
+        {
+            if (anchorToIcon)
+            {
+                _trayIcon?.ShowMenuAtIconForTest();
+            }
+            else
+            {
+                _trayIcon?.ShowMenuAt(x, y);
+            }
+        };
+        _trayMenuDemoTimers.Add(timer);
+        timer.Start();
     }
 
     private void ParseArguments()
@@ -2231,6 +2329,7 @@ public sealed partial class MainWindow : Window
             UnlockError.IsOpen = false;
             HideUnlockFailureActions();
             AppLog.Info("vault unlocked");
+            _trayIcon?.SetVaultState(true, DisplayVaultName());
             RememberRecentDatabase();
             ShowMain();
             MasterPassword.Password = string.Empty;
@@ -4348,6 +4447,7 @@ public sealed partial class MainWindow : Window
         UnlockError.Severity = InfoBarSeverity.Error;
         HideUnlockFailureActions();
         UpdateDatabasePath();
+        _trayIcon?.SetVaultState(false, null);
         _busy = false;
         MasterPassword.Focus(FocusState.Programmatic);
     }

@@ -28,8 +28,19 @@ Changes after the `v0.1.0` tag (2026-10-28). The Windows UI was reworked through
   setting.
 - Recycle-bin and template groups are pinned in the navigation, and recycle-bin entries are
   hidden from the main list.
-- The tray menu is a native WinUI menu, opened at the pointer and anchored to the taskbar
-  edge.
+- The tray menu is a native WinUI `MenuFlyout`: it opens from the notification icon
+  (below-left/right of the icon, flipped at screen edges), follows the app theme, and
+  disables Lock while the vault is locked.
+- Tray tooltip reports locked/unlocked state and the open database name.
+- Tray Lock locks in place instead of raising the window first, so decrypted content is
+  never flashed on screen by the Lock action.
+
+### Fixed
+
+- The tray menu no longer renders as a framed window with caption buttons, a near-black
+  background, a fixed 240x156 dead strip, or a clipped first-open menu with a scrollbar.
+- Closing the tray menu with its own window close button no longer leaves a dead menu for
+  the rest of the session.
 - Release executables are kept at medium integrity so installs and runs work from
   low-integrity workspace folders.
 
