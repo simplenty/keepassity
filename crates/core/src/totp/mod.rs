@@ -165,6 +165,9 @@ pub fn generate_at(config: &TotpConfig, unix_time: u64) -> Result<TotpCode, Totp
 /// Generate `steps` consecutive codes starting at `unix_time` (inclusive).
 ///
 /// Useful for showing the next codes while the current one is about to expire.
+/// Steps that would exceed `u64::MAX` saturate to the newest representable
+/// second instead of overflowing (valid callers use current Unix time, so this
+/// is unobservable in normal use).
 pub fn prefetch(
     config: &TotpConfig,
     unix_time: u64,
@@ -172,11 +175,14 @@ pub fn prefetch(
 ) -> Result<Vec<TotpCode>, TotpError> {
     config.validate()?;
     let mut out = Vec::with_capacity(steps);
+    let period = u64::from(config.period);
     for offset in 0..steps {
-        out.push(generate_at(
-            config,
-            unix_time + offset as u64 * u64::from(config.period),
-        )?);
+        // M5-02 fuzz finding: `unix_time + offset * period` panicked with
+        // "attempt to add with overflow" for timestamps near u64::MAX when the
+        // overflow checks used by fuzz/debug builds are enabled. Saturate so
+        // the helper is total for every u64 input.
+        let step_time = unix_time.saturating_add((offset as u64).saturating_mul(period));
+        out.push(generate_at(config, step_time)?);
     }
     Ok(out)
 }
@@ -445,6 +451,32 @@ mod tests {
         assert_eq!(codes[1].step, 2);
         assert_eq!(codes[2].step, 3);
         assert_eq!(codes[0].code, generate_at(&cfg, 59).unwrap().code);
+    }
+
+    /// M5-02 fuzz finding (cargo-fuzz seed: eight `0xFF` bytes).
+    ///
+    /// `prefetch(u64::MAX, 2)` used to panic with "attempt to add with
+    /// overflow" because `unix_time + offset * period` wrapped past u64::MAX.
+    /// It must saturate instead. The input is the minimal fuzzer input; the
+    /// same call is also reachable through the public API with any huge
+    /// timestamp.
+    #[test]
+    fn prefetch_near_u64_max_does_not_overflow() {
+        let cfg = config(b"12345678901234567890", TotpAlgorithm::Sha1);
+        let newest = generate_at(&cfg, u64::MAX).unwrap();
+
+        let codes = prefetch(&cfg, u64::MAX, 3).unwrap();
+        assert_eq!(codes.len(), 3);
+        assert_eq!(codes[0].step, newest.step);
+        assert_eq!(codes[0].code, newest.code);
+        // Saturating steps stay at the newest representable second.
+        assert_eq!(codes[2].step, newest.step);
+        assert_eq!(codes[2].code, newest.code);
+
+        // Also the original fuzzer path (u64::MAX - 1 with 3 steps).
+        assert!(prefetch(&cfg, u64::MAX - 1, 3).is_ok());
+        // A zero step count stays valid.
+        assert!(prefetch(&cfg, u64::MAX, 0).unwrap().is_empty());
     }
 
     #[test]
