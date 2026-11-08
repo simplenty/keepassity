@@ -12,7 +12,7 @@ planned for v1.x and is expected to consume the same core directly.
 │   UI, dialogs, platform adapters: DPAPI, tray, clipboard,  │
 │   idle/lock detection, file pickers                        │
 ├─────────────────────────────────────────────────────────────┤
-│ application services (currently inside the Windows shell)  │
+│ application services (apps/windows/Keepassity.Core)        │
 │   settings, sync state, WebDAV client, backups, sync       │
 │   orchestration/conflict flow                              │
 ├─────────────────────────────────────────────────────────────┤
@@ -31,14 +31,18 @@ planned for v1.x and is expected to consume the same core directly.
   variables or UI types. Platform work belongs in the shell.
 - **`crates/ffi` is a contract.** Commands and JSON payloads are versioned in
   `.agents/contracts/` in the private process repository; changes need an ADR.
-- **The shell owns IO and networking.** It opens/saves files, performs WebDAV transfers,
-  stores credentials with DPAPI and owns platform integration.
-- **Application services are the next extraction target** so the future Linux shell can
-  reuse sync, backup and settings logic instead of duplicating it.
+- **The WinUI project owns platform integration.** It creates windows and dialogs, hosts the
+  tray icon, clears the clipboard and stores credentials with DPAPI. File and WebDAV IO goes
+  through the application-services layer; `crates/core` stays pure.
+- **Application services live in `apps/windows/Keepassity.Core`.** Settings, sync state, the
+  WebDAV client, backups and sync orchestration are already platform-neutral C# and covered
+  by the headless `tests/app-core` suite, so the future Linux shell can reuse them instead of
+  duplicating the logic.
 
 ## Data safety
 
-- Saves use a temp file, timestamped backup and atomic replace (see `docs/compatibility.md`).
+- Saves use a temp file, a timestamped backup and a verified atomic replace; the save
+  protocol is exercised by the core save/sync tests.
 - The real database, credentials and WebDAV working copies never enter a git repository.
 - Test fixtures are synthetic or public samples; see `tests/fixtures/README.md`.
 
