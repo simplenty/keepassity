@@ -89,7 +89,11 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(TitleBarDragArea);
         ApplyTitleBarTheme();
-        Root.ActualThemeChanged += (_, _) => ApplyTitleBarTheme();
+        Root.ActualThemeChanged += (_, _) =>
+        {
+            ApplyTitleBarTheme();
+            _trayIcon?.ApplyTheme(Root.ActualTheme);
+        };
         SearchBox.Visibility = Visibility.Collapsed;
         EntryList.ItemsSource = Entries;
         ParseArguments();
@@ -145,11 +149,19 @@ public sealed partial class MainWindow : Window
         }
         try
         {
-            _trayIcon = new TrayIcon("keepassity", ShowFromTray, LockFromTray, ExitFromTray);
+            _trayIcon = new TrayIcon("keepassity", Root.ActualTheme,
+                ShowFromTray, LockFromTray, ExitFromTray);
+            if (_trayIcon.Element is UIElement trayElement &&
+                !Root.Children.Contains(trayElement))
+            {
+                Root.Children.Add(trayElement);
+            }
+            AppLog.Info($"tray icon available: {_trayIcon.Available}");
             AppWindow.Closing += AppWindow_Closing;
         }
-        catch
+        catch (Exception ex)
         {
+            AppLog.Error("tray icon initialization failed", ex);
             _trayIcon?.Dispose();
             _trayIcon = null;
         }
