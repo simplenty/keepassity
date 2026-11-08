@@ -149,6 +149,15 @@ jobs:
         continue-on-error: true
         run: dotnet list apps/windows/Keepassity.Mock/Keepassity.Mock.csproj package --vulnerable --include-transitive
 
+  ui-strings:
+    name: ui-strings / ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: reject hard-coded CJK text in the English UI
+        shell: pwsh
+        run: ./tools/check-ui-strings.ps1
+
   secret-scan:
     name: secret-scan
     runs-on: ubuntu-latest
