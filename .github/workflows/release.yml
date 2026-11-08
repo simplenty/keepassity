@@ -34,6 +34,9 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($version)) { throw 'empty version tag' }
           [System.IO.File]::AppendAllText($env:GITHUB_ENV, "KEEPASSITY_VERSION=$version`n")
 
+      - name: build FFI library
+        run: cargo build -p keepassity-ffi --release
+
       - name: verify the source
         shell: pwsh
         run: |
@@ -44,8 +47,6 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-fixtures.ps1
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
-      - name: build FFI library
-        run: cargo build -p keepassity-ffi --release
 
       - name: publish portable package
         shell: pwsh
