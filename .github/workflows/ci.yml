@@ -20,12 +20,12 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: 1.99.1
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: verify fixture manifest
         if: runner.os == 'Linux'
         shell: pwsh
@@ -44,27 +44,111 @@ jobs:
     name: interop / ubuntu
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: 1.99.1
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: install keepassxc and build deps
         run: sudo apt-get update && sudo apt-get install -y keepassxc libudev-dev pkg-config
       - name: fixture round trip + keepassxc verification
         shell: pwsh
         run: ./tools/interop/verify.ps1 -FixturesOnly -KeepassXcPath keepassxc-cli
 
+  # Second independent reader: KeePassLib (official C# library) on Windows.
+  # The official KeePass 2.6x binaries are NativeAOT and do not ship a managed
+  # KeePassLib.dll, so the library is built from the pinned official source
+  # release and then used by tools/interop/verify.ps1 to re-open every fixture
+  # and its rewritten copy (same canonical structural hash required).
+  interop-keepasslib:
+    name: interop-keepasslib / windows
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      # Pinned official release: KeePass-2.59-Source.zip, published on
+      # https://keepass.info/download.html and hashed on
+      # https://keepass.info/integrity.html (SHA-256 below, verified in the
+      # download step; a mismatch fails the job loudly).
+      KEEPASS_VERSION: "2.59"
+      KEEPASS_SOURCE_SHA256: "7AC2711821836FC0198B6F19ECD787318C8BF06585A4A3AEB2E6BD5319604A7B"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: "8.0.x"
+      - name: download and verify the official KeePass source release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:KEEPASS_VERSION
+          $archive = Join-Path $env:RUNNER_TEMP "KeePass-$version-Source.zip"
+          $sourceRoot = Join-Path $env:RUNNER_TEMP 'keepass-source'
+          $pageUrl = "https://sourceforge.net/projects/keepass/files/KeePass%20$version/KeePass-$version-Source.zip/download"
+          function Test-ZipArchive([string]$path) {
+            if (-not (Test-Path -LiteralPath $path)) { return $false }
+            $stream = [System.IO.File]::OpenRead($path)
+            try {
+              return ($stream.ReadByte() -eq 0x50 -and $stream.ReadByte() -eq 0x4B)
+            }
+            finally { $stream.Dispose() }
+          }
+          Invoke-WebRequest -Uri $pageUrl -OutFile $archive -UseBasicParsing
+          if (-not (Test-ZipArchive $archive)) {
+            # SourceForge sometimes answers with its download page (which carries
+            # a short-lived mirror link) instead of an HTTP redirect.
+            $html = Get-Content -LiteralPath $archive -Raw
+            $match = [regex]::Match($html, 'https://downloads\.sourceforge\.net/[^"''<> ]+KeePass-[^"''<> ]+\.zip[^"''<> ]*')
+            if (-not $match.Success) { throw 'SourceForge download page contained no mirror link' }
+            $mirror = $match.Value -replace '&amp;', '&'
+            Invoke-WebRequest -Uri $mirror -OutFile $archive -UseBasicParsing
+          }
+          if (-not (Test-ZipArchive $archive)) { throw 'downloaded KeePass source is not a zip archive' }
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+          if ($hash -ne $env:KEEPASS_SOURCE_SHA256) {
+            throw "KeePass source SHA-256 mismatch: $hash (expected $env:KEEPASS_SOURCE_SHA256)"
+          }
+          Write-Host "KeePass $version source verified: $hash"
+          Expand-Archive -LiteralPath $archive -DestinationPath $sourceRoot -Force
+      - name: build managed KeePassLib from source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere)) { throw 'vswhere.exe not found' }
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          if (-not $msbuild) { throw 'MSBuild not found' }
+          $sourceRoot = Join-Path $env:RUNNER_TEMP 'keepass-source'
+          $project = Get-ChildItem -LiteralPath $sourceRoot -Recurse -Filter 'KeePassLib_N48.csproj' | Select-Object -First 1
+          if (-not $project) { throw 'KeePassLib_N48.csproj not found in the KeePass source release' }
+          # The source release ships dummy strong-name key files; we only need a
+          # working test library, so build it unsigned.
+          & $msbuild $project.FullName /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU /p:SignAssembly=false /nologo /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw "KeePassLib build failed (exit $LASTEXITCODE)" }
+          $dll = Get-ChildItem -LiteralPath $sourceRoot -Recurse -Filter 'KeePassLib.dll' |
+            Where-Object { $_.FullName -match '\\Release\\' } | Select-Object -First 1
+          if (-not $dll) { throw 'built KeePassLib.dll not found' }
+          Write-Host "KeePassLib: $($dll.FullName) ($($dll.Length) bytes)"
+          Add-Content -Path $env:GITHUB_ENV -Value "KEEPASS_LIB_DLL=$($dll.FullName)"
+      - name: build keepassity-cli
+        run: cargo build -p keepassity-cli
+      - name: fixture round trip + KeePassLib verification
+        shell: pwsh
+        run: ./tools/interop/verify.ps1 -FixturesOnly -KeePassLibDll $env:KEEPASS_LIB_DLL
+
   sync-matrix:
     name: sync-matrix / ubuntu
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: 1.99.1
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Linux build deps (hidapi/udev)
         run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
       - name: 18-scenario sync matrix
@@ -75,12 +159,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: 1.99.1
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-dotnet@v4
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: "8.0.x"
       - name: Linux build deps (hidapi/udev)
@@ -104,12 +188,12 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: 1.99.1
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-dotnet@v4
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: "8.0.x"
       - name: build FFI library
@@ -127,7 +211,7 @@ jobs:
             @{ fixture = 'tests/fixtures/keepass-rs/test_db_kdbx4_with_password_aes.kdbx'; password = 'demopass' },
             @{ fixture = 'tests/fixtures/keepass-rs/test_db_kdbx4_with_totp_entry.kdbx'; password = 'test' }
           )
-          $exe = (Get-ChildItem 'apps/windows/Keepassity.Mock/bin' -Recurse -Filter 'Keepassity.Mock.exe' |
+          $exe = (Get-ChildItem 'apps/windows/Keepassity.Mock/bin' -Recurse -Filter 'Keepassity.exe' |
             Where-Object { $_.FullName -match '\\Release\\' } | Select-Object -First 1).FullName
           foreach ($case in $cases) {
             $report = Join-Path $env:RUNNER_TEMP ('selftest-' + [guid]::NewGuid().ToString('N') + '.log')
@@ -153,7 +237,7 @@ jobs:
     name: ui-strings / ubuntu
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: reject hard-coded CJK text in the English UI
         shell: pwsh
         run: ./tools/check-ui-strings.ps1
@@ -162,11 +246,11 @@ jobs:
     name: secret-scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -174,8 +258,8 @@ jobs:
     name: supply-chain
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@cargo-deny
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: taiki-e/install-action@98b24ef8830c90613ec3b57343df3abde2b66e56 # cargo-deny branch
       - name: cargo deny
         run: cargo deny check
 
@@ -183,7 +267,7 @@ jobs:
     name: public-hygiene
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: enforce public allowlist
         shell: pwsh
         run: ./scripts/check-public.ps1

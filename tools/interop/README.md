@@ -5,7 +5,8 @@ Purpose: prove that what we write can be read by real clients, and that we can r
 
 ## `verify.ps1`
 
-Round-trip every supported fixture:
+Round-trip every supported fixture (the upstream `keepass-rs` corpus **and** the
+repository-generated `tests/fixtures/synthetic/` corpus):
 
 1. `keepassity-cli rewrite` re-saves the fixture with the ADR-0002 write backend
    (`keepassxcr`) into `target/interop-tmp/`;
@@ -35,16 +36,24 @@ prints entry titles, usernames, passwords or TOTP secrets.
 ## KeePassLib
 
 KeePass 2.61.1 official binaries are NativeAOT and do **not** ship a managed
-`KeePassLib.dll`. Build the managed library from the official source release:
+`KeePassLib.dll`. Build the managed library from the official source release
+(pinned release used by CI: **KeePass 2.59**,
+`KeePass-2.59-Source.zip`, SHA-256
+`7ac2711821836fc0198b6f19ecd787318c8bf06585a4a3aeb2e6bd5319604a7b`, published on
+<https://keepass.info/integrity.html>):
 
 ```powershell
 # official source: KeePassLib\KeePassLib_N48.csproj
-msbuild KeePassLib_N48.csproj /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU
+# The dummy PFX files that ship with the source are password-protected, so the
+# CI build disables strong-name signing (the library is test-only):
+msbuild KeePassLib_N48.csproj /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU /p:SignAssembly=false
 ```
 
-Then pass the resulting `KeePassLib.dll` to `-KeePassLibDll`; the script builds
-`KeePassLibTool` (net48) automatically. Tested with the KeePass 2.59 managed
-source release; newer official binaries may differ.
+Then pass the resulting `KeePassLib.dll` (under `Build\KeePassLib\Release\`) to
+`-KeePassLibDll`; the script builds `KeePassLibTool` (net48) automatically.
+The `interop-keepasslib / windows` CI job does exactly this, so the write closure
+is checked by two independent readers (`keepassxc-cli` on Linux and KeePassLib on
+Windows).
 
 Known limitation: the managed KeePassLib build does not include the Twofish
 cipher plugin, so Twofish fixtures are skipped for the KeePassLib check and are
