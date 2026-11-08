@@ -65,24 +65,33 @@ foreach ($name in @("README.md", "LICENSE", "NOTICE", "THIRD-PARTY-LICENSES.md")
         Copy-Item $source (Join-Path $output $name)
     }
 }
+$icon = Join-Path $output "Assets/app.ico"
+if (-not (Test-Path $icon)) {
+    throw "Application icon is missing from the publish output: $icon. The window/tray icon and the installer icon come from this file."
+}
 
-$exe = Join-Path $output "Keepassity.Mock.exe"
+$exe = Join-Path $output "Keepassity.exe"
 if (-not (Test-Path $exe)) {
     throw "Published executable is missing: $exe"
 }
 # The workspace may carry a Low integrity label. Windows starts executables from
 # Low-labeled folders at Low integrity, which prevents the app and the installer
 # from writing normal user data and the setup TEMP directory. Release binaries
-# must run at Medium.
+# must run at Medium. Relabeling needs SeRelabelPrivilege, so an unprivileged
+# build (developer machine, app in a Low-integrity folder) can refuse here;
+# publish from a normal folder in that case instead of failing the build.
 & icacls $exe /setintegritylevel Medium | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    throw "Could not set the executable integrity level: $exe"
+    Write-Warning "Could not relabel $exe to Medium integrity. Publish into a normal (Medium) folder before shipping or installing; artifacts inside a Low-integrity workspace are not installable."
+} else {
+    # The launcher and the setup run the same executable.
+    & icacls (Join-Path $output "Keepassity.exe") /setintegritylevel Medium | Out-Null
 }
 $launcher = Join-Path $output "Run keepassity.cmd"
 Set-Content -LiteralPath $launcher -Encoding Ascii -Value @(
     "@echo off",
-    'powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -LiteralPath ''%~dp0Keepassity.Mock.exe'' -ErrorAction SilentlyContinue" >nul 2>nul',
-    'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "& ''%~dp0Keepassity.Mock.exe''"'
+    'powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -LiteralPath ''%~dp0Keepassity.exe'' -ErrorAction SilentlyContinue" >nul 2>nul',
+    'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "& ''%~dp0Keepassity.exe''"'
 )
 try {
     Unblock-File -LiteralPath $exe -ErrorAction SilentlyContinue

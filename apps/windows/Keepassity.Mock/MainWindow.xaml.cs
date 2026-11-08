@@ -6,14 +6,18 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Xaml.Media.Imaging;
 using System.Collections.ObjectModel;
 using System.Net.NetworkInformation;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.Storage;
 using Windows.Storage.Pickers;
+using Windows.Storage.Streams;
 using Windows.System;
 using Windows.UI;
 
@@ -99,6 +103,10 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         ApplyThemePreference(Settings.Theme);
         Title = "keepassity";
+        // The shell/taskbar icon is not inherited from the executable by WinUI 3;
+        // the window icon must be set explicitly (AppWindow.SetIcon needs a real
+        // .ico path for unpackaged apps).
+        ApplyWindowIcon();
         RestoreWindowBounds();
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(TitleBarDragArea);
@@ -151,6 +159,7 @@ public sealed partial class MainWindow : Window
             new KeyEventHandler((_, _) => TouchActivity()), true);
         Root.AddHandler(UIElement.KeyDownEvent,
             new KeyEventHandler(RightPanel_KeyDown), true);
+        RegisterKeyboardAccelerators();
         Root.Loaded += Root_Loaded;
         Closed += (_, _) =>
         {
@@ -168,13 +177,13 @@ public sealed partial class MainWindow : Window
 
     private void InitializeTray()
     {
-        if (Environment.GetCommandLineArgs().Contains("--no-tray", StringComparer.OrdinalIgnoreCase))
+        if (TestHooks.HasSwitch("--no-tray"))
         {
             return;
         }
         try
         {
-            _trayIcon = new TrayIcon("keepassity", Root.ActualTheme,
+            _trayIcon = new TrayIcon("keepassity", Root.ActualTheme, AppAssets.AppIconPath,
                 ShowFromTray, LockFromTray, ExitFromTray);
             _trayIcon.SetVaultState(_core.IsOpen, DisplayVaultName());
             if (_trayIcon.Element is UIElement trayElement &&
@@ -483,6 +492,7 @@ public sealed partial class MainWindow : Window
     {
         InitializeTray();
         ScheduleTrayMenuDemo();
+        ScheduleSettingsDemo();
         // The HWND may not have existed during construction on some WinAppSDK
         // versions; retry once the window is loaded.
         if (_sessionLockMonitor is null)
@@ -493,7 +503,7 @@ public sealed partial class MainWindow : Window
         {
             AppWindow.Hide();
         }
-        string? devPassword = Environment.GetEnvironmentVariable("KEEPASSITY_MOCK_PASSWORD");
+        string? devPassword = TestHooks.EnvironmentValue("KEEPASSITY_MOCK_PASSWORD");
         if (_dbPath is not null && !string.IsNullOrEmpty(devPassword))
         {
             MasterPassword.Password = devPassword;
@@ -515,10 +525,10 @@ public sealed partial class MainWindow : Window
             return;
         }
         bool anchorToIcon = string.Equals(
-            Environment.GetEnvironmentVariable("KEEPASSITY_TRAY_MENU_ANCHOR"),
+            TestHooks.EnvironmentValue("KEEPASSITY_TRAY_MENU_ANCHOR"),
             "icon", StringComparison.OrdinalIgnoreCase);
-        string? schedule = Environment.GetEnvironmentVariable("KEEPASSITY_TRAY_MENU_SCHEDULE");
-        string? point = Environment.GetEnvironmentVariable("KEEPASSITY_TRAY_MENU_AT");
+        string? schedule = TestHooks.EnvironmentValue("KEEPASSITY_TRAY_MENU_SCHEDULE");
+        string? point = TestHooks.EnvironmentValue("KEEPASSITY_TRAY_MENU_AT");
         int pointX = 0;
         int pointY = 0;
         bool hasPoint = point is not null && TryParsePoint(point, out pointX, out pointY);
@@ -548,7 +558,7 @@ public sealed partial class MainWindow : Window
         // Repeating open/close cycle for interactive verification: keeps the menu
         // appearing regularly so an external capture tool can catch it even when
         // the reviewer misses the first window.
-        if (int.TryParse(Environment.GetEnvironmentVariable("KEEPASSITY_TRAY_MENU_CYCLE_MS"),
+        if (int.TryParse(TestHooks.EnvironmentValue("KEEPASSITY_TRAY_MENU_CYCLE_MS"),
                 out int cycle) && cycle >= 500 && hasPoint)
         {
             AddTrayMenuDemoTimer(TimeSpan.FromMilliseconds(cycle),
@@ -564,6 +574,32 @@ public sealed partial class MainWindow : Window
         return parts.Length == 2 &&
             int.TryParse(parts[0].Trim(), out x) &&
             int.TryParse(parts[1].Trim(), out y);
+    }
+
+    /// <summary>
+    /// Test hook for automated visual checks: KEEPASSITY_SETTINGS_DEMO_MS opens
+    /// the Settings panel once after that many milliseconds, which exercises the
+    /// About artwork loading path for an external capture tool.
+    /// </summary>
+    private void ScheduleSettingsDemo()
+    {
+        if (!int.TryParse(TestHooks.EnvironmentValue("KEEPASSITY_SETTINGS_DEMO_MS"),
+                out int delay) || delay < 500)
+        {
+            return;
+        }
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(delay);
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (MainRoot.Visibility == Visibility.Visible && !_rightPanelOpen)
+            {
+                SettingsButton_Click(this, new RoutedEventArgs());
+            }
+        };
+        timer.Start();
     }
 
     private void AddTrayMenuDemoTimer(TimeSpan interval, bool repeating, bool anchorToIcon,
@@ -590,26 +626,24 @@ public sealed partial class MainWindow : Window
     private void ParseArguments()
     {
         string[] args = Environment.GetCommandLineArgs();
-        int index = Array.IndexOf(args, "--db");
-        if (index >= 0 && index + 1 < args.Length)
+        string? candidate = LaunchArguments.FindDatabasePath(args, File.Exists);
+        if (candidate is null)
         {
-            string candidate = args[index + 1];
-            if (File.Exists(candidate))
-            {
-                _dbPath = Path.GetFullPath(candidate);
-                // An explicit local file wins over a previously opened WebDAV
-                // source; drop that remote target so saves cannot overwrite it.
-                if (string.Equals(Settings.LastDatabaseKind, "webdav",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    Settings.WebDavUrl = null;
-                    Settings.WebDavUsername = null;
-                }
-                Settings.LastDatabaseKind = "local";
-                Settings.LastWebDavUrl = null;
-                Settings.LastWebDavUsername = null;
-            }
+            return;
         }
+        _dbPath = Path.GetFullPath(candidate);
+        // An explicit local file wins over a previously opened WebDAV
+        // source; drop that remote target so saves cannot overwrite it.
+        if (string.Equals(Settings.LastDatabaseKind, "webdav",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            Settings.WebDavUrl = null;
+            Settings.WebDavUsername = null;
+        }
+        Settings.LastDatabaseKind = "local";
+        Settings.LastWebDavUrl = null;
+        Settings.LastWebDavUsername = null;
+        AppLog.Info("launch argument selected a local database");
     }
 
     private void UpdateDatabasePath()
@@ -660,6 +694,328 @@ public sealed partial class MainWindow : Window
             }
         }
         return _dbPath is null ? "Vault" : Path.GetFileNameWithoutExtension(_dbPath);
+    }
+
+    // ------------------------------------------------------ window assets
+
+    /// <summary>
+    /// Applies the branded application icon to the window (and thus the taskbar
+    /// and Alt+Tab switcher). WinUI 3 does not inherit the executable icon for a
+    /// window; the supported approach for unpackaged apps is
+    /// AppWindow.SetIcon with a fully qualified .ico path.
+    /// </summary>
+    private void ApplyWindowIcon()
+    {
+        string iconPath = AppAssets.AppIconPath;
+        if (File.Exists(iconPath))
+        {
+            try
+            {
+                AppWindow.SetIcon(iconPath);
+                AppLog.Info("window icon applied from Assets/app.ico");
+                return;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error("window icon could not be applied from Assets/app.ico", ex);
+            }
+        }
+        else
+        {
+            AppLog.Warn("window icon: Assets/app.ico is missing next to the executable");
+        }
+        // Fallback: reuse the icon embedded in the executable by the
+        // ApplicationIcon project property so a missing Assets folder still
+        // produces a branded window icon.
+        try
+        {
+            string executable = Environment.ProcessPath ?? string.Empty;
+            if (string.IsNullOrEmpty(executable) ||
+                ExtractIconEx(executable, 0, out IntPtr large, out IntPtr small, 1) == 0)
+            {
+                AppLog.Warn("window icon: no executable icon resource to fall back to");
+                return;
+            }
+            IntPtr handle = large != IntPtr.Zero ? large : small;
+            if (handle != IntPtr.Zero)
+            {
+                AppWindow.SetIcon(Microsoft.UI.Win32Interop.GetIconIdFromIcon(handle));
+                AppLog.Info("window icon applied from the embedded executable resource");
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("window icon: embedded icon fallback failed", ex);
+        }
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint ExtractIconEx(string file, int index, out IntPtr large,
+        out IntPtr small, uint count);
+
+    // ------------------------------------------------------ keyboard input
+
+    /// <summary>
+    /// Conventional desktop shortcuts. Accelerators live on the window content
+    /// root so they work regardless of which control has focus; the chosen keys
+    /// (Ctrl+F, Ctrl+L, Ctrl+N, Ctrl+S, F5) are not text-editing commands.
+    /// Escape is intentionally not an accelerator: Root_KeyDown already closes
+    /// the open right/detail panel, and flyouts close themselves natively.
+    /// </summary>
+    private void RegisterKeyboardAccelerators()
+    {
+        AddKeyboardAccelerator(VirtualKey.F, VirtualKeyModifiers.Control,
+            FocusSearchShortcut);
+        AddKeyboardAccelerator(VirtualKey.L, VirtualKeyModifiers.Control,
+            LockShortcut);
+        AddKeyboardAccelerator(VirtualKey.N, VirtualKeyModifiers.Control,
+            NewEntryShortcut);
+        AddKeyboardAccelerator(VirtualKey.S, VirtualKeyModifiers.Control,
+            SaveShortcut);
+        AddKeyboardAccelerator(VirtualKey.F5, VirtualKeyModifiers.None,
+            SyncShortcut);
+    }
+
+    private void AddKeyboardAccelerator(VirtualKey key, VirtualKeyModifiers modifiers,
+        Action action)
+    {
+        var accelerator = new KeyboardAccelerator
+        {
+            Key = key,
+            Modifiers = modifiers,
+        };
+        accelerator.Invoked += (_, args) =>
+        {
+            args.Handled = true;
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error($"keyboard shortcut {key} failed", ex);
+            }
+        };
+        Root.KeyboardAccelerators.Add(accelerator);
+    }
+
+    private void FocusSearchShortcut()
+    {
+        if (MainRoot.Visibility != Visibility.Visible || _busy)
+        {
+            return;
+        }
+        ClosePanels();
+        SearchBox.Focus(FocusState.Programmatic);
+    }
+
+    private void LockShortcut()
+    {
+        if (_core.IsOpen && !_busy)
+        {
+            _ = LockVaultAsync();
+        }
+    }
+
+    private void NewEntryShortcut()
+    {
+        // Never stack a second editor on top of an open panel or an in-flight
+        // save: the shortcut is only live when the workspace is idle.
+        if (!_core.IsOpen || _busy || _rightPanelOpen || _detailPanelOpen)
+        {
+            return;
+        }
+        NewEntryButton_Click(this, new RoutedEventArgs());
+    }
+
+    private void SyncShortcut()
+    {
+        if (!_core.IsOpen || _busy || !IsSyncConfigured)
+        {
+            return;
+        }
+        _ = SyncAsync();
+    }
+
+    private void SaveShortcut()
+    {
+        if (!_core.IsOpen)
+        {
+            return;
+        }
+        // Every edit path saves the database immediately, so Ctrl+S never needs
+        // to write the vault. Mapping it to "sync now" is the honest meaning of
+        // save for a synced database; without WebDAV it just reports the truth.
+        if (IsSyncConfigured)
+        {
+            ShowToast("Changes are saved automatically; syncing now…",
+                InfoBarSeverity.Informational);
+            _ = SyncAsync();
+        }
+        else
+        {
+            ShowToast("Every change is saved automatically — nothing to save.",
+                InfoBarSeverity.Informational);
+        }
+    }
+
+    // ------------------------------------------------------------ drag/drop
+
+    private void Root_DragOver(object sender, DragEventArgs e)
+    {
+        // Only external file drops are handled at the window level. Drags that
+        // start inside the window (entry -> group) carry text, not StorageItems,
+        // and are left to the group drop targets.
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems))
+        {
+            return;
+        }
+        e.AcceptedOperation = DataPackageOperation.Copy;
+        e.DragUIOverride.Caption = "Open database";
+        e.DragUIOverride.IsCaptionVisible = true;
+        e.DragUIOverride.IsGlyphVisible = false;
+        e.Handled = true;
+    }
+
+    private async void Root_Drop(object sender, DragEventArgs e)
+    {
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems))
+        {
+            return;
+        }
+        e.Handled = true;
+        try
+        {
+            IReadOnlyList<IStorageItem> items = await e.DataView.GetStorageItemsAsync();
+            StorageFile? database = items.OfType<StorageFile>()
+                .FirstOrDefault(file => file.Name.EndsWith(".kdbx",
+                    StringComparison.OrdinalIgnoreCase));
+            if (database is null)
+            {
+                ShowToast("Only .kdbx database files can be opened this way.",
+                    InfoBarSeverity.Warning);
+                return;
+            }
+            await OpenDroppedDatabaseAsync(database.Path);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("dropped-file handling failed", ex);
+            ShowToast("The dropped file could not be read.", InfoBarSeverity.Error);
+        }
+    }
+
+    private async Task OpenDroppedDatabaseAsync(string droppedPath)
+    {
+        if (_busy)
+        {
+            return;
+        }
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(droppedPath);
+        }
+        catch
+        {
+            ShowToast("The dropped file path is not valid.", InfoBarSeverity.Error);
+            return;
+        }
+        if (!File.Exists(fullPath))
+        {
+            ShowToast("The dropped database file no longer exists.", InfoBarSeverity.Error);
+            return;
+        }
+        if (string.Equals(_dbPath, fullPath, StringComparison.OrdinalIgnoreCase) &&
+            _core.IsOpen)
+        {
+            ShowToast("That database is already open.", InfoBarSeverity.Informational);
+            return;
+        }
+        if (_core.IsOpen)
+        {
+            // Dropping another file means "open this instead": end the current
+            // session cleanly first (all edits are already saved).
+            await LockVaultAsync();
+            if (_core.IsOpen)
+            {
+                return;
+            }
+        }
+        if (!string.Equals(_dbPath, fullPath, StringComparison.OrdinalIgnoreCase))
+        {
+            _dbPath = fullPath;
+            _webDavSource = false;
+            _sourceWebDavUrl = null;
+            Settings.LastDatabaseKind = "local";
+            Settings.LastWebDavUrl = null;
+            Settings.LastWebDavUsername = null;
+            // A different local file must not inherit another database's sync
+            // target, or a save could overwrite that remote database.
+            Settings.WebDavUrl = null;
+            Settings.WebDavUsername = null;
+            _settingsStore.Save();
+            AppLog.Info("database dropped onto the window; unlock page prefilled");
+        }
+        UpdateDatabasePath();
+        UnlockError.Severity = InfoBarSeverity.Informational;
+        UnlockError.Title = "Database ready to unlock";
+        UnlockError.Message = "Enter the master password to unlock the dropped database.";
+        UnlockError.IsOpen = true;
+        HideUnlockFailureActions();
+        MasterPassword.Focus(FocusState.Programmatic);
+    }
+
+    // -------------------------------------------------------------- about
+
+    private async Task ApplyAboutIconAsync(Image image)
+    {
+        if (await SetImageFromFileAsync(image, AppAssets.AppIconPreviewPath))
+        {
+            image.Visibility = Visibility.Visible;
+        }
+    }
+
+    /// <summary>
+    /// Loads a PNG next to the executable into an Image element. Unpackaged
+    /// WinUI 3 apps cannot rely on ms-appx URIs for files copied next to the
+    /// executable, so the bytes are streamed into a BitmapImage instead.
+    /// </summary>
+    private static async Task<bool> SetImageFromFileAsync(Image image, string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                AppLog.Warn("about icon asset is missing next to the executable");
+                return false;
+            }
+            byte[] bytes = await File.ReadAllBytesAsync(path);
+            using var stream = new InMemoryRandomAccessStream();
+            var writer = new DataWriter(stream);
+            try
+            {
+                writer.WriteBytes(bytes);
+                await writer.StoreAsync();
+                await writer.FlushAsync();
+            }
+            finally
+            {
+                writer.DetachStream();
+                writer.Dispose();
+            }
+            stream.Seek(0);
+            var bitmap = new BitmapImage();
+            await bitmap.SetSourceAsync(stream);
+            image.Source = bitmap;
+            AppLog.Info("about icon loaded from Assets/app-icon-256.png");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("about icon could not be loaded", ex);
+            return false;
+        }
     }
 
     private void ApplyWindowBackdrop()
@@ -4670,8 +5026,29 @@ public sealed partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
         });
-        string appVersion = typeof(MainWindow).Assembly.GetName().Version?.ToString(3)
-            ?? "0.1.0";
+        string appVersion = typeof(MainWindow).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? typeof(MainWindow).Assembly.GetName().Version?.ToString(3)
+            ?? "unknown";
+        // Deterministic builds append "+<source revision>" to the informational
+        // version; the About page shows the human-facing version only.
+        int versionMetadata = appVersion.IndexOf('+');
+        if (versionMetadata > 0)
+        {
+            appVersion = appVersion[..versionMetadata];
+        }
+        var aboutIcon = new Image
+        {
+            Width = 72,
+            Height = 72,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 8, 0, 0),
+            Visibility = Visibility.Collapsed,
+        };
+        // The preview loads asynchronously from the assets copied next to the
+        // executable; the section stays without a logo if the asset is missing.
+        _ = ApplyAboutIconAsync(aboutIcon);
+        content.Children.Add(aboutIcon);
         content.Children.Add(new TextBlock
         {
             Text = "About",

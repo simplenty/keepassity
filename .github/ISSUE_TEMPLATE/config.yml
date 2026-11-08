@@ -1,0 +1,9 @@
+# Issue routing: use the templates instead of a blank issue.
+blank_issues_enabled: false
+contact_links:
+  - name: Support guide and common questions
+    url: https://github.com/simplenty/keepassity/blob/main/SUPPORT.md
+    about: Where to ask, what is in/out of scope, and how to report issues without sharing secrets.
+  - name: Report a security vulnerability privately
+    url: https://github.com/simplenty/keepassity/security/advisories/new
+    about: Do not open a public issue for a vulnerability; use GitHub Security Advisories.

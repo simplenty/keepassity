@@ -9,7 +9,11 @@
     mc:Ignorable="d"
     Title="keepassity">
 
-    <Grid x:Name="Root" Background="Transparent">
+    <!-- AllowDrop + the handlers enable dragging a .kdbx file from Explorer onto
+         the window. Internal entry drags carry text, not StorageItems, so they
+         keep flowing to the group drop targets. -->
+    <Grid x:Name="Root" Background="Transparent" AllowDrop="True"
+          DragOver="Root_DragOver" Drop="Root_Drop">
         <Grid.Resources>
             <Style x:Key="FieldLabel" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="12" />

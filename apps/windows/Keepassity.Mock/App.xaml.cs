@@ -13,8 +13,33 @@ public partial class App : Application
     {
         AppLog.Initialize();
         HookCrashHandlers();
+        SetAppUserModelId();
         InitializeComponent();
     }
+
+    /// <summary>
+    /// Explicit AppUserModelID so the taskbar groups the window, pinned shortcuts
+    /// and jump lists under the product instead of the host process. Microsoft
+    /// recommends setting it for every desktop app that ships shortcuts
+    /// (learn.microsoft.com/windows/win32/shell/appids).
+    /// </summary>
+    private static void SetAppUserModelId()
+    {
+        try
+        {
+            SetCurrentProcessExplicitAppUserModelID(AppUserModelId);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"could not set the AppUserModelID: {ex.Message}");
+        }
+    }
+
+    /// <summary>Shared with the installer/shortcuts; keep both sides in sync.</summary>
+    internal const string AppUserModelId = "simplenty.keepassity";
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SetCurrentProcessExplicitAppUserModelID(string appUserModelId);
 
     private void HookCrashHandlers()
     {
@@ -52,14 +77,20 @@ public partial class App : Application
             return;
         }
 
-        bool allowMultiple = commandLine
-            .Any(argument => argument.Equals("--allow-multiple", StringComparison.OrdinalIgnoreCase));
+        bool allowMultiple = TestHooks.HasSwitch("--allow-multiple");
         if (!allowMultiple)
         {
             bool createdNew;
             _instanceMutex = new Mutex(true, @"Local\keepassity-windows-app", out createdNew);
             if (!createdNew)
             {
+                // A second launch (including an Explorer "Open with keepassity"
+                // hand-off that carries a .kdbx path) only restores and activates
+                // the window of the instance that already owns the vault. Passing
+                // the path into the running instance would need IPC (WM_COPYDATA /
+                // AppInstance redirection); that is intentionally not implemented
+                // here, so the second instance's path argument is dropped instead
+                // of risking two processes touching the same database.
                 ActivateExistingInstance();
                 Environment.Exit(0);
                 return;

@@ -142,8 +142,21 @@ if ($KeePassLibDll) {
 }
 
 # --- fixtures -------------------------------------------------------------
-$fixtureDir = [IO.Path]::Combine($root, 'tests', 'fixtures', 'keepass-rs')
-$fixtures = @(Get-ChildItem -LiteralPath $fixtureDir -Filter '*.kdbx' | Sort-Object Name)
+# Fixture roots: the upstream keepass-rs corpus plus this repository's generated
+# synthetic fixtures (tests/fixtures/synthetic, see
+# tests/fixtures/synthetic/README.md). Missing roots are skipped so a checkout
+# without the generated corpus still runs.
+$fixtureDirs = @(
+    [IO.Path]::Combine($root, 'tests', 'fixtures', 'keepass-rs'),
+    [IO.Path]::Combine($root, 'tests', 'fixtures', 'synthetic')
+)
+$fixtures = @(
+    foreach ($fixtureDir in $fixtureDirs) {
+        if (Test-Path -LiteralPath $fixtureDir) {
+            Get-ChildItem -LiteralPath $fixtureDir -Filter '*.kdbx' | Sort-Object Name
+        }
+    }
+)
 Write-Host "Fixtures: $($fixtures.Count) files"
 foreach ($fixture in $fixtures) {
     $name = $fixture.Name

@@ -711,7 +711,7 @@ dependencies = [
 
 [[package]]
 name = "keepassity-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "keepass",
  "keepassity-core",
@@ -723,7 +723,7 @@ dependencies = [
 
 [[package]]
 name = "keepassity-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "hmac 0.12.1",
  "keepass",
@@ -737,7 +737,7 @@ dependencies = [
 
 [[package]]
 name = "keepassity-ffi"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "keepassity-core",
  "serde_json",

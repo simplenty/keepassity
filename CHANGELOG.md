@@ -5,35 +5,68 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
-Changes after the `v0.1.0` tag (2026-10-28). The Windows UI was reworked through
-2026-11-08; nothing in this section is released yet.
+No unreleased changes yet. The `v1.0.0` tag and GitHub Release are created only after the
+30-day acceptance passes; see `docs/release.md`.
+
+## [1.0.0] - 2026-11-09
+
+First v1.0.0 build. The source tree is at version 1.0.0; the tag and GitHub Release are
+pending the 30-day real-use acceptance described in `docs/release.md`.
 
 ### Added
 
-- Entry list: sorting, filtering and empty states; context menu actions; scrollbar and
-  hover/selection styling aligned with WinUI.
-- Detail pane rebuilt around a new spacing rhythm; entry forms open in the detail column
-  and empty fields are hidden; TOTP setup moved into the edit form.
-- Entry editing from the context menu, entry drag-and-drop onto groups, and whole-group
-  create/rename/delete with tombstones so deletes survive sync.
-- Collapsible NavigationView workspace with a title-bar back button and hamburger pane,
-  page/panel/detail transitions, and a unified first-run/unlock start page that separates
-  unlocking from choosing a database source.
-- Inline settings panel replacing the settings dialogs; settings are cancellable and keep a
-  single navigation selection.
+- **WinUI 3 Windows shell**: single-window English UI with system/light/dark theme (a Mica
+  backdrop when following the system), single-instance behaviour, a notification-area tray
+  menu (native WinUI flyout) with Show / Lock / Exit, locked/unlocked tooltip state, lock
+  disabled while the vault is locked, close-to-tray and optional start-minimised mode.
+- **Databases and entries**: open local KDBX files or databases served over WebDAV; create
+  new databases (KDBX 4.0); browse groups and entries with search, sorting, filtering and
+  empty states; create/edit/move/delete entries and groups (group deletes are recorded as
+  tombstones); drag entries onto groups; entry and group context menus; detail pane with
+  inline edit forms; start page with recent databases; inline settings panel; About page with
+  version and the GPL-3.0-or-later notice.
+- **WebDAV**: open a `.kdbx` directly from a WebDAV URL (encrypted working copy downloaded,
+  unlocked locally, saves written back), remote check on unlock, sync on save and manual
+  sync, three-way merge for non-overlapping changes, conflict copies plus a Keep both /
+  Keep local / Keep remote choice for the same item changed on both sides, offline state and
+  automatic replay when connectivity returns. WebDAV passwords are stored with Windows DPAPI.
+- **Backups**: a timestamped backup before every save (default retention 20 copies), list and
+  restore with the current master password, rejection of corrupted backups, and an extra
+  backup of the live file before a restore.
+- **TOTP**: display, edit and generate codes for both KeePass `TimeOtp-*` and `otpauth`/`otp`
+  fields (dual-write on edit); import from a QR image, a clipboard QR screenshot or an
+  `otpauth://` URI, or paste a Base32 secret manually; next-window prefetch when fewer than
+  3 seconds remain.
+- **Security**: auto-lock after inactivity and on Windows session lock, logoff, session end
+  and system suspend; clipboard secrets cleared after 30 seconds and marked not to enter
+  Win+V history or cloud clipboard; DPAPI credential store; diagnostics export (environment
+  summary, non-sensitive settings snapshot and recent logs, no vault data); password
+  generator with length/character-class options and an entropy display.
+- **Packaging**: self-contained portable publish
+  (`dist/keepassity-<version>-win-x64/` and `.zip`) and an Inno Setup per-user installer
+  (no administrator rights, install under `%LOCALAPPDATA%\Programs\keepassity`); a non-UI
+  `--selftest` mode; `.kdbx` file association: the installer registers a per-user candidate
+  association (no default-app override); double-click opens keepassity after the user
+  confirms/chooses it in Windows. <!-- TODO(lead): confirm association landed in the v1.0.0 build before publishing -->
+- **Engineering**: English-UI CI check (`ui-strings`), headless application-service tests
+  (WebDAV client against an in-process mock including non-ASCII paths, backup
+  retention/restore, DPAPI credentials, settings), a generated 500-entry synthetic
+  database with performance evidence, mock-WebDAV drills (protocol, restore, offline replay,
+  conflict), and install/uninstall verification against an installed copy (per-user install,
+  shortcuts, Apps & Features entry, uninstall keeps user data).
 
 ### Changed
 
-- Theme is no longer forced to light by launchers and shortcuts; it follows the system
-  setting.
-- Recycle-bin and template groups are pinned in the navigation, and recycle-bin entries are
-  hidden from the main list.
 - The tray menu is a native WinUI `MenuFlyout`: it opens from the notification icon
   (below-left/right of the icon, flipped at screen edges), follows the app theme, and
   disables Lock while the vault is locked.
 - Tray tooltip reports locked/unlocked state and the open database name.
 - Tray Lock locks in place instead of raising the window first, so decrypted content is
   never flashed on screen by the Lock action.
+- Theme is no longer forced to light by launchers and shortcuts; it follows the system
+  setting.
+- Recycle-bin and template groups are pinned in the navigation, and recycle-bin entries are
+  hidden from the main list.
 
 ### Fixed
 
@@ -41,26 +74,44 @@ Changes after the `v0.1.0` tag (2026-10-28). The Windows UI was reworked through
   background, a fixed 240x156 dead strip, or a clipped first-open menu with a scrollbar.
 - Closing the tray menu with its own window close button no longer leaves a dead menu for
   the rest of the session.
+- Deleted groups stay deleted across syncs, and no-op sync reloads are skipped.
+- Entry list scroll position is kept after drag/move operations and drag targets are marked.
 - Release executables are kept at medium integrity so installs and runs work from
   low-integrity workspace folders.
 
-### Fixed
+### KDBX compatibility impact
 
-- Deleted groups stay deleted across syncs, and no-op sync reloads are skipped.
-- Entry list scroll position is kept after drag/move operations and drag targets are
-  marked.
+**Read:** KDBX 3.1, 4.0 and 4.1 databases with a master password, covering AES-KDF and
+Argon2/Argon2d/Argon2id KDFs and AES-256, ChaCha20 and Twofish ciphers; attachments,
+protected fields, TOTP fields and deleted-object records are parsed (and preserved even
+where v1.0 has no UI for them).
+
+**Write:** edits are saved through the vendored `keepassxcr` 0.3.1 backend (ADR-0002),
+which writes **KDBX 4.0** files with its defaults (AES-256, Argon2id at 128 MiB / 6 iterations / 4 lanes, ChaCha20 protected
+stream, gzip); a database opened as KDBX 3.1 or 4.1 is therefore written back as KDBX 4.0.
+Saves write a temporary file, take a timestamped backup and atomically replace the database;
+the core save protocol additionally verifies the rewritten bytes against the data model and
+is covered by `crates/core/tests/save_protocol.rs`. The CLI interop/`rewrite` path used for
+evidence preserves the input version instead.
+
+**Interop evidence:** fixture round trips run against `keepassxc-cli` in CI; the official
+KeePassLib is checked locally (canonical structural hash unchanged); the app-edited fixture
+was reopened in KeePass 2.x during the G3 manual gate (2026-11-08), and a real KDBX 4.1
+database was rewritten and reopened by KeePass 2.x at G0 on 2026-10-25 (10 entries
+including 3 TOTP entries spot-checked, signed off).
+
+**Limitations:** master password only (no key file, no challenge-response, no Windows
+Hello); no attachments/history/recycle-bin management UI (data preserved); single database;
+English UI. The full matrix, including untested states, is in `docs/compatibility.md`.
 
 ### Notes
 
-- No version bump yet: publishing `0.1.0` (or the next version) is a pending human
-  decision. The GitHub Release for `v0.1.0` is still a draft.
-- Known gaps at this point: unsigned binaries (SmartScreen), WebDAV verified against a
-  local mock server but not yet against a real Jianguoyun account, graphical
-  install/uninstall not yet through manual acceptance, no code signing, single database,
-  English UI, master-password credentials only (no key file / challenge-response).
-- KDBX compatibility: the save format is unchanged, but whole-group deletion now writes a
-  tombstone (deleted-object record) so a deleted group stays deleted across merges and
-  WebDAV syncs.
+- The binaries are unsigned, so Windows SmartScreen may warn; releases ship with SHA-256
+  checksums and build-provenance attestations only (no code signing, no MSIX, no
+  auto-update).
+- `v1.0.0` is not published yet: the 30-day acceptance runs first, then the tag/release is
+  created and the obsolete `v0.1.0` draft is removed (see `docs/release.md`).
+- Windows 11 x64 only; Linux is planned for v1.x.
 
 ## [0.1.0] - 2026-10-28
 

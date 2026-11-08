@@ -1,0 +1,81 @@
+# Nightly fuzzing for the keepassity core input surfaces (M5-02).
+#
+# Scheduled + manual only: this workflow is deliberately separate from ci.yml so
+# fuzzing never blocks or slows pull requests. Each target runs for 600 s, so a
+# full run is ~30 minutes of fuzzing (three targets in parallel).
+#
+# Crash inputs are uploaded as artifacts. A failed run means a real finding:
+# reproduce and minimize with `cargo fuzz tmin` as described in
+# crates/core/fuzz/README.md, then fix the core and add a regression test.
+#
+# Tool versions are pinned (dated nightly + cargo-fuzz) and every action is
+# pinned to a commit SHA so build failures are attributable.
+name: fuzz
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    name: fuzz / ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [kdbx_parse, totp_uri, merge_json]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install nightly Rust (pinned)
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly-2026-11-08
+          components: rust-src
+
+      - name: Install cargo-fuzz (pinned)
+        run: cargo install cargo-fuzz --locked --version 0.13.2
+
+      - name: Seed corpus outside the repository
+        shell: pwsh
+        # $RUNNER_TEMP keeps the seed corpus outside the checkout (the project
+        # forbids .kdbx files anywhere in the repository tree).
+        run: ./crates/core/fuzz/scripts/seed-corpus.ps1 -CorpusDir "$env:RUNNER_TEMP/fuzz-corpus"
+
+      - name: Build fuzz target
+        working-directory: crates/core/fuzz
+        run: cargo +nightly-2026-11-08 fuzz build ${{ matrix.target }}
+
+      - name: Run fuzz target
+        working-directory: crates/core/fuzz
+        shell: bash
+        run: |
+          set -o pipefail
+          corpus="$RUNNER_TEMP/fuzz-corpus"
+          artifacts="$RUNNER_TEMP/fuzz-artifacts"
+          mkdir -p "$artifacts/${{ matrix.target }}"
+          cargo +nightly-2026-11-08 fuzz run "${{ matrix.target }}" \
+            "$corpus/${{ matrix.target }}" -- \
+            -max_total_time=600 -timeout=25 -rss_limit_mb=4096 -print_final_stats=1 \
+            -artifact_prefix="$artifacts/${{ matrix.target }}/" \
+            2>&1 | tee "fuzz-${{ matrix.target }}.log"
+
+      - name: Upload logs and crash artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: |
+            crates/core/fuzz/fuzz-${{ matrix.target }}.log
+            ${{ runner.temp }}/fuzz-artifacts/
+          if-no-files-found: ignore
+          retention-days: 90

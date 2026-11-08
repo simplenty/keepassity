@@ -8,12 +8,14 @@
   The graphical installer (wizard clicks) has to be driven by a person, but
   everything around it is machine-checkable. This script checks the layout,
   licence files, shortcut targets, the Apps & Features (uninstall registry)
-  entry, the installed binary version and - when a fixture is given - runs the
-  installed application's own `--selftest`.
+  entry, the installed binary version, the per-user .kdbx file association
+  (extension -> ProgID, DefaultIcon, shell\open\command with %1) and - when a
+  fixture is given - runs the installed application's own `--selftest`.
 
   With -ExpectUninstalled it instead checks that the program folder, the
-  shortcuts and the uninstall entry are gone and that the per-user data folder
-  (settings, state, logs) survived - uninstalling must never delete user data.
+  shortcuts, the uninstall entry and the .kdbx association are gone and that the
+  per-user data folder (settings, state, logs) survived - uninstalling must never
+  delete user data.
 
 .PARAMETER InstallDir
   Install folder. Defaults to %LOCALAPPDATA%\Programs\keepassity, which is what
@@ -98,6 +100,11 @@ function Get-ShortcutTarget([string]$path) {
   try { return ($shell.CreateShortcut($path)).TargetPath } catch { return $null }
 }
 
+function Get-RegistryDefault([string]$path) {
+  if (-not (Test-Path -LiteralPath $path)) { return $null }
+  try { return (Get-ItemProperty -LiteralPath $path -ErrorAction Stop).'(default)' } catch { return $null }
+}
+
 if ($ExpectUninstalled) {
   Write-Host '== keepassity uninstall verification =='
   Write-Host ("install dir: {0}" -f $InstallDir)
@@ -116,6 +123,27 @@ if ($ExpectUninstalled) {
     Fail 'Apps & Features entry removed' ('still registered: ' + $uninstallKey)
   } else {
     Pass 'Apps & Features entry removed'
+  }
+
+  # The .kdbx association is a per-user candidate registration, so uninstall must
+  # remove the ProgID, the OpenWithProgids value and the Applications entry. A
+  # machine-wide .kdbx mapping from another product (HKLM) is not ours and must
+  # not fail these checks; the user's default handler choice is left untouched.
+  $openWithLeft = Get-ItemProperty -LiteralPath 'HKCU:\Software\Classes\.kdbx\OpenWithProgids' -ErrorAction SilentlyContinue
+  if ($openWithLeft -and $openWithLeft.PSObject.Properties.Name -contains 'keepassity.kdbx') {
+    Fail '.kdbx OpenWithProgids entry removed' 'value still present'
+  } else {
+    Pass '.kdbx OpenWithProgids entry removed'
+  }
+  if (Test-Path -LiteralPath 'HKCU:\Software\Classes\keepassity.kdbx') {
+    Fail 'ProgID keepassity.kdbx removed' 'still registered'
+  } else {
+    Pass 'ProgID keepassity.kdbx removed'
+  }
+  if (Test-Path -LiteralPath 'HKCU:\Software\Classes\Applications\Keepassity.exe') {
+    Fail 'shell Applications entry removed' 'still registered'
+  } else {
+    Pass 'shell Applications entry removed'
   }
 
   # Uninstalling must keep the user's data: vault working copies, settings, state and logs.
@@ -160,7 +188,7 @@ if (-not (Test-Path $InstallDir)) {
 Pass 'install folder exists'
 
 $required = @(
-  'Keepassity.Mock.exe',
+  'Keepassity.exe',
   'Keepassity.Core.dll',
   'keepassity_ffi.dll',
   'unins000.exe',
@@ -173,10 +201,13 @@ foreach ($name in $required) {
   $path = Join-Path $InstallDir $name
   if (Test-Path $path) { Pass ("file: " + $name) } else { Fail ("file: " + $name) 'missing' }
 }
+$legacy = Join-Path $InstallDir 'Keepassity.Mock.exe'
+if (Test-Path $legacy) { Warn 'legacy Keepassity.Mock.exe removed by the upgrade' $legacy } else { Pass 'no stale Keepassity.Mock.exe from the pre-1.0 installer' }
+
 $xbf = @(Get-ChildItem $InstallDir -Recurse -Filter '*.xbf' -File -ErrorAction SilentlyContinue)
 if ($xbf.Count -ge 2) { Pass 'XAML resources present' ("{0} .xbf" -f $xbf.Count) } else { Fail 'XAML resources present' ("{0} .xbf" -f $xbf.Count) }
 
-$exe = Join-Path $InstallDir 'Keepassity.Mock.exe'
+$exe = Join-Path $InstallDir 'Keepassity.exe'
 if (Test-Path $exe) {
   $info = (Get-Item $exe).VersionInfo
   $product = $info.ProductVersion
@@ -184,6 +215,9 @@ if (Test-Path $exe) {
   if ($fileVersion) { Pass 'executable has a file version' $fileVersion } else { Fail 'executable has a file version' 'empty' }
   if ($Version) {
     if ($product -and $product.StartsWith($Version)) { Pass 'executable product version' $product } else { Fail 'executable product version' ("expected $Version, got '$product'") }
+    # The Windows file version is what Explorer and bug reports show; it must agree
+    # with the installed release (v1.0.0 -> 1.0.0.0).
+    if ($fileVersion -and $fileVersion.StartsWith("$Version.")) { Pass 'executable file version matches the release' $fileVersion } else { Fail 'executable file version matches the release' ("expected $Version.x, got '$fileVersion'") }
   } else {
     Pass 'executable product version' $product
   }
@@ -219,6 +253,62 @@ if ($uninstallKey) {
   if ($entry.UninstallString -and (Test-Path ((($entry.UninstallString -replace '"', '') -split ' ')[0]))) { Pass 'uninstaller present' $entry.UninstallString } else { Fail 'uninstaller present' $entry.UninstallString }
 } else {
   Fail 'Apps & Features entry exists' 'no uninstall registry key found'
+}
+
+# .kdbx file association. The installer runs at lowest privileges, so it writes
+# a per-user registration under HKCU\Software\Classes (never HKLM/HKCR). Windows
+# 10/11 lets the user pick the default app, so the installer registers keepassity
+# as a *candidate* handler: it must NOT take over the .kdbx default value. These
+# checks verify the candidate registration and the absence of a silent takeover.
+$associationProgId = 'keepassity.kdbx'
+$extensionKey = 'HKCU:\Software\Classes\.kdbx'
+$progIdKey = 'HKCU:\Software\Classes\' + $associationProgId
+$extensionDefault = Get-RegistryDefault $extensionKey
+if ($extensionDefault -ieq $associationProgId) {
+  Warn '.kdbx default handler is keepassity (the user chose it, or the installer took it over?)' $extensionDefault
+} else {
+  Pass '.kdbx default handler is not silently taken over' ("current: '$extensionDefault'")
+}
+$openWith = Get-ItemProperty -LiteralPath ($extensionKey + '\OpenWithProgids') -ErrorAction SilentlyContinue
+if ($openWith -and $openWith.PSObject.Properties.Name -contains $associationProgId) {
+  Pass '.kdbx OpenWithProgids lists keepassity.kdbx'
+} else {
+  Fail '.kdbx OpenWithProgids lists keepassity.kdbx' 'value missing'
+}
+if (Test-Path -LiteralPath $progIdKey) {
+  Pass 'ProgID key exists' $progIdKey
+} else {
+  Fail 'ProgID key exists' ('missing: ' + $progIdKey)
+}
+$friendlyName = Get-RegistryDefault $progIdKey
+if ($friendlyName) {
+  Pass 'ProgID has a friendly name' $friendlyName
+} else {
+  Fail 'ProgID has a friendly name' 'empty'
+}
+$iconValue = Get-RegistryDefault ($progIdKey + '\DefaultIcon')
+if ($iconValue -and ($iconValue.IndexOf($InstallDir, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)) {
+  Pass 'ProgID DefaultIcon points into the install folder' $iconValue
+} else {
+  Fail 'ProgID DefaultIcon points into the install folder' ("got '$iconValue'")
+}
+$commandValue = Get-RegistryDefault ($progIdKey + '\shell\open\command')
+$commandHasApp = $false
+$commandHasPlaceholder = $false
+if ($commandValue) {
+  $commandHasApp = $commandValue.IndexOf($InstallDir, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+  $commandHasPlaceholder = $commandValue.IndexOf('%1', [System.StringComparison]::Ordinal) -ge 0
+}
+if ($commandHasApp -and $commandHasPlaceholder) {
+  Pass 'ProgID open command points into the install folder and keeps %1' $commandValue
+} else {
+  Fail 'ProgID open command points into the install folder and keeps %1' ("got '$commandValue'")
+}
+$supportedTypes = Get-ItemProperty -LiteralPath ('HKCU:\Software\Classes\Applications\Keepassity.exe\SupportedTypes') -ErrorAction SilentlyContinue
+if ($supportedTypes -and $supportedTypes.PSObject.Properties.Name -contains '.kdbx') {
+  Pass 'shell Applications entry advertises .kdbx'
+} else {
+  Warn 'shell Applications entry advertises .kdbx' 'value missing (Open with still works through OpenWithProgids)'
 }
 
 if ($Fixture) {

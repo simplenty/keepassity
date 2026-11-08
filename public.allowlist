@@ -7,6 +7,8 @@ NOTICE
 THIRD-PARTY-LICENSES.md
 SECURITY.md
 CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SUPPORT.md
 CHANGELOG.md
 Cargo.toml
 Cargo.lock
@@ -43,4 +45,7 @@ installer/**
 .github/PULL_REQUEST_TEMPLATE.md
 .github/ISSUE_TEMPLATE/bug_report.md
 .github/ISSUE_TEMPLATE/feature_request.md
+.github/ISSUE_TEMPLATE/question.md
+.github/ISSUE_TEMPLATE/config.yml
 .github/workflows/codeql.yml
+.github/workflows/fuzz.yml

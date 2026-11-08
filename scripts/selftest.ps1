@@ -16,7 +16,7 @@
   Fixture password (copied to KEEPASSITY_SELFTEST_PASSWORD for the child process).
 
 .PARAMETER Exe
-  Optional path to Keepassity.Mock.exe. Defaults to the Release x64 build output.
+  Optional path to Keepassity.exe. Defaults to the Release x64 build output.
 
 .PARAMETER DataDir
   Optional application data directory passed to the app as --data-dir. Use this
@@ -42,14 +42,14 @@ if (-not $Exe) {
   # Pick the newest Release build: builds made with -p:Platform=x64 and a plain
   # `dotnet build` land in different bin subdirectories, and testing a stale
   # binary silently hides regressions.
-  $candidate = Get-ChildItem -Path (Join-Path $root 'apps/windows/Keepassity.Mock/bin') -Recurse -Filter 'Keepassity.Mock.exe' -ErrorAction SilentlyContinue |
+  $candidate = Get-ChildItem -Path (Join-Path $root 'apps/windows/Keepassity.Mock/bin') -Recurse -Filter 'Keepassity.exe' -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -match '\\Release\\' } |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
   if ($candidate) {
     $Exe = $candidate.FullName
   } else {
-    $Exe = Join-Path $root 'apps/windows/Keepassity.Mock/bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/Keepassity.Mock.exe'
+    $Exe = Join-Path $root 'apps/windows/Keepassity.Mock/bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/Keepassity.exe'
   }
 }
 if (-not (Test-Path $Exe)) {

@@ -5,7 +5,7 @@ members = ["crates/core", "crates/ffi", "crates/cli"]
 exclude = ["vendor/keepassxcr"]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.99"
 license = "GPL-3.0-or-later"
@@ -19,3 +19,23 @@ repository = "https://github.com/simplenty/keepassity"
 # working without changing the global debug profile.
 [profile.dev.package.hidapi]
 debug = false
+
+# Argon2id is memory-hard on purpose; keeping it unoptimised would make every
+# test that creates or opens a database take seconds in debug builds (CI runs
+# `cargo test` in debug). Optimise only the hashing crate and the vendored format
+# crate that drives it, so debug builds stay usable without touching profile
+# defaults (mirrors the hidapi override above).
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.keepassxcr]
+opt-level = 2
+
+[profile.test.package.argon2]
+opt-level = 3
+
+[profile.test.package.keepassxcr]
+opt-level = 2
+
+[profile.bench.package.argon2]
+opt-level = 3
