@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Net.NetworkInformation;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -65,6 +66,7 @@ public sealed partial class MainWindow : Window
     private int _showGeneration;
     private string _entrySort = "title";
     private bool _onlyTotp;
+    private string _lastEntryFingerprint = string.Empty;
     private Grid? _rightPanel;
     private TextBlock? _rightPanelTitle;
     private ContentControl? _rightPanelContent;
@@ -1772,7 +1774,8 @@ public sealed partial class MainWindow : Window
             return;
         }
         await _core.OpenAsync(_dbPath, _masterPassword);
-        _selectedGroupUuid = null;
+        // Stay in the group the user is looking at; ReloadVaultAsync keeps the
+        // selected row and restores the wheel position.
         await ReloadVaultAsync(_currentFull?.Uuid);
     }
 
@@ -2959,21 +2962,14 @@ public sealed partial class MainWindow : Window
                                 entry.GroupUuid != _recycleBinGroupUuid)
                 .ToList()
             : allEntries.Where(entry => entry.GroupUuid == _selectedGroupUuid).ToList();
-        PopulateEntries(visible, title);
+        string? previousSelection = (EntryList.SelectedItem as EntryItem)?.Uuid;
+        PopulateEntries(visible, title, selectEntryUuid ?? previousSelection);
 
-        if (selectEntryUuid is not null)
-        {
-            EntryItem? select = Entries.FirstOrDefault(entry => entry.Uuid == selectEntryUuid);
-            if (select is not null)
-            {
-                EntryList.SelectedItem = select;
-            }
-        }
+        // Restoring the wheel position after a reload is what keeps a merge or a
+        // metadata change from jumping the list back to the top.
         if (preserveScroll && entryScrollOffset > 0)
         {
-            DispatcherQueue.TryEnqueue(() =>
-                FindDescendant<ScrollViewer>(EntryList)
-                    ?.ChangeView(null, entryScrollOffset, null, true));
+            RestoreEntryScrollOffset(entryScrollOffset);
         }
     }
 
@@ -3306,13 +3302,17 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        string? selectedUuid = (EntryList.SelectedItem as EntryItem)?.Uuid;
+        EntryItem? movedItem = Entries.FirstOrDefault(entry => entry.Uuid == entryUuid);
+        string? sourceGroupUuid = movedItem?.GroupUuid;
         double scrollOffset = CaptureEntryScrollOffset();
         try
         {
             await _core.MoveEntryAsync(entryUuid, targetGroupUuid);
             await SaveAsync();
-            await ReloadVaultAsync(selectedUuid);
+            // Update only the affected row(s); a full reload would reset the
+            // scroll position for a move that usually does not change the view.
+            ApplyEntryMovedLocally(entryUuid, sourceGroupUuid, targetGroupUuid,
+                item.Content as string ?? _groupNames.GetValueOrDefault(targetGroupUuid, "the group"));
             RestoreEntryScrollOffset(scrollOffset);
             ShowToast($"Moved to {item.Content}", InfoBarSeverity.Success);
         }
@@ -3350,16 +3350,39 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        DispatcherQueue.TryEnqueue(
-            Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
-            () =>
+        void Apply()
+        {
+            ScrollViewer? scrollViewer = FindEntryScrollViewer(EntryList);
+            if (scrollViewer is null)
             {
-                EntryList.UpdateLayout();
-                FindEntryScrollViewer(EntryList)?.ChangeView(null, offset, null, true);
-            });
+                return;
+            }
+            if (Math.Abs(scrollViewer.VerticalOffset - offset) > 0.5)
+            {
+                scrollViewer.ChangeView(null, offset, null, true);
+            }
+        }
+        // Two deferred passes: the first runs after the rebuild, the second after
+        // the ListView's own selection/layout work, which may scroll a selected
+        // row into view and would otherwise win over a single restore.
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            EntryList.UpdateLayout();
+            Apply();
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, Apply);
+        });
     }
 
-    private void PopulateEntries(IEnumerable<EntrySummaryDto> entries, string title)
+    /// <summary>
+    /// Rebuilds the middle column only when its visible content actually changed.
+    /// Merges and moves should not make the list jump back to the top, so an
+    /// identical entry list keeps the existing rows (and their scroll offset);
+    /// when a rebuild is needed the previous selection is kept and the caller
+    /// restores the wheel position afterwards.
+    /// </summary>
+    /// <param name="selectUuid">Row to select after a rebuild (previous selection when null).</param>
+    /// <returns><see langword="true"/> when the list was rebuilt.</returns>
+    private bool PopulateEntries(IEnumerable<EntrySummaryDto> entries, string title, string? selectUuid = null)
     {
         List<EntrySummaryDto> visible = entries.ToList();
         if (_onlyTotp)
@@ -3379,19 +3402,40 @@ public sealed partial class MainWindow : Window
                 .ToList(),
         };
 
+        string fingerprint = EntryListFingerprint(visible, title);
+        if (fingerprint == _lastEntryFingerprint && Entries.Count == visible.Count)
+        {
+            // Same rows in the same order: keep the items (and the scroll offset).
+            CurrentGroupTitle.Text = title;
+            UpdateEntryCountText();
+            if (selectUuid is not null)
+            {
+                SelectEntryRow(selectUuid);
+            }
+            return false;
+        }
+
+        string? keepUuid = selectUuid ?? (EntryList.SelectedItem as EntryItem)?.Uuid;
         Entries.Clear();
         foreach (EntrySummaryDto entry in visible)
         {
             string groupName = _groupNames.GetValueOrDefault(entry.GroupUuid, "Vault");
             Entries.Add(new EntryItem(entry, groupName));
         }
+        _lastEntryFingerprint = fingerprint;
         CurrentGroupTitle.Text = title;
-        EntryCountText.Text = $"{Entries.Count} {(Entries.Count == 1 ? "entry" : "entries")}" +
-                              (_onlyTotp ? " · TOTP only" : string.Empty);
-        EmptyListState.Visibility = Entries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateEntryCountText();
         EmptyListHint.Text = _onlyTotp
             ? "No entries with TOTP in this view. Clear the filter to see all entries."
             : "Create the first entry with New.";
+        if (keepUuid is not null)
+        {
+            SelectEntryRow(keepUuid);
+        }
+        if (!ReferenceEquals(EntryList.SelectedItem, null))
+        {
+            return true;
+        }
         if (Entries.Count > 0)
         {
             EntryList.SelectedIndex = 0;
@@ -3400,6 +3444,130 @@ public sealed partial class MainWindow : Window
         {
             EntryList.SelectedIndex = -1;
             ClearDetail();
+        }
+        return true;
+    }
+
+    private void UpdateEntryCountText()
+    {
+        EntryCountText.Text = $"{Entries.Count} {(Entries.Count == 1 ? "entry" : "entries")}" +
+                              (_onlyTotp ? " · TOTP only" : string.Empty);
+        EmptyListState.Visibility = Entries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void SelectEntryRow(string uuid)
+    {
+        EntryItem? item = Entries.FirstOrDefault(entry => entry.Uuid == uuid);
+        if (item is not null && !ReferenceEquals(EntryList.SelectedItem, item))
+        {
+            EntryList.SelectedItem = item;
+        }
+    }
+
+    /// <summary>
+    /// Cheap identity of the rendered rows; rebuilt lists with the same identity
+    /// are not re-rendered, so scroll position and selection survive merges and
+    /// moves that do not change what the user sees in the middle column.
+    /// </summary>
+    private static string EntryListFingerprint(List<EntrySummaryDto> visible, string title)
+    {
+        var builder = new System.Text.StringBuilder(title);
+        foreach (EntrySummaryDto entry in visible)
+        {
+            builder.Append('\n')
+                .Append(entry.Uuid).Append('|')
+                .Append(entry.GroupUuid).Append('|')
+                .Append(entry.Title).Append('|')
+                .Append(entry.Username).Append('|')
+                .Append(entry.Url).Append('|')
+                .Append(entry.HasTotp ? '1' : '0');
+        }
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// Applies a successful drag-move to the middle column in place instead of
+    /// reloading the whole vault: the moved row either keeps its position (All
+    /// entries / search view, group label updated) or is removed from the group
+    /// view it just left. Neither path touches the scroll position.
+    /// </summary>
+    private void ApplyEntryMovedLocally(string entryUuid, string? sourceGroupUuid,
+        string targetGroupUuid, string targetGroupName)
+    {
+        string targetName = _groupNames.GetValueOrDefault(targetGroupUuid, targetGroupName);
+        EntryItem? item = Entries.FirstOrDefault(entry => entry.Uuid == entryUuid);
+        if (item is not null)
+        {
+            bool searchActive = SearchBox.Text.Trim().Length > 0;
+            if (_selectedGroupUuid is null || searchActive)
+            {
+                item.UpdateGroup(targetGroupUuid, targetName);
+            }
+            else if (sourceGroupUuid == _selectedGroupUuid)
+            {
+                int index = Entries.IndexOf(item);
+                bool wasSelected = ReferenceEquals(EntryList.SelectedItem, item);
+                Entries.Remove(item);
+                if (wasSelected && Entries.Count > 0)
+                {
+                    EntryList.SelectedIndex = Math.Min(index, Entries.Count - 1);
+                }
+                else if (Entries.Count == 0)
+                {
+                    EntryList.SelectedIndex = -1;
+                    ClearDetail();
+                }
+                UpdateEntryCountText();
+            }
+        }
+        if (_currentFull is not null && _currentFull.Uuid == entryUuid)
+        {
+            _currentFull.GroupUuid = targetGroupUuid;
+        }
+        if (sourceGroupUuid != targetGroupUuid)
+        {
+            AdjustGroupCount(sourceGroupUuid, -1);
+            AdjustGroupCount(targetGroupUuid, 1);
+            PopulateNavigation(_selectedGroupUuid);
+        }
+        RefreshEntryListFingerprint(CurrentGroupTitle.Text);
+    }
+
+    /// <summary>
+    /// Recomputes the "already rendered" identity after an in-place row update,
+    /// so a following reload does not rebuild the whole list for the same rows.
+    /// </summary>
+    private void RefreshEntryListFingerprint(string title)
+    {
+        var builder = new System.Text.StringBuilder(title);
+        foreach (EntryItem item in Entries)
+        {
+            builder.Append('\n')
+                .Append(item.Uuid).Append('|')
+                .Append(item.GroupUuid).Append('|')
+                .Append(item.Title).Append('|')
+                .Append(item.Username).Append('|')
+                .Append(item.Url).Append('|')
+                .Append(item.HasTotp ? '1' : '0');
+        }
+        _lastEntryFingerprint = builder.ToString();
+    }
+
+    private void AdjustGroupCount(string? groupUuid, int delta)
+    {
+        if (groupUuid is null || delta == 0)
+        {
+            return;
+        }
+        for (int index = 0; index < Groups.Count; index++)
+        {
+            GroupItem group = Groups[index];
+            if (group.Uuid == groupUuid)
+            {
+                Groups[index] = new GroupItem(group.Uuid, group.Name,
+                    Math.Max(0, group.CountValue + delta), group.Glyph);
+                return;
+            }
         }
     }
 
@@ -4366,7 +4534,7 @@ public sealed partial class MainWindow : Window
             await _core.MoveEntryAsync(uuid, target.Uuid);
             await SaveAsync();
             _selectedGroupUuid = target.Uuid;
-            await ReloadVaultAsync(uuid, preserveScroll: false);
+            await ReloadVaultAsync(uuid);
             ShowToast($"Moved to {target.Name}", InfoBarSeverity.Success);
         }
         catch (Exception ex)
@@ -5675,7 +5843,7 @@ public sealed class GroupItem
     public int CountValue => int.TryParse(Count, out int value) ? value : 0;
 }
 
-public sealed class EntryItem
+public sealed class EntryItem : INotifyPropertyChanged
 {
     private static readonly Color[] Palette =
     {
@@ -5687,21 +5855,20 @@ public sealed class EntryItem
         Color.FromArgb(255, 197, 15, 31),
     };
 
+    private string _groupUuid;
+    private string _groupName;
+    private string _secondary;
+
     public EntryItem(EntrySummaryDto entry, string groupName)
     {
         Uuid = entry.Uuid;
-        GroupUuid = entry.GroupUuid;
+        _groupUuid = entry.GroupUuid;
         Title = entry.Title;
         Username = entry.Username;
         Url = entry.Url;
-        GroupName = groupName;
+        _groupName = groupName;
         HasTotp = entry.HasTotp;
-        Secondary = !string.IsNullOrWhiteSpace(entry.Username)
-            ? entry.Username
-            : Uri.TryCreate(entry.Url, UriKind.Absolute, out Uri? uri) &&
-              !string.IsNullOrWhiteSpace(uri.Host)
-                ? uri.Host
-                : groupName;
+        _secondary = SecondaryFor(entry.Username, entry.Url, groupName);
         Initial = entry.Title.Length > 0 ? entry.Title[..1].ToUpperInvariant() : "?";
         int hash = 0;
         foreach (char character in entry.Uuid)
@@ -5711,15 +5878,44 @@ public sealed class EntryItem
         AvatarBrush = new SolidColorBrush(Palette[(hash & int.MaxValue) % Palette.Length]);
     }
 
+    public event PropertyChangedEventHandler? PropertyChanged;
+
     public string Uuid { get; }
-    public string GroupUuid { get; }
+    public string GroupUuid => _groupUuid;
     public string Title { get; }
     public string Username { get; }
     public string Url { get; }
-    public string GroupName { get; }
-    public string Secondary { get; }
+    public string GroupName => _groupName;
+    public string Secondary => _secondary;
     public bool HasTotp { get; }
     public string Initial { get; }
     public Brush AvatarBrush { get; }
     public Visibility TotpVisibility => HasTotp ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// Updates the group shown for an entry that stays visible after a move (All
+    /// entries / search view). Mutating the existing item keeps the ListView's
+    /// selection and scroll position instead of rebuilding the middle column.
+    /// </summary>
+    public void UpdateGroup(string groupUuid, string groupName)
+    {
+        if (_groupUuid == groupUuid && _groupName == groupName)
+        {
+            return;
+        }
+        _groupUuid = groupUuid;
+        _groupName = groupName;
+        _secondary = SecondaryFor(Username, Url, groupName);
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(GroupUuid)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(GroupName)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Secondary)));
+    }
+
+    private static string SecondaryFor(string username, string url, string groupName)
+        => !string.IsNullOrWhiteSpace(username)
+            ? username
+            : Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) &&
+              !string.IsNullOrWhiteSpace(uri.Host)
+                ? uri.Host
+                : groupName;
 }
