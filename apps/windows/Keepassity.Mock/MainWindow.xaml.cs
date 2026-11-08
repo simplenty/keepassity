@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using System.Collections.ObjectModel;
+using System.Net.NetworkInformation;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Windows.ApplicationModel.DataTransfer;
@@ -70,6 +71,17 @@ public sealed partial class MainWindow : Window
     private StackPanel? _detailPanelActions;
     private TaskCompletionSource<RightPanelResult>? _detailPanelCompletion;
     private bool _detailPanelOpen;
+    private readonly RecentDatabaseStore _recentDatabases = new();
+    private SessionLockMonitor? _sessionLockMonitor;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _networkReplayTimer;
+    private bool _sessionLockPending;
+    private TotpCodeDto? _totpDisplayedCode;
+    private string? _totpDisplayedUuid;
+    private TotpCodeDto? _totpPrefetchedCode;
+    private string? _totpPrefetchedUuid;
+    private long _totpWindowEndUnix = long.MaxValue;
+    private long _totpPrefetchTargetUnix = long.MinValue;
+    private bool _totpPrefetchInFlight;
 
     private enum RightPanelResult
     {
@@ -111,6 +123,12 @@ public sealed partial class MainWindow : Window
         }
         UpdateDatabasePath();
 
+        // Security: lock the vault on Windows session lock, logoff, session end
+        // and system suspend (see SessionLockMonitor). The network monitor
+        // replays pending WebDAV edits when connectivity comes back.
+        InitializeSessionLockMonitor();
+        InitializeNetworkReplay();
+
         _totpTimer.Interval = TimeSpan.FromSeconds(1);
         _totpTimer.Tick += async (_, _) => await UpdateTotpAsync(_showGeneration);
         _toastTimer.Interval = TimeSpan.FromSeconds(4);
@@ -135,6 +153,11 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             SaveWindowBounds();
+            _totpTimer.Stop();
+            _sessionLockMonitor?.Dispose();
+            _sessionLockMonitor = null;
+            _networkReplayTimer?.Stop();
+            NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
             _trayIcon?.Dispose();
             _trayIcon = null;
             _core.Dispose();
@@ -278,6 +301,148 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    // ------------------------------------------------------- session lock
+
+    private void InitializeSessionLockMonitor()
+    {
+        if (_sessionLockMonitor is not null)
+        {
+            return;
+        }
+        try
+        {
+            IntPtr window = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            _sessionLockMonitor = SessionLockMonitor.TryInstall(window, OnSessionLockEvent);
+            if (_sessionLockMonitor is not null)
+            {
+                AppLog.Info("session lock monitor active");
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("session lock monitor initialization failed", ex);
+        }
+    }
+
+    /// <summary>Called on the UI thread by the window procedure subclass.</summary>
+    private void OnSessionLockEvent(string reason)
+    {
+        // Dispatch explicitly: LockVaultAsync awaits core work, and a lock must
+        // never run re-entrantly inside a window message handler.
+        DispatcherQueue.TryEnqueue(() => _ = LockForSessionEventAsync(reason));
+    }
+
+    private async Task LockForSessionEventAsync(string reason)
+    {
+        if (_sessionLockPending)
+        {
+            // Windows emits several messages for one lock/suspend transition;
+            // one in-flight lock request is enough.
+            return;
+        }
+        if (!_core.IsOpen)
+        {
+            AppLog.Info($"session event ignored ({reason}): vault already locked");
+            return;
+        }
+        _sessionLockPending = true;
+        try
+        {
+            // A save/open may be in flight for a moment. Give it a short window to
+            // finish instead of racing it; never lock while a database write is
+            // still running. Edits are saved immediately in this app, so no save
+            // is needed here before locking.
+            for (int attempt = 0; attempt < 10 && _busy; attempt++)
+            {
+                await Task.Delay(200);
+            }
+            if (!_core.IsOpen)
+            {
+                AppLog.Info($"session event ({reason}): vault already locked");
+                return;
+            }
+            if (_busy)
+            {
+                AppLog.Warn($"session event ({reason}): application busy; vault left " +
+                            "unlocked (manual lock still available)");
+                return;
+            }
+            AppLog.Info($"session event ({reason}): locking vault");
+            await LockVaultAsync();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error($"session event ({reason}): automatic lock failed", ex);
+        }
+        finally
+        {
+            _sessionLockPending = false;
+        }
+    }
+
+    // --------------------------------------------------- network replay
+
+    private void InitializeNetworkReplay()
+    {
+        try
+        {
+            _networkReplayTimer = DispatcherQueue.CreateTimer();
+            _networkReplayTimer.Interval = TimeSpan.FromSeconds(2);
+            _networkReplayTimer.IsRepeating = false;
+            _networkReplayTimer.Tick += (_, _) =>
+            {
+                _networkReplayTimer?.Stop();
+                _ = ReplaySyncAfterNetworkReturnAsync();
+            };
+            NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
+            AppLog.Info("network change monitor active");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("network change monitor initialization failed", ex);
+        }
+    }
+
+    private void OnNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
+    {
+        if (!e.IsAvailable || _exitRequested)
+        {
+            return;
+        }
+        // This event runs on a worker thread; only touch UI state through the
+        // dispatcher, and debounce the burst of events Windows raises while a
+        // connection settles.
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_exitRequested || _networkReplayTimer is null)
+            {
+                return;
+            }
+            _networkReplayTimer.Stop();
+            _networkReplayTimer.Start();
+        });
+    }
+
+    private async Task ReplaySyncAfterNetworkReturnAsync()
+    {
+        if (!IsSyncConfigured)
+        {
+            return;
+        }
+        if (!_core.IsOpen || _dbPath is null)
+        {
+            AppLog.Info("network replay skipped: vault is locked");
+            return;
+        }
+        if (_busy)
+        {
+            AppLog.Info("network replay skipped: application busy");
+            return;
+        }
+        AppLog.Info("network replay: connectivity restored, syncing pending changes");
+        await SyncAsync();
+    }
+
     private async Task ClearClipboardTimer_Tick()
     {
         string? expected = _lastClipboardText;
@@ -306,6 +471,12 @@ public sealed partial class MainWindow : Window
     private async void Root_Loaded(object sender, RoutedEventArgs e)
     {
         InitializeTray();
+        // The HWND may not have existed during construction on some WinAppSDK
+        // versions; retry once the window is loaded.
+        if (_sessionLockMonitor is null)
+        {
+            InitializeSessionLockMonitor();
+        }
         if (Settings.StartMinimized && _trayIcon is { Available: true })
         {
             AppWindow.Hide();
@@ -345,6 +516,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdateDatabasePath()
     {
+        RefreshRecentDatabaseList();
         bool hasDatabase = _dbPath is not null;
         UnlockTitle.Text = hasDatabase ? "Unlock keepassity" : "keepassity";
         UnlockStartHint.Visibility = hasDatabase ? Visibility.Collapsed : Visibility.Visible;
@@ -355,6 +527,7 @@ public sealed partial class MainWindow : Window
         if (!hasDatabase)
         {
             UnlockError.IsOpen = false;
+            HideUnlockFailureActions();
             DatabasePathText.Text = "No database selected";
             ToolTipService.SetToolTip(DatabasePathText,
                 "Open a local .kdbx file or open from WebDAV");
@@ -1199,6 +1372,7 @@ public sealed partial class MainWindow : Window
         _settingsStore.Save();
         UpdateDatabasePath();
         UnlockError.IsOpen = false;
+        HideUnlockFailureActions();
     }
 
     private async void OpenFromWebDavButton_Click(object sender, RoutedEventArgs e)
@@ -1333,6 +1507,7 @@ public sealed partial class MainWindow : Window
                                       "uploaded yet. Opening it; conflicts will be handled " +
                                       "after unlock.";
                 UnlockError.IsOpen = true;
+                HideUnlockFailureActions();
                 MasterPassword.Focus(FocusState.Programmatic);
                 return;
             }
@@ -1368,6 +1543,7 @@ public sealed partial class MainWindow : Window
             UnlockError.Message =
                 "Enter the master password to unlock. Saves will sync back to this file.";
             UnlockError.IsOpen = true;
+            HideUnlockFailureActions();
             MasterPassword.Focus(FocusState.Programmatic);
         }
         catch (WebDavException ex)
@@ -1396,6 +1572,7 @@ public sealed partial class MainWindow : Window
                 UnlockError.Message = "Opening the local working copy. " +
                                       "Changes will sync when the network is back.";
                 UnlockError.IsOpen = true;
+                HideUnlockFailureActions();
                 MasterPassword.Focus(FocusState.Programmatic);
             }
             else
@@ -1432,6 +1609,7 @@ public sealed partial class MainWindow : Window
         Settings.WebDavUsername = username;
         _settingsStore.Save();
         UpdateDatabasePath();
+        RememberRecentDatabase();
     }
 
     private void ShowUnlockError(string title, string message)
@@ -1440,6 +1618,7 @@ public sealed partial class MainWindow : Window
         UnlockError.Title = title;
         UnlockError.Message = message;
         UnlockError.IsOpen = true;
+        ShowUnlockFailureActions();
     }
 
     private void SetUnlockControlsEnabled(bool enabled)
@@ -1448,6 +1627,196 @@ public sealed partial class MainWindow : Window
         ChooseDatabaseButton.IsEnabled = enabled;
         OpenFromWebDavButton.IsEnabled = enabled;
         NewDatabaseButton.IsEnabled = enabled;
+    }
+
+    // ------------------------------------------------- recent databases
+
+    private void RememberRecentDatabase()
+    {
+        if (_dbPath is null)
+        {
+            return;
+        }
+        if (_webDavSource && string.IsNullOrWhiteSpace(_sourceWebDavUrl))
+        {
+            // A local working copy without a known remote URL is just a path.
+            _recentDatabases.Remember(_dbPath, "local");
+        }
+        else
+        {
+            _recentDatabases.Remember(_dbPath, _webDavSource ? "webdav" : "local",
+                _webDavSource ? _sourceWebDavUrl : null,
+                _webDavSource ? Settings.WebDavUsername : null);
+        }
+        RefreshRecentDatabaseList();
+    }
+
+    private void RefreshRecentDatabaseList()
+    {
+        RecentDatabasesPanel.Children.Clear();
+        IReadOnlyList<RecentDatabaseEntry> entries = _recentDatabases.Entries;
+        foreach (RecentDatabaseEntry entry in entries)
+        {
+            var content = new StackPanel { Spacing = 2 };
+            content.Children.Add(new TextBlock
+            {
+                Text = entry.DisplayName,
+                FontSize = 13,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            string secondary = entry.Kind == "webdav" &&
+                               !string.IsNullOrWhiteSpace(entry.WebDavUrl)
+                ? "WebDAV · " + entry.WebDavUrl
+                : entry.Path;
+            content.Children.Add(new TextBlock
+            {
+                Text = secondary,
+                FontSize = 10,
+                MaxWidth = 320,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+            });
+            var button = new Button
+            {
+                Content = content,
+                Style = (Style)Root.Resources["ToolbarButton"],
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(12, 8, 12, 8),
+            };
+            button.Click += (_, _) => SelectRecentDatabase(entry);
+            var menu = new MenuFlyout();
+            var remove = new MenuFlyoutItem { Text = "Remove from recent list" };
+            remove.Click += (_, _) =>
+            {
+                _recentDatabases.Remove(entry.Path);
+                RefreshRecentDatabaseList();
+            };
+            menu.Items.Add(remove);
+            button.ContextFlyout = menu;
+            RecentDatabasesPanel.Children.Add(button);
+        }
+        // The start page gets the list; when a database is already selected the
+        // unlock form takes its place.
+        RecentDatabasesSection.Visibility = _dbPath is null && entries.Count > 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void SelectRecentDatabase(RecentDatabaseEntry entry)
+    {
+        if (_busy)
+        {
+            return;
+        }
+        if (!File.Exists(entry.Path))
+        {
+            UnlockError.Severity = InfoBarSeverity.Warning;
+            UnlockError.Title = "Database file not found";
+            UnlockError.Message = "The database file is no longer at this path. It may have " +
+                                  "moved or be on a drive that is not connected. Use " +
+                                  "\"Open local file…\" to locate it again.";
+            UnlockError.IsOpen = true;
+            AppLog.Warn("recent database path is missing");
+            return;
+        }
+        bool webDav = string.Equals(entry.Kind, "webdav", StringComparison.OrdinalIgnoreCase) &&
+                      !string.IsNullOrWhiteSpace(entry.WebDavUrl);
+        _dbPath = entry.Path;
+        _webDavSource = webDav;
+        _sourceWebDavUrl = webDav ? entry.WebDavUrl : null;
+        Settings.LastDatabasePath = entry.Path;
+        Settings.LastDatabaseKind = webDav ? "webdav" : "local";
+        Settings.LastWebDavUrl = webDav ? entry.WebDavUrl : null;
+        Settings.LastWebDavUsername = webDav ? entry.WebDavUsername : null;
+        // Keep the sync target consistent with the selected database: a local
+        // file must never inherit another database's WebDAV target.
+        Settings.WebDavUrl = webDav ? entry.WebDavUrl : null;
+        Settings.WebDavUsername = webDav ? entry.WebDavUsername : null;
+        _settingsStore.Save();
+        UnlockError.IsOpen = false;
+        HideUnlockFailureActions();
+        UpdateDatabasePath();
+        MasterPassword.Focus(FocusState.Programmatic);
+    }
+
+    // ------------------------------------------------ unlock recovery
+
+    private string CurrentBackupDirectory()
+    {
+        if (_dbPath is null)
+        {
+            return AppDataPaths.Root;
+        }
+        return BackupService.BackupDirectory(_dbPath);
+    }
+
+    private void ShowUnlockFailureActions()
+    {
+        string backupDirectory = CurrentBackupDirectory();
+        UnlockFailureHint.Text = "If the database will not open, export diagnostics (logs and " +
+                                 "settings only, no vault content or passwords) and keep them " +
+                                 "with the issue report. Timestamped backups are created before " +
+                                 "each save; the newest ones can be restored from the backup " +
+                                 "folder below.";
+        UnlockBackupPathText.Text = "Backups: " + backupDirectory;
+        ToolTipService.SetToolTip(UnlockBackupFolderButton, backupDirectory);
+        UnlockFailureActions.Visibility = Visibility.Visible;
+    }
+
+    private void HideUnlockFailureActions()
+    {
+        UnlockFailureActions.Visibility = Visibility.Collapsed;
+    }
+
+    private async void UnlockDiagnosticsButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            string path = await DiagnosticsService.ExportAsync(Settings);
+            AppLog.Info("unlock page: diagnostics exported");
+            ShowToast($"Diagnostics exported: {path}", InfoBarSeverity.Success);
+            await TryOpenFolderAsync(Path.GetDirectoryName(path));
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("diagnostics export failed", ex);
+            ShowToast($"Diagnostics export failed: {ex.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    private async void UnlockBackupFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        string directory = CurrentBackupDirectory();
+        try
+        {
+            Directory.CreateDirectory(directory);
+        }
+        catch
+        {
+            // A read-only location still gets its path shown below.
+        }
+        if (!await TryOpenFolderAsync(directory))
+        {
+            ShowToast($"Backup folder: {directory}", InfoBarSeverity.Informational);
+        }
+    }
+
+    private static async Task<bool> TryOpenFolderAsync(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+        try
+        {
+            StorageFolder folder = await StorageFolder.GetFolderFromPathAsync(path);
+            return await Launcher.LaunchFolderAsync(folder);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private async void NewDatabaseButton_Click(object sender, RoutedEventArgs e)
@@ -1704,6 +2073,7 @@ public sealed partial class MainWindow : Window
                 _selectedGroupUuid = null;
                 await ReloadVaultAsync(null);
                 UpdateDatabasePath();
+                RememberRecentDatabase();
                 ShowMain();
                 MasterPassword.Password = string.Empty;
                 SetSyncStatus("Synced");
@@ -1741,6 +2111,7 @@ public sealed partial class MainWindow : Window
                 _settingsStore.Save();
                 await ReloadVaultAsync(null);
                 UpdateDatabasePath();
+                RememberRecentDatabase();
                 ShowMain();
                 MasterPassword.Password = string.Empty;
                 SetSyncStatus("Local only");
@@ -1858,7 +2229,9 @@ public sealed partial class MainWindow : Window
             }
             await ReloadVaultAsync(null);
             UnlockError.IsOpen = false;
+            HideUnlockFailureActions();
             AppLog.Info("vault unlocked");
+            RememberRecentDatabase();
             ShowMain();
             MasterPassword.Password = string.Empty;
             _ = SyncAsync(startup: true);
@@ -1874,12 +2247,14 @@ public sealed partial class MainWindow : Window
             };
             UnlockError.Message = ex.Message;
             UnlockError.IsOpen = true;
+            ShowUnlockFailureActions();
         }
         catch (Exception ex)
         {
             UnlockError.Title = "Cannot open database";
             UnlockError.Message = ex.Message;
             UnlockError.IsOpen = true;
+            ShowUnlockFailureActions();
         }
         finally
         {
@@ -2835,6 +3210,9 @@ public sealed partial class MainWindow : Window
             TotpCode.FontSize = 24;
             TotpRemainingText.Visibility = Visibility.Visible;
             TotpProgress.Visibility = Visibility.Visible;
+            // Never show or copy a code that belongs to the previously selected
+            // entry while the first code for this entry is being fetched.
+            ResetTotpDisplayState();
             await UpdateTotpAsync(generation);
         }
         else
@@ -2845,7 +3223,7 @@ public sealed partial class MainWindow : Window
             TotpRemainingText.Visibility = Visibility.Collapsed;
             TotpProgress.Value = 0;
             TotpProgress.Visibility = Visibility.Collapsed;
-            _currentTotpCode = null;
+            ResetTotpDisplayState();
         }
         AnimateDetailContent();
     }
@@ -2854,7 +3232,7 @@ public sealed partial class MainWindow : Window
     {
         _currentFull = null;
         _currentSummary = null;
-        _currentTotpCode = null;
+        ResetTotpDisplayState();
         DetailTitle.Text = "Select an entry";
         DetailSubtitle.Text = string.Empty;
         DetailUsername.Text = string.Empty;
@@ -2885,39 +3263,177 @@ public sealed partial class MainWindow : Window
         EntryFullDto? full = _currentFull;
         if (full is null || full.Totp is null)
         {
-            TotpCode.FontSize = 13;
-            TotpCode.Text = "No TOTP configured";
-            TotpRemainingText.Text = string.Empty;
-            TotpRemainingText.Visibility = Visibility.Collapsed;
-            TotpProgress.Value = 0;
-            TotpProgress.Visibility = Visibility.Collapsed;
-            _currentTotpCode = null;
+            SetTotpUnavailable();
             return;
         }
         TotpCode.FontSize = 24;
         TotpRemainingText.Visibility = Visibility.Visible;
         TotpProgress.Visibility = Visibility.Visible;
-        TotpCodeDto? code = await _core.TotpCodeAsync(full.Uuid);
-        if (generation != _showGeneration || _currentFull?.Uuid != full.Uuid)
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        long nowUnix = now.ToUnixTimeSeconds();
+        if (_totpDisplayedCode is null || _totpDisplayedUuid != full.Uuid ||
+            nowUnix >= _totpWindowEndUnix)
+        {
+            TotpCodeDto? prefetched = _totpPrefetchedCode;
+            long prefetchedTarget = _totpPrefetchTargetUnix;
+            int prefetchedPeriod = prefetched is null ? 0 : Math.Max(1, prefetched.Period);
+            if (prefetched is not null && _totpPrefetchedUuid == full.Uuid &&
+                prefetchedTarget <= nowUnix && nowUnix < prefetchedTarget + prefetchedPeriod)
+            {
+                // The next window was already pre-fetched while fewer than 3s
+                // remained: switch exactly at the boundary without a core round
+                // trip, so the old code never shows one tick too long.
+                ActivateTotpCode(prefetched,
+                    prefetchedTarget + Math.Max(1, prefetched.Period));
+                _totpPrefetchedCode = null;
+                _totpPrefetchedUuid = null;
+                _totpPrefetchInFlight = false;
+            }
+            else
+            {
+                _totpPrefetchedCode = null;
+                _totpPrefetchedUuid = null;
+                _totpPrefetchInFlight = false;
+                long requestedAtUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                TotpCodeDto? code = await _core.TotpCodeAsync(full.Uuid);
+                if (generation != _showGeneration || _currentFull?.Uuid != full.Uuid)
+                {
+                    return;
+                }
+                if (code is null)
+                {
+                    SetTotpUnavailable();
+                    return;
+                }
+                ActivateTotpCode(code, requestedAtUnix + Math.Max(1, code.Remaining));
+            }
+        }
+        nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        UpdateTotpCountdown(nowUnix);
+        if (_totpDisplayedCode is null || _totpDisplayedUuid != full.Uuid)
         {
             return;
         }
+        int period = Math.Max(1, _totpDisplayedCode.Period);
+        int remaining = (int)Math.Clamp(_totpWindowEndUnix - nowUnix, 0, period);
+        if (remaining < 3 && _totpWindowEndUnix != long.MaxValue &&
+            _totpPrefetchedCode is null && !_totpPrefetchInFlight)
+        {
+            // Pre-fetch the next window now; the timer tick scheduled at the
+            // boundary will swap it in immediately.
+            _totpPrefetchInFlight = true;
+            _ = PrefetchTotpAsync(full.Uuid, _totpWindowEndUnix, period, generation);
+        }
+        ScheduleTotpTimerTick(DateTimeOffset.UtcNow);
+    }
+
+    private async Task PrefetchTotpAsync(string uuid, long targetUnix, int period,
+        int generation)
+    {
+        try
+        {
+            TotpCodeDto? next = await _core.TotpCodeAsync(uuid, targetUnix);
+            if (next is null || generation != _showGeneration ||
+                _currentFull?.Uuid != uuid)
+            {
+                return;
+            }
+            long nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (nowUnix < targetUnix)
+            {
+                _totpPrefetchedCode = next;
+                _totpPrefetchedUuid = uuid;
+                _totpPrefetchTargetUnix = targetUnix;
+            }
+            else if (nowUnix < targetUnix + Math.Max(1, period) &&
+                     _totpWindowEndUnix <= nowUnix)
+            {
+                // The boundary arrived while this request was in flight; the
+                // prefetched code is still the live window, adopt it now.
+                ActivateTotpCode(next, targetUnix + Math.Max(1, period));
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"TOTP prefetch failed: {ex.Message}");
+        }
+        finally
+        {
+            _totpPrefetchInFlight = false;
+        }
+    }
+
+    private void ActivateTotpCode(TotpCodeDto code, long windowEndUnix)
+    {
+        _totpDisplayedCode = code;
+        _totpDisplayedUuid = _currentFull?.Uuid;
+        _currentTotpCode = code.Code;
+        _totpWindowEndUnix = windowEndUnix;
+        UpdateTotpCountdown(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+    }
+
+    private void UpdateTotpCountdown(long nowUnix)
+    {
+        TotpCodeDto? code = _totpDisplayedCode;
         if (code is null)
         {
-            TotpCode.FontSize = 13;
-            TotpCode.Text = "No TOTP configured";
-            TotpRemainingText.Text = string.Empty;
-            TotpRemainingText.Visibility = Visibility.Collapsed;
-            TotpProgress.Value = 0;
-            TotpProgress.Visibility = Visibility.Collapsed;
-            _currentTotpCode = null;
             return;
         }
-        _currentTotpCode = code.Code;
-        TotpCode.Text = FormatTotp(code.Code, code.Digits);
-        TotpRemainingText.Text = $"Refreshes in {code.Remaining}s";
-        TotpProgress.Maximum = code.Period;
-        TotpProgress.Value = Math.Max(0, code.Period - code.Remaining);
+        int period = Math.Max(1, code.Period);
+        int remaining = (int)Math.Clamp(_totpWindowEndUnix - nowUnix, 0, period);
+        int digits = code.Digits > 0 ? code.Digits : 6;
+        TotpCode.Text = FormatTotp(code.Code, digits);
+        TotpRemainingText.Text = $"Refreshes in {remaining}s";
+        TotpProgress.Maximum = period;
+        TotpProgress.Value = period - remaining;
+    }
+
+    private void ScheduleTotpTimerTick(DateTimeOffset now)
+    {
+        if (_totpWindowEndUnix == long.MaxValue)
+        {
+            _totpTimer.Interval = TimeSpan.FromSeconds(1);
+            return;
+        }
+        DateTimeOffset boundary = DateTimeOffset.FromUnixTimeSeconds(_totpWindowEndUnix);
+        TimeSpan untilBoundary = boundary - now;
+        TimeSpan interval = untilBoundary > TimeSpan.Zero &&
+                            untilBoundary < TimeSpan.FromSeconds(1)
+            ? untilBoundary + TimeSpan.FromMilliseconds(15)
+            : TimeSpan.FromSeconds(1);
+        if (Math.Abs((_totpTimer.Interval - interval).TotalMilliseconds) >= 10)
+        {
+            // Changing the interval restarts the timer, so the next tick lands
+            // on (or just after) the TOTP window boundary.
+            _totpTimer.Interval = interval;
+        }
+    }
+
+    private void SetTotpUnavailable()
+    {
+        ResetTotpDisplayState();
+        TotpCode.FontSize = 13;
+        TotpCode.Text = "No TOTP configured";
+        TotpRemainingText.Text = string.Empty;
+        TotpRemainingText.Visibility = Visibility.Collapsed;
+        TotpProgress.Value = 0;
+        TotpProgress.Visibility = Visibility.Collapsed;
+    }
+
+    private void ResetTotpDisplayState()
+    {
+        _totpDisplayedCode = null;
+        _totpDisplayedUuid = null;
+        _totpPrefetchedCode = null;
+        _totpPrefetchedUuid = null;
+        _totpWindowEndUnix = long.MaxValue;
+        _totpPrefetchTargetUnix = long.MinValue;
+        _totpPrefetchInFlight = false;
+        _currentTotpCode = null;
+        if (_totpTimer.IsEnabled && _totpTimer.Interval != TimeSpan.FromSeconds(1))
+        {
+            _totpTimer.Interval = TimeSpan.FromSeconds(1);
+        }
     }
 
     private static string FormatTotp(string code, int digits)
@@ -3422,29 +3938,169 @@ public sealed partial class MainWindow : Window
             Content = CreateIconLabel("Generate", "\uE945"),
             VerticalAlignment = VerticalAlignment.Bottom,
         };
-        generate.Click += async (_, _) => await GeneratePasswordIntoAsync(password);
+        generate.Click += (_, _) => ShowPasswordGeneratorFlyout(generate, password);
         Grid.SetColumn(generate, 1);
         row.Children.Add(generate);
         return row;
     }
 
-    private async Task GeneratePasswordIntoAsync(PasswordBox target)
+    private static ToggleSwitch CreateGeneratorToggle(string header, bool isOn)
+    {
+        return new ToggleSwitch
+        {
+            Header = header,
+            IsOn = isOn,
+            OnContent = "On",
+            OffContent = "Off",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+    }
+
+    /// <summary>
+    /// Password generator options: length, character classes, ambiguous-character
+    /// exclusion and the resulting entropy. Every change regenerates through the
+    /// core and writes the result into the surrounding password box; the flyout
+    /// stays open so options can be tweaked before saving the entry.
+    /// </summary>
+    private void ShowPasswordGeneratorFlyout(Button anchor, PasswordBox target)
     {
         if (!_core.IsOpen)
         {
+            ShowToast("Unlock the vault before generating a password.", InfoBarSeverity.Warning);
             return;
         }
-        try
+        var length = new NumberBox
         {
-            PasswordGenerateDto generated = await _core.GeneratePasswordAsync();
-            target.Password = generated.Password;
-            target.Focus(FocusState.Programmatic);
-            ShowToast("Password generated; Save to keep it.", InfoBarSeverity.Informational);
-        }
-        catch (Exception ex)
+            Header = "Length",
+            Value = 20,
+            Minimum = 8,
+            Maximum = 64,
+            SmallChange = 1,
+            LargeChange = 8,
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        ToggleSwitch lowercase = CreateGeneratorToggle("Lowercase (a-z)", isOn: true);
+        ToggleSwitch uppercase = CreateGeneratorToggle("Uppercase (A-Z)", isOn: true);
+        ToggleSwitch digits = CreateGeneratorToggle("Digits (0-9)", isOn: true);
+        ToggleSwitch symbols = CreateGeneratorToggle("Symbols (!@#$…)", isOn: true);
+        ToggleSwitch excludeAmbiguous =
+            CreateGeneratorToggle("Exclude ambiguous characters (I l 1 O 0 o)", isOn: true);
+        var entropy = new TextBlock
         {
-            ShowToast(ex.Message, InfoBarSeverity.Error);
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Text = "Entropy: —",
+        };
+        var status = new TextBlock
+        {
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Text = "Options are applied by the core generator; the password is written " +
+                   "into the field and Save stores it with the entry.",
+            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+        };
+        var regenerate = new Button
+        {
+            Content = CreateIconLabel("Regenerate", "\uE72C"),
+        };
+        var done = new Button { Content = "Done" };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        buttons.Children.Add(regenerate);
+        buttons.Children.Add(done);
+        var content = new StackPanel { Spacing = 10, MinWidth = 300 };
+        content.Children.Add(length);
+        content.Children.Add(lowercase);
+        content.Children.Add(uppercase);
+        content.Children.Add(digits);
+        content.Children.Add(symbols);
+        content.Children.Add(excludeAmbiguous);
+        content.Children.Add(entropy);
+        content.Children.Add(status);
+        content.Children.Add(buttons);
+        var flyout = new Flyout
+        {
+            Content = content,
+            Placement = FlyoutPlacementMode.Bottom,
+        };
+        int generation = 0;
+        async Task RegenerateAsync(bool announce)
+        {
+            int ticket = ++generation;
+            int lengthValue = double.IsNaN(length.Value)
+                ? 20
+                : (int)Math.Clamp(length.Value, 8, 64);
+            bool lowerOn = lowercase.IsOn;
+            bool upperOn = uppercase.IsOn;
+            bool digitsOn = digits.IsOn;
+            bool symbolsOn = symbols.IsOn;
+            if (!lowerOn && !upperOn && !digitsOn && !symbolsOn)
+            {
+                status.Text = "Select at least one character class.";
+                return;
+            }
+            try
+            {
+                PasswordGenerateDto generated = await _core.GeneratePasswordAsync(
+                    lengthValue, excludeAmbiguous.IsOn, lowerOn, upperOn, digitsOn, symbolsOn);
+                if (ticket != generation)
+                {
+                    return;
+                }
+                target.Password = generated.Password;
+                entropy.Text = $"Entropy: {generated.EntropyBits:F1} bits";
+                if (announce)
+                {
+                    status.Text = "Password generated. Save the entry to keep it.";
+                }
+            }
+            catch (Exception ex)
+            {
+                if (ticket == generation)
+                {
+                    status.Text = "Generation failed: " + ex.Message;
+                }
+            }
         }
+        void EnsureClassSelected(ToggleSwitch toggled)
+        {
+            if (toggled.IsOn || lowercase.IsOn || uppercase.IsOn || digits.IsOn ||
+                symbols.IsOn)
+            {
+                return;
+            }
+            // At least one class must stay enabled: revert the change that would
+            // empty the alphabet (the core rejects an empty charset).
+            toggled.IsOn = true;
+            status.Text = "At least one character class must stay enabled.";
+        }
+        length.ValueChanged += (_, _) => _ = RegenerateAsync(false);
+        lowercase.Toggled += (_, _) =>
+        {
+            EnsureClassSelected(lowercase);
+            _ = RegenerateAsync(false);
+        };
+        uppercase.Toggled += (_, _) =>
+        {
+            EnsureClassSelected(uppercase);
+            _ = RegenerateAsync(false);
+        };
+        digits.Toggled += (_, _) =>
+        {
+            EnsureClassSelected(digits);
+            _ = RegenerateAsync(false);
+        };
+        symbols.Toggled += (_, _) =>
+        {
+            EnsureClassSelected(symbols);
+            _ = RegenerateAsync(false);
+        };
+        excludeAmbiguous.Toggled += (_, _) => _ = RegenerateAsync(false);
+        regenerate.Click += (_, _) => _ = RegenerateAsync(true);
+        flyout.Opened += (_, _) => _ = RegenerateAsync(false);
+        done.Click += (_, _) => flyout.Hide();
+        flyout.Closed += (_, _) => target.Focus(FocusState.Programmatic);
+        flyout.ShowAt(anchor);
     }
 
     private async void TotpSetupButton_Click(object sender, RoutedEventArgs e)
@@ -3675,7 +4331,7 @@ public sealed partial class MainWindow : Window
         AppLog.Info("vault locked");
         _currentFull = null;
         _currentSummary = null;
-        _currentTotpCode = null;
+        ResetTotpDisplayState();
         Entries.Clear();
         Groups.Clear();
         NavView.MenuItems.Clear();
@@ -3690,6 +4346,7 @@ public sealed partial class MainWindow : Window
         SetSyncStatus(IsSyncConfigured ? "Not synced" : "Local only");
         UnlockError.IsOpen = false;
         UnlockError.Severity = InfoBarSeverity.Error;
+        HideUnlockFailureActions();
         UpdateDatabasePath();
         _busy = false;
         MasterPassword.Focus(FocusState.Programmatic);
@@ -3777,6 +4434,56 @@ public sealed partial class MainWindow : Window
             Header = "WebDAV password (leave blank to keep the stored one)",
             PasswordRevealMode = PasswordRevealMode.Peek,
         };
+        var storedPasswordText = new TextBlock
+        {
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+        };
+        var clearStoredPassword = new Button
+        {
+            Content = "Clear stored password",
+            HorizontalAlignment = HorizontalAlignment.Left,
+            IsEnabled = false,
+        };
+        var storedPasswordRow = new StackPanel { Spacing = 6 };
+        storedPasswordRow.Children.Add(storedPasswordText);
+        storedPasswordRow.Children.Add(clearStoredPassword);
+        void RefreshStoredCredentialState()
+        {
+            string currentUrl = webdavUrl.Text.Trim();
+            string currentUser = webdavUser.Text.Trim();
+            bool stored = currentUrl.Length > 0 && currentUser.Length > 0 &&
+                          _credentials.HasPassword(currentUrl, currentUser);
+            storedPasswordText.Text = stored
+                ? $"Password stored for {currentUser} (Windows DPAPI)."
+                : "No stored password for this WebDAV target.";
+            clearStoredPassword.IsEnabled = stored;
+        }
+        webdavUrl.TextChanged += (_, _) => RefreshStoredCredentialState();
+        webdavUser.TextChanged += (_, _) => RefreshStoredCredentialState();
+        clearStoredPassword.Click += (_, _) =>
+        {
+            string currentUrl = webdavUrl.Text.Trim();
+            string currentUser = webdavUser.Text.Trim();
+            if (currentUrl.Length == 0 || currentUser.Length == 0)
+            {
+                return;
+            }
+            // Deletes the DPAPI entry only; the remote database and settings are
+            // untouched. No secret is ever shown or logged here.
+            if (_credentials.DeletePassword(currentUrl, currentUser))
+            {
+                AppLog.Info("stored WebDAV credential cleared");
+                ShowToast("Stored WebDAV password cleared", InfoBarSeverity.Success);
+            }
+            else
+            {
+                ShowToast("No stored password to clear.", InfoBarSeverity.Informational);
+            }
+            RefreshStoredCredentialState();
+        };
+        RefreshStoredCredentialState();
         var syncOnSave = new ToggleSwitch
         {
             Header = "Sync after saving changes",
@@ -3847,15 +4554,18 @@ public sealed partial class MainWindow : Window
         content.Children.Add(webdavUrl);
         content.Children.Add(webdavUser);
         content.Children.Add(webdavPassword);
+        content.Children.Add(storedPasswordRow);
         content.Children.Add(syncOnSave);
         content.Children.Add(new TextBlock
         {
             Text = _webDavSource
                 ? "This database was opened from WebDAV; the source URL is fixed for this " +
                   "session. To switch sources, lock and use Open from WebDAV… on the unlock " +
-                  "page. The WebDAV password is stored with Windows DPAPI."
+                  "page. The WebDAV password is stored with Windows DPAPI; clearing it does " +
+                  "not touch the remote database."
                 : "The URL must point to the .kdbx file. The WebDAV password is stored " +
-                  "with Windows DPAPI, not in the plain settings file.",
+                  "with Windows DPAPI, not in the plain settings file; clearing it does " +
+                  "not touch the remote database.",
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
@@ -3875,6 +4585,50 @@ public sealed partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
         });
+        // GPL notice (M3-10): version plus the GPL-3.0-or-later short notice and
+        // links to the license text and public source, as the license requires.
+        content.Children.Add(new TextBlock
+        {
+            Text = "License: GNU General Public License, version 3 or later " +
+                   "(GPL-3.0-or-later).",
+            FontSize = 11,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = "This program is free software: you can redistribute it and/or modify it " +
+                   "under the terms of the GNU General Public License as published by the Free " +
+                   "Software Foundation, either version 3 of the License, or (at your option) " +
+                   "any later version. This program is distributed in the hope that it will be " +
+                   "useful, but WITHOUT ANY WARRANTY; without even the implied warranty of " +
+                   "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General " +
+                   "Public License for more details; the full license text ships in the " +
+                   "LICENSE file of the source repository.",
+            FontSize = 10,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+        });
+        var licenseLinks = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 12,
+        };
+        licenseLinks.Children.Add(new HyperlinkButton
+        {
+            Content = "GPL-3.0 license text",
+            NavigateUri = new Uri("https://www.gnu.org/licenses/gpl-3.0.html"),
+            Padding = new Thickness(0),
+            FontSize = 11,
+        });
+        licenseLinks.Children.Add(new HyperlinkButton
+        {
+            Content = "Source code",
+            NavigateUri = new Uri("https://github.com/simplenty/keepassity"),
+            Padding = new Thickness(0),
+            FontSize = 11,
+        });
+        content.Children.Add(licenseLinks);
         var diagnostics = new Button
         {
             Content = "Export diagnostics…",

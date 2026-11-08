@@ -2,6 +2,7 @@
 // Headless checks for the platform-neutral application services. This is a small
 // console harness instead of xUnit so it runs without adding test-framework
 // dependencies; extend it when a real test project is introduced.
+using Keepassity.CoreTests;
 using Keepassity.Mock;
 
 int failures = 0;
@@ -96,6 +97,14 @@ try
         Console.WriteLine("SKIP  credential store unavailable");
     }
 
+    // M4-04: the WebDAV password never reaches the settings file, and the DPAPI
+    // credential store round trips, reports presence and deletes credentials.
+    SettingsAndCredentialTests.Run(Check);
+
+    // M4-01: WebDavClient against an in-process WebDAV mock on a CJK path; also
+    // proves the client sends the percent-encoded request target.
+    WebDavNonAsciiPathTests.Run(Check);
+
     // backups
     string database = Path.Combine(dataDirectory, "sample.kdbx");
     File.WriteAllBytes(database, new byte[] { 1, 2, 3, 4 });
@@ -103,6 +112,10 @@ try
     Check("backup created", backup is not null && File.Exists(backup.Path));
     Check("backup appears in list",
         BackupService.ListBackups(database).Count >= 1);
+
+    // M4-05: retention boundary (custom and default 20), restore ordering and
+    // rejection of a corrupted backup with the live database left untouched.
+    BackupServiceTests.Run(Check, dataDirectory);
 
     // diagnostics archive contains a summary and no credential blobs
     string archive = DiagnosticsService.ExportAsync(reloaded.Current)

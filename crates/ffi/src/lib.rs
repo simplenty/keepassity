@@ -1395,6 +1395,43 @@ mod tests {
         handle
     }
 
+    fn fixture_bytes(name: &str) -> Vec<u8> {
+        std::fs::read(format!(
+            "{}/../../tests/fixtures/keepass-rs/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .expect("fixture")
+    }
+
+    fn open_bytes(bytes: &[u8], password: &str) -> *mut KpHandle {
+        let opts = CString::new(format!(r#"{{"password":"{password}"}}"#)).unwrap();
+        let handle = kp_open(bytes.as_ptr(), bytes.len(), opts.as_ptr());
+        assert!(!handle.is_null());
+        handle
+    }
+
+    fn parse(json_text: &str) -> Value {
+        serde_json::from_str(json_text).expect("valid command JSON")
+    }
+
+    /// Assert a command fails and return its error JSON.
+    fn call_error(handle: *mut KpHandle, command: &str) -> String {
+        let command = CString::new(command).unwrap();
+        let mut output = std::ptr::null_mut();
+        assert_ne!(
+            kp_call(handle, command.as_ptr(), &mut output),
+            0,
+            "command should fail: {command:?}"
+        );
+        assert!(output.is_null());
+        let error = unsafe { CStr::from_ptr(kp_last_error_json()) }
+            .to_str()
+            .expect("error JSON")
+            .to_string();
+        assert!(!error.contains("demopass"), "error leaks the password");
+        error
+    }
+
     fn call(handle: *mut KpHandle, command: &str) -> String {
         let command = CString::new(command).unwrap();
         let mut output = std::ptr::null_mut();
@@ -1500,6 +1537,171 @@ mod tests {
             entry_uuid
         );
         let _: Value = serde_json::from_str(&call(handle, &delete)).unwrap();
+        assert_eq!(kp_close(handle), 0);
+    }
+
+    #[test]
+    fn password_generate_honours_options_and_reports_consistent_entropy() {
+        let handle = open_fixture();
+
+        // Lowercase + digits without ambiguous look-alikes: 24 + 8 = 32
+        // symbols, i.e. exactly 5 bits per character -> 160 bits for 32 chars.
+        let generated = parse(&call(
+            handle,
+            r#"{"command":"password_generate","length":32,"classes":{"lowercase":true,"uppercase":false,"digits":true,"symbols":false},"exclude_ambiguous":true}"#,
+        ));
+        let password = generated["password"].as_str().expect("password string");
+        assert_eq!(password.chars().count(), 32);
+        assert!(password
+            .chars()
+            .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit()));
+        assert!(
+            password
+                .chars()
+                .all(|character| !"Il1O0o".contains(character)),
+            "ambiguous characters must be excluded: {password}"
+        );
+        assert_eq!(generated["entropy_bits"].as_f64(), Some(160.0));
+
+        // Digits only, ambiguous excluded: "23456789" -> 3 bits per char.
+        let digits_only = parse(&call(
+            handle,
+            r#"{"command":"password_generate","length":16,"classes":{"lowercase":false,"uppercase":false,"digits":true,"symbols":false},"exclude_ambiguous":true}"#,
+        ));
+        let password = digits_only["password"].as_str().expect("password string");
+        assert_eq!(password.len(), 16);
+        assert!(password
+            .chars()
+            .all(|character| ('2'..='9').contains(&character)));
+        assert_eq!(digits_only["entropy_bits"].as_f64(), Some(48.0));
+
+        // The same digits-only charset without the exclusion has 10 symbols;
+        // entropy must grow accordingly (10 * log2(10) for 10 characters).
+        let digits_without_exclusion = parse(&call(
+            handle,
+            r#"{"command":"password_generate","length":10,"classes":{"lowercase":false,"uppercase":false,"digits":true,"symbols":false},"exclude_ambiguous":false}"#,
+        ));
+        let password = digits_without_exclusion["password"]
+            .as_str()
+            .expect("password string");
+        assert_eq!(password.len(), 10);
+        assert!(password.chars().all(|character| character.is_ascii_digit()));
+        let expected = 10.0 * 10.0_f64.log2();
+        assert_eq!(
+            digits_without_exclusion["entropy_bits"].as_f64(),
+            Some(expected)
+        );
+        assert_ne!(
+            digits_only["entropy_bits"].as_f64(),
+            digits_without_exclusion["entropy_bits"].as_f64()
+        );
+
+        // All classes enabled: 26 lower + 26 upper + 10 digits + 24 symbols = 86.
+        let everything = parse(&call(
+            handle,
+            r#"{"command":"password_generate","length":12,"classes":{"lowercase":true,"uppercase":true,"digits":true,"symbols":true},"exclude_ambiguous":false}"#,
+        ));
+        assert_eq!(everything["password"].as_str().unwrap().chars().count(), 12);
+        let expected = 12.0 * 86.0_f64.log2();
+        assert_eq!(everything["entropy_bits"].as_f64(), Some(expected));
+
+        // No character class selected must be rejected, not silently generated.
+        let error = call_error(
+            handle,
+            r#"{"command":"password_generate","length":8,"classes":{"lowercase":false,"uppercase":false,"digits":false,"symbols":false}}"#,
+        );
+        assert!(
+            error.contains("InvalidArgument"),
+            "unexpected error: {error}"
+        );
+        assert!(
+            error.contains("charset is empty"),
+            "unexpected error: {error}"
+        );
+
+        assert_eq!(kp_close(handle), 0);
+    }
+
+    #[test]
+    fn totp_code_at_unix_uses_the_requested_window() {
+        let bytes = fixture_bytes("test_db_kdbx4_with_totp_entry.kdbx");
+        let handle = open_bytes(&bytes, "test");
+
+        let entries = parse(&call(handle, r#"{"command":"list_entries"}"#));
+        let uuid = entries
+            .as_array()
+            .expect("entry list")
+            .iter()
+            .find(|entry| entry["has_totp"].as_bool() == Some(true))
+            .and_then(|entry| entry["uuid"].as_str())
+            .expect("fixture has a TOTP entry")
+            .to_string();
+        let full = parse(&call(
+            handle,
+            &format!(r#"{{"command":"get_entry","uuid":"{uuid}"}}"#),
+        ));
+        assert_eq!(full["title"].as_str(), Some("this entry has totp"));
+        let config = &full["totp"];
+        // Public fixture configuration: otpauth://totp/KeePassXC:none
+        // ?secret=JBSWY3DPEHPK3PXP&period=30&digits=6 (SHA-1).
+        assert_eq!(config["secret_base32"].as_str(), Some("JBSWY3DPEHPK3PXP"));
+        assert_eq!(config["algorithm"].as_str(), Some("SHA1"));
+        assert_eq!(config["digits"].as_u64(), Some(6));
+        assert_eq!(config["period"].as_u64(), Some(30));
+
+        // Reference codes for RFC 6238 TOTP-SHA1 / 6 digits / 30 s with the
+        // fixture secret, computed by an independent implementation:
+        // (at_unix, code, seconds remaining in the window).
+        let cases: [(u64, &str, u64); 8] = [
+            (0, "282760", 30),
+            (29, "282760", 1),
+            (30, "996554", 30),
+            (59, "996554", 1),
+            (1_700_000_000, "324550", 10),
+            (1_700_000_009, "324550", 1),
+            (1_700_000_010, "367665", 30),
+            (1_700_000_040, "870960", 30),
+        ];
+        for (at_unix, expected_code, expected_remaining) in cases {
+            let code = parse(&call(
+                handle,
+                &format!(r#"{{"command":"totp_code","uuid":"{uuid}","at_unix":{at_unix}}}"#),
+            ));
+            assert_eq!(
+                code["code"].as_str(),
+                Some(expected_code),
+                "code at at_unix={at_unix}"
+            );
+            assert_eq!(
+                code["remaining"].as_u64(),
+                Some(expected_remaining),
+                "remaining at at_unix={at_unix}"
+            );
+            assert_eq!(code["period"].as_u64(), Some(30));
+            assert_eq!(code["digits"].as_u64(), Some(6));
+            assert_eq!(code["algorithm"].as_str(), Some("SHA1"));
+            assert_eq!(code["skew_warning"].as_bool(), Some(false));
+        }
+
+        // Same window keeps the code stable, a step boundary rotates it.
+        let window_start = parse(&call(
+            handle,
+            &format!(r#"{{"command":"totp_code","uuid":"{uuid}","at_unix":0}}"#),
+        ));
+        let window_end = parse(&call(
+            handle,
+            &format!(r#"{{"command":"totp_code","uuid":"{uuid}","at_unix":29}}"#),
+        ));
+        let next_window = parse(&call(
+            handle,
+            &format!(r#"{{"command":"totp_code","uuid":"{uuid}","at_unix":30}}"#),
+        ));
+        assert_eq!(window_start["code"], window_end["code"]);
+        assert_ne!(window_start["code"], next_window["code"]);
+        assert_eq!(window_start["remaining"].as_u64(), Some(30));
+        assert_eq!(window_end["remaining"].as_u64(), Some(1));
+        assert_eq!(next_window["remaining"].as_u64(), Some(30));
+
         assert_eq!(kp_close(handle), 0);
     }
 

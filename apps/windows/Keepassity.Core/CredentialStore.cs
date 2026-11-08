@@ -53,6 +53,53 @@ public sealed class CredentialStore
         return Encoding.UTF8.GetString(plain);
     }
 
+    /// <summary>
+    /// True when a DPAPI-protected credential exists for this remote target.
+    /// Reads only the file name; no secret bytes are opened.
+    /// </summary>
+    public bool HasPassword(string url, string username)
+    {
+        if (!Available)
+        {
+            return false;
+        }
+        try
+        {
+            return File.Exists(PathFor(url, username));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Removes the stored credential for this remote target. Returns true only
+    /// when a credential existed and was deleted. Never throws: clearing a
+    /// credential must not break the settings page.
+    /// </summary>
+    public bool DeletePassword(string url, string username)
+    {
+        if (!Available)
+        {
+            return false;
+        }
+        try
+        {
+            string path = PathFor(url, username);
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+            File.Delete(path);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private string PathFor(string url, string username)
     {
         string key = $"{url.Trim()}\n{username.Trim()}";

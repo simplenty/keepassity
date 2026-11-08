@@ -1,4 +1,5 @@
 # build artifacts (the workspace also keeps cargo/dotnet output outside this repo)
+/target/
 **/bin/
 **/obj/
 .vs/
