@@ -26,20 +26,33 @@ The public repository ships self-contained Windows packages built from a tag.
 
 ## Build for acceptance (no tag, no publish)
 
-Produce the 1.0.0 build and use it for the 30-day acceptance without creating a tag. Keep the
-output outside the repository (the workspace `out/` directory) so it can never be committed;
-the app project's default FFI lookup is `out\cargo-target\release`, which is what
+Produce the 1.0.0 build and use it for the 30-day acceptance without creating a tag.
+
+The build output must live **outside the workspace** when the workspace carries a Low
+integrity label (the usual local setup here): a `setup.exe` started from a Low-labeled
+folder cannot create its `%TEMP%\is-*.tmp` files, so the install fails even though the
+build succeeded, and `icacls ... /setintegritylevel Medium` cannot relabel it without
+`SeRelabelPrivilege`. Build into a normal (Medium) folder such as
+`%USERPROFILE%\Desktop\keepassity-release`; the private wrapper
+`workshop/scripts/build-release.ps1` does exactly that and chains all four steps below,
+and `workshop/scripts/install-release.ps1` installs the result and runs
+`tools/installer/verify-install.ps1`.
+
+The app project's default FFI lookup is `out\cargo-target\release`, which is what
 `CARGO_TARGET_DIR` below matches. Inno Setup 6 must be installed for the installer step.
 
 ```powershell
 $env:CARGO_TARGET_DIR = "$PWD\..\out\cargo-target"
 cargo build -p keepassity-ffi --release
+# ..\out\dist works for archive copies, but install from a Medium folder instead
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish-windows.ps1 `
-  -Version 1.0.0 -Zip -OutputRoot ..\out\dist
+  -Version 1.0.0 -Zip -OutputRoot "$env:USERPROFILE\Desktop\keepassity-release"
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-installer.ps1 `
-  -Version 1.0.0 -SourceDir ..\out\dist\keepassity-1.0.0-win-x64 -OutputDir ..\out\dist
+  -Version 1.0.0 `
+  -SourceDir "$env:USERPROFILE\Desktop\keepassity-release\keepassity-1.0.0-win-x64" `
+  -OutputDir "$env:USERPROFILE\Desktop\keepassity-release"
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make-checksums.ps1 `
-  -Directory ..\out\dist
+  -Directory "$env:USERPROFILE\Desktop\keepassity-release"
 ```
 
 The acceptance build is not uploaded anywhere; it stays local (or in the private process
@@ -60,7 +73,7 @@ repository's evidence) until the tag is created.
    - builds the Inno Setup installer with `scripts/build-installer.ps1` into
      `out/dist/keepassity-<version>-win-x64-setup.exe` (per-user install, no UAC; registers a
      per-user candidate `.kdbx` association without changing the default app).
-     <!-- TODO(lead): confirm association landed in the v1.0.0 build before publishing -->
+    
    - writes `SHA256SUMS` for the artifacts;
    - generates an SPDX SBOM (`sbom.spdx.json`) and build provenance attestations
      (`actions/attest-build-provenance`).

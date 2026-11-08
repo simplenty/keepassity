@@ -47,7 +47,7 @@ preserved). The v1.0 scope is frozen by the maintainer.
   under `%LOCALAPPDATA%\Programs\keepassity` with Start menu / desktop shortcuts and an
   uninstaller that keeps user data, and registers a per-user candidate `.kdbx` association
   (no default-app override) so a double-click opens keepassity after the user
-  confirms/chooses it in Windows. <!-- TODO(lead): confirm association landed in the v1.0.0 build before publishing -->
+  confirms/chooses it in Windows.
 
 ## Install and run
 
@@ -87,7 +87,7 @@ Once a release is published:
    - Installer: run `keepassity-1.0.0-win-x64-setup.exe`. It is per-user (no UAC), installs to
      `%LOCALAPPDATA%\Programs\keepassity` with Start menu / desktop shortcuts and an
      uninstaller, and registers a per-user candidate `.kdbx` association without changing the
-     Windows default app. <!-- TODO(lead): confirm association landed in the v1.0.0 build before publishing -->
+     Windows default app.
    - Portable: extract `keepassity-1.0.0-win-x64.zip` anywhere and run
      `Run keepassity.cmd` (or `Keepassity.exe` directly). The executable name is
      historical; this is the intended shell.

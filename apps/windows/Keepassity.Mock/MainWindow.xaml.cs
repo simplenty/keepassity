@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -79,6 +81,7 @@ public sealed partial class MainWindow : Window
     private readonly List<Microsoft.UI.Dispatching.DispatcherQueueTimer> _trayMenuDemoTimers =
         new();
     private SessionLockMonitor? _sessionLockMonitor;
+    private SingleInstanceRelay? _singleInstanceRelay;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _networkReplayTimer;
     private bool _sessionLockPending;
     private TotpCodeDto? _totpDisplayedCode;
@@ -88,6 +91,7 @@ public sealed partial class MainWindow : Window
     private long _totpWindowEndUnix = long.MaxValue;
     private long _totpPrefetchTargetUnix = long.MinValue;
     private bool _totpPrefetchInFlight;
+    private bool _announcePeerWarningLogged;
 
     private enum RightPanelResult
     {
@@ -138,6 +142,7 @@ public sealed partial class MainWindow : Window
         // replays pending WebDAV edits when connectivity comes back.
         InitializeSessionLockMonitor();
         InitializeNetworkReplay();
+        InitializeSingleInstanceRelay();
 
         _totpTimer.Interval = TimeSpan.FromSeconds(1);
         _totpTimer.Tick += async (_, _) => await UpdateTotpAsync(_showGeneration);
@@ -167,6 +172,8 @@ public sealed partial class MainWindow : Window
             _totpTimer.Stop();
             _sessionLockMonitor?.Dispose();
             _sessionLockMonitor = null;
+            _singleInstanceRelay?.Dispose();
+            _singleInstanceRelay = null;
             _networkReplayTimer?.Stop();
             NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
             _trayIcon?.Dispose();
@@ -859,6 +866,40 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    // --------------------------------------------- single-instance relay
+
+    private void InitializeSingleInstanceRelay()
+    {
+        _singleInstanceRelay = SingleInstanceRelay.TryStart(OnForwardedDatabaseRequest);
+        if (_singleInstanceRelay is null)
+        {
+            AppLog.Warn("open requests from a second launch will not be forwarded");
+        }
+    }
+
+    /// <summary>
+    /// Called on the UI thread from the relay window procedure when a second
+    /// launch hands over a .kdbx path. The actual lock/prefill work is deferred
+    /// so it never runs re-entrantly inside a window message (the sending
+    /// process is waiting for that message to be handled).
+    /// </summary>
+    private void OnForwardedDatabaseRequest(string databasePath)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            try
+            {
+                AppWindow.Show();
+                Activate();
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error("could not raise the window for a forwarded open request", ex);
+            }
+            _ = OpenExternalDatabaseAsync(databasePath, "another instance");
+        });
+    }
+
     // ------------------------------------------------------------ drag/drop
 
     private void Root_DragOver(object sender, DragEventArgs e)
@@ -896,7 +937,7 @@ public sealed partial class MainWindow : Window
                     InfoBarSeverity.Warning);
                 return;
             }
-            await OpenDroppedDatabaseAsync(database.Path);
+            await OpenExternalDatabaseAsync(database.Path, "dropped file");
         }
         catch (Exception ex)
         {
@@ -905,10 +946,19 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task OpenDroppedDatabaseAsync(string droppedPath)
+    /// <summary>
+    /// Opens a database selected outside the normal open dialog (dropped file or
+    /// a path forwarded by a second launch). Locks the current vault first, then
+    /// pre-fills the unlock page; same database and busy states are reported
+    /// instead of silently doing nothing.
+    /// </summary>
+    private async Task OpenExternalDatabaseAsync(string droppedPath, string origin)
     {
         if (_busy)
         {
+            AppLog.Info($"open request ({origin}) ignored: application busy");
+            ShowToast("Busy saving or syncing; try again in a moment.",
+                InfoBarSeverity.Informational);
             return;
         }
         string fullPath;
@@ -918,27 +968,35 @@ public sealed partial class MainWindow : Window
         }
         catch
         {
-            ShowToast("The dropped file path is not valid.", InfoBarSeverity.Error);
+            AppLog.Warn($"open request ({origin}) ignored: invalid path");
+            ShowToast("The database path is not valid.", InfoBarSeverity.Error);
             return;
         }
         if (!File.Exists(fullPath))
         {
-            ShowToast("The dropped database file no longer exists.", InfoBarSeverity.Error);
+            AppLog.Warn($"open request ({origin}) ignored: file missing");
+            ShowToast("The database file no longer exists.", InfoBarSeverity.Error);
             return;
         }
-        if (string.Equals(_dbPath, fullPath, StringComparison.OrdinalIgnoreCase) &&
-            _core.IsOpen)
+        // MainRoot visibility is the reliable "vault is unlocked" signal here:
+        // CoreClient keeps its native handle after kp_lock, so _core.IsOpen stays
+        // true for a locked vault.
+        bool unlocked = MainRoot.Visibility == Visibility.Visible;
+        if (unlocked && string.Equals(_dbPath, fullPath, StringComparison.OrdinalIgnoreCase))
         {
+            AppLog.Info($"open request ({origin}) ignored: database already open");
             ShowToast("That database is already open.", InfoBarSeverity.Informational);
             return;
         }
-        if (_core.IsOpen)
+        if (unlocked)
         {
-            // Dropping another file means "open this instead": end the current
+            // Opening another file means "open this instead": end the current
             // session cleanly first (all edits are already saved).
             await LockVaultAsync();
-            if (_core.IsOpen)
+            if (MainRoot.Visibility == Visibility.Visible)
             {
+                AppLog.Warn($"open request ({origin}) abandoned: the current vault " +
+                            "could not be locked");
                 return;
             }
         }
@@ -955,12 +1013,18 @@ public sealed partial class MainWindow : Window
             Settings.WebDavUrl = null;
             Settings.WebDavUsername = null;
             _settingsStore.Save();
-            AppLog.Info("database dropped onto the window; unlock page prefilled");
+            AppLog.Info($"open request ({origin}): unlock page prefilled");
+        }
+        else
+        {
+            // Same database as the (locked) selection: just make sure the unlock
+            // surface is showing it.
+            AppLog.Info($"open request ({origin}): unlock page shown for the selected database");
         }
         UpdateDatabasePath();
         UnlockError.Severity = InfoBarSeverity.Informational;
         UnlockError.Title = "Database ready to unlock";
-        UnlockError.Message = "Enter the master password to unlock the dropped database.";
+        UnlockError.Message = "Enter the master password to unlock this database.";
         UnlockError.IsOpen = true;
         HideUnlockFailureActions();
         MasterPassword.Focus(FocusState.Programmatic);
@@ -1213,6 +1277,72 @@ public sealed partial class MainWindow : Window
     private void SetSyncStatus(string text)
     {
         SyncNavItem.Content = text;
+        Announce($"Sync status: {text}");
+    }
+
+    // ------------------------------------------------------ accessibility
+
+    /// <summary>
+    /// Writes a short status message to the hidden live region and raises both a
+    /// live-region change and a UIA notification so screen readers announce
+    /// unlock, save, sync and lock results instead of the user having to find
+    /// the toast by hand.
+    /// </summary>
+    private void Announce(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return;
+        }
+        try
+        {
+            StatusAnnouncement.Text = message;
+            AutomationPeer? peer = GetOrCreateAutomationPeer(StatusAnnouncement);
+            if (peer is null)
+            {
+                if (!_announcePeerWarningLogged)
+                {
+                    _announcePeerWarningLogged = true;
+                    AppLog.Warn("screen-reader announcement: no automation peer available");
+                }
+            }
+            else
+            {
+                peer.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+                peer.RaiseNotificationEvent(AutomationNotificationKind.ActionCompleted,
+                    AutomationNotificationProcessing.ImportantMostRecent, message,
+                    "keepassity.status");
+            }
+            // Raising the same event on the now-visible toast gives screen readers
+            // a second, on-screen live-region source for the announcement.
+            if (Toast.IsOpen)
+            {
+                GetOrCreateAutomationPeer(Toast)
+                    ?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"screen-reader announcement failed: {ex.GetType().Name}");
+        }
+    }
+
+    private static AutomationPeer? GetOrCreateAutomationPeer(FrameworkElement element)
+        => FrameworkElementAutomationPeer.FromElement(element) ??
+           FrameworkElementAutomationPeer.CreatePeerForElement(element);
+
+    private static void SetButtonAutomation(Button button, string name, string? helpText = null,
+        string? automationId = null)
+    {
+        AutomationProperties.SetName(button, name);
+        if (!string.IsNullOrWhiteSpace(helpText))
+        {
+            AutomationProperties.SetHelpText(button, helpText);
+        }
+        if (!string.IsNullOrWhiteSpace(automationId))
+        {
+            AutomationProperties.SetAutomationId(button, automationId);
+        }
     }
 
     private async Task SyncAsync(bool startup = false)
@@ -2073,6 +2203,7 @@ public sealed partial class MainWindow : Window
         UnlockError.Message = message;
         UnlockError.IsOpen = true;
         ShowUnlockFailureActions();
+        Announce($"{title}: {message}");
     }
 
     private void SetUnlockControlsEnabled(bool enabled)
@@ -2138,6 +2269,8 @@ public sealed partial class MainWindow : Window
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Padding = new Thickness(12, 8, 12, 8),
             };
+            AutomationProperties.SetName(button, $"Open recent database {entry.DisplayName}");
+            AutomationProperties.SetHelpText(button, secondary);
             button.Click += (_, _) => SelectRecentDatabase(entry);
             var menu = new MenuFlyout();
             var remove = new MenuFlyoutItem { Text = "Remove from recent list" };
@@ -2685,6 +2818,7 @@ public sealed partial class MainWindow : Window
             UnlockError.IsOpen = false;
             HideUnlockFailureActions();
             AppLog.Info("vault unlocked");
+            Announce("Vault unlocked");
             _trayIcon?.SetVaultState(true, DisplayVaultName());
             RememberRecentDatabase();
             ShowMain();
@@ -2703,6 +2837,7 @@ public sealed partial class MainWindow : Window
             UnlockError.Message = ex.Message;
             UnlockError.IsOpen = true;
             ShowUnlockFailureActions();
+            Announce($"Unlock failed: {ex.Message}");
         }
         catch (Exception ex)
         {
@@ -2710,6 +2845,7 @@ public sealed partial class MainWindow : Window
             UnlockError.Message = ex.Message;
             UnlockError.IsOpen = true;
             ShowUnlockFailureActions();
+            Announce($"Unlock failed: {ex.Message}");
         }
         finally
         {
@@ -4393,6 +4529,8 @@ public sealed partial class MainWindow : Window
             Content = CreateIconLabel("Generate", "\uE945"),
             VerticalAlignment = VerticalAlignment.Bottom,
         };
+        SetButtonAutomation(generate, "Generate password",
+            "Opens the password generator options", "GeneratePasswordButton");
         generate.Click += (_, _) => ShowPasswordGeneratorFlyout(generate, password);
         Grid.SetColumn(generate, 1);
         row.Children.Add(generate);
@@ -4401,7 +4539,7 @@ public sealed partial class MainWindow : Window
 
     private static ToggleSwitch CreateGeneratorToggle(string header, bool isOn)
     {
-        return new ToggleSwitch
+        var toggle = new ToggleSwitch
         {
             Header = header,
             IsOn = isOn,
@@ -4409,6 +4547,8 @@ public sealed partial class MainWindow : Window
             OffContent = "Off",
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
+        AutomationProperties.SetName(toggle, header);
+        return toggle;
     }
 
     /// <summary>
@@ -4435,18 +4575,26 @@ public sealed partial class MainWindow : Window
             SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
+        AutomationProperties.SetName(length, "Password length");
+        AutomationProperties.SetAutomationId(length, "GeneratorLength");
         ToggleSwitch lowercase = CreateGeneratorToggle("Lowercase (a-z)", isOn: true);
         ToggleSwitch uppercase = CreateGeneratorToggle("Uppercase (A-Z)", isOn: true);
         ToggleSwitch digits = CreateGeneratorToggle("Digits (0-9)", isOn: true);
         ToggleSwitch symbols = CreateGeneratorToggle("Symbols (!@#$…)", isOn: true);
         ToggleSwitch excludeAmbiguous =
             CreateGeneratorToggle("Exclude ambiguous characters (I l 1 O 0 o)", isOn: true);
+        AutomationProperties.SetAutomationId(lowercase, "GeneratorLowercase");
+        AutomationProperties.SetAutomationId(uppercase, "GeneratorUppercase");
+        AutomationProperties.SetAutomationId(digits, "GeneratorDigits");
+        AutomationProperties.SetAutomationId(symbols, "GeneratorSymbols");
+        AutomationProperties.SetAutomationId(excludeAmbiguous, "GeneratorExcludeAmbiguous");
         var entropy = new TextBlock
         {
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             Text = "Entropy: —",
         };
+        AutomationProperties.SetAutomationId(entropy, "GeneratorEntropy");
         var status = new TextBlock
         {
             FontSize = 11,
@@ -4459,7 +4607,10 @@ public sealed partial class MainWindow : Window
         {
             Content = CreateIconLabel("Regenerate", "\uE72C"),
         };
+        SetButtonAutomation(regenerate, "Regenerate password", null,
+            "GeneratorRegenerateButton");
         var done = new Button { Content = "Done" };
+        SetButtonAutomation(done, "Close password generator", null, "GeneratorDoneButton");
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         buttons.Children.Add(regenerate);
         buttons.Children.Add(done);
@@ -4784,6 +4935,7 @@ public sealed partial class MainWindow : Window
         _autoLockTimer.Stop();
         _totpTimer.Stop();
         AppLog.Info("vault locked");
+        Announce("Vault locked");
         _currentFull = null;
         _currentSummary = null;
         ResetTotpDisplayState();
@@ -5197,11 +5349,15 @@ public sealed partial class MainWindow : Window
 
     private Button CreateToolbarButton(string text, string glyph)
     {
-        return new Button
+        var button = new Button
         {
             Content = CreateIconLabel(text, glyph),
             Style = (Style)Root.Resources["ToolbarButton"],
         };
+        // Dynamic buttons carry no accessible name from an icon-only label;
+        // derive it from the visible text.
+        AutomationProperties.SetName(button, text);
+        return button;
     }
 
     private static Button CreateActionButton(string text, string glyph, bool accent)
@@ -5211,6 +5367,7 @@ public sealed partial class MainWindow : Window
         {
             button.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         }
+        AutomationProperties.SetName(button, text);
         return button;
     }
 
@@ -5239,6 +5396,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         _rightPanel = new Grid { Visibility = Visibility.Collapsed };
+        AutomationProperties.SetAutomationId(_rightPanel, "RightPanel");
         _rightPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _rightPanel.RowDefinitions.Add(
             new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -5252,6 +5410,7 @@ public sealed partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
+        AutomationProperties.SetAutomationId(_rightPanelTitle, "RightPanelTitle");
         header.Children.Add(_rightPanelTitle);
         _rightPanel.Children.Add(header);
 
@@ -5315,6 +5474,7 @@ public sealed partial class MainWindow : Window
         EnsureRightPanel();
         _rightPanelOpen = true;
         _rightPanelTitle!.Text = title;
+        AutomationProperties.SetName(_rightPanel, $"{title} panel");
         _rightPanelContent!.Content = content;
         _rightPanelActions!.Children.Clear();
         var completion = new TaskCompletionSource<RightPanelResult>(
@@ -5370,6 +5530,7 @@ public sealed partial class MainWindow : Window
             Visibility = Visibility.Collapsed,
             Margin = new Thickness(-32, -22, -32, -24),
         };
+        AutomationProperties.SetAutomationId(_detailPanel, "DetailDialog");
         _detailPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _detailPanel.RowDefinitions.Add(
             new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -5390,6 +5551,7 @@ public sealed partial class MainWindow : Window
             Margin = new Thickness(16, 0, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
+        AutomationProperties.SetAutomationId(_detailPanelTitle, "DetailDialogTitle");
         Grid.SetColumn(_detailPanelTitle, 1);
         header.Children.Add(_detailPanelTitle);
         _detailPanel.Children.Add(header);
@@ -5434,6 +5596,7 @@ public sealed partial class MainWindow : Window
         EnsureDetailPanel();
         _detailPanelOpen = true;
         _detailPanelTitle!.Text = title;
+        AutomationProperties.SetName(_detailPanel, $"{title} dialog");
         _detailPanelContent!.Content = content;
         _detailPanelActions!.Children.Clear();
         var completion = new TaskCompletionSource<RightPanelResult>(
@@ -5491,6 +5654,7 @@ public sealed partial class MainWindow : Window
         Toast.IsOpen = true;
         _toastTimer.Stop();
         _toastTimer.Start();
+        Announce(message);
     }
 }
 

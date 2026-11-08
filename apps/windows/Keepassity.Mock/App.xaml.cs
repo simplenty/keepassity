@@ -77,6 +77,7 @@ public partial class App : Application
             return;
         }
 
+        string? requestedDatabase = LaunchArguments.FindDatabasePath(commandLine, File.Exists);
         bool allowMultiple = TestHooks.HasSwitch("--allow-multiple");
         if (!allowMultiple)
         {
@@ -84,16 +85,32 @@ public partial class App : Application
             _instanceMutex = new Mutex(true, @"Local\keepassity-windows-app", out createdNew);
             if (!createdNew)
             {
-                // A second launch (including an Explorer "Open with keepassity"
-                // hand-off that carries a .kdbx path) only restores and activates
-                // the window of the instance that already owns the vault. Passing
-                // the path into the running instance would need IPC (WM_COPYDATA /
-                // AppInstance redirection); that is intentionally not implemented
-                // here, so the second instance's path argument is dropped instead
-                // of risking two processes touching the same database.
-                ActivateExistingInstance();
-                Environment.Exit(0);
-                return;
+                // A running instance exists. Explorer "Open with keepassity" and
+                // a double-clicked .kdbx arrive as a bare path on this second
+                // process: hand it to the running instance with WM_COPYDATA so
+                // the database switches there instead of the launch doing
+                // nothing. If the running build has no relay window, fall back to
+                // just restoring its window.
+                if (requestedDatabase is not null)
+                {
+                    if (SingleInstanceRelay.TryForward(requestedDatabase, out string outcome))
+                    {
+                        AppLog.Info($"forwarded an open-database request ({outcome})");
+                        Environment.Exit(0);
+                        return;
+                    }
+                    AppLog.Warn($"could not forward the open-database request ({outcome})");
+                }
+                if (ActivateExistingInstance())
+                {
+                    Environment.Exit(0);
+                    return;
+                }
+                // The mutex belongs to a process that has no window yet (or is
+                // shutting down). Starting a normal window is more useful than
+                // exiting as if the launch succeeded.
+                AppLog.Warn("an instance mutex exists but no window was found; " +
+                            "starting a normal window");
             }
         }
 
@@ -101,7 +118,7 @@ public partial class App : Application
         _window.Activate();
     }
 
-    private static void ActivateExistingInstance()
+    private static bool ActivateExistingInstance()
     {
         for (int attempt = 0; attempt < 10; attempt++)
         {
@@ -119,10 +136,11 @@ public partial class App : Application
                 }
                 ShowWindow(handle, 9 /* SW_RESTORE */);
                 SetForegroundWindow(handle);
-                return;
+                return true;
             }
             Thread.Sleep(200);
         }
+        return false;
     }
 
     private static IntPtr FindMainWindow(int processId)
@@ -132,6 +150,14 @@ public partial class App : Application
         {
             GetWindowThreadProcessId(window, out uint owner);
             if (owner != processId || GetWindow(window, 4 /* GW_OWNER */) != IntPtr.Zero)
+            {
+                return true;
+            }
+            // Skip the hidden STATIC helper windows used for the single-instance
+            // WM_COPYDATA relay/activation path; they are not the main window.
+            var className = new System.Text.StringBuilder(64);
+            _ = GetClassName(window, className, className.Capacity);
+            if (className.ToString().Equals("STATIC", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -164,6 +190,10 @@ public partial class App : Application
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(IntPtr window, System.Text.StringBuilder text, int count);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr window, System.Text.StringBuilder className,
+        int count);
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr window, int command);

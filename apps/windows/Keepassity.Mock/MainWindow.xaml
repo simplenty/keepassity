@@ -111,7 +111,9 @@
                             Click="HamburgerButton_Click"
                             IsDoubleTapEnabled="True"
                             DoubleTapped="TitleBarButton_DoubleTapped"
-                            ToolTipService.ToolTip="Toggle navigation">
+                            ToolTipService.ToolTip="Toggle navigation"
+                            AutomationProperties.Name="Toggle navigation"
+                            AutomationProperties.AutomationId="NavigationToggle">
                         <FontIcon Glyph="&#xE700;" FontSize="14" />
                     </Button>
                     <Border Width="26" Height="26" CornerRadius="6" Margin="4,0,0,0"
@@ -130,7 +132,10 @@
                         Background="Transparent" />
                 <AutoSuggestBox x:Name="SearchBox" Grid.Column="1" Width="360"
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
-                                PlaceholderText="Search" TextChanged="SearchBox_TextChanged">
+                                PlaceholderText="Search" TextChanged="SearchBox_TextChanged"
+                                AutomationProperties.Name="Search entries"
+                                AutomationProperties.AutomationId="SearchBox"
+                                AutomationProperties.HelpText="Search the open database (Ctrl+F)">
                     <AutoSuggestBox.QueryIcon>
                         <FontIcon Glyph="&#xE721;" />
                     </AutoSuggestBox.QueryIcon>
@@ -158,7 +163,9 @@
                          passwords. Shown on the start page when there is no current
                          database selected. -->
                     <StackPanel x:Name="RecentDatabasesSection" Visibility="Collapsed"
-                                Margin="0,18,0,0">
+                                Margin="0,18,0,0"
+                                AutomationProperties.Name="Recent databases"
+                                AutomationProperties.AutomationId="RecentDatabases">
                         <TextBlock Text="Recent databases" FontSize="12" FontWeight="SemiBold"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         <StackPanel x:Name="RecentDatabasesPanel" Spacing="6"
@@ -169,7 +176,10 @@
                     <StackPanel x:Name="UnlockFormSection" Visibility="Collapsed">
                         <InfoBar x:Name="UnlockError" IsOpen="False" Severity="Error"
                                  Title="Cannot unlock" IsClosable="False"
-                                 Margin="0,12,0,0" />
+                                 Margin="0,12,0,0"
+                                 AutomationProperties.Name="Unlock status"
+                                 AutomationProperties.AutomationId="UnlockStatus"
+                                 AutomationProperties.LiveSetting="Polite" />
                         <!-- Recovery entry points shown after an unlock failure: a
                              diagnostics export and the backup folder location. -->
                         <StackPanel x:Name="UnlockFailureActions" Spacing="10"
@@ -184,6 +194,8 @@
                                 <Button x:Name="UnlockDiagnosticsButton"
                                         Style="{StaticResource ToolbarButton}"
                                         ToolTipService.ToolTip="Export logs and settings (no secrets)"
+                                        AutomationProperties.Name="Export diagnostics"
+                                        AutomationProperties.AutomationId="UnlockDiagnosticsButton"
                                         Click="UnlockDiagnosticsButton_Click">
                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                         <FontIcon Glyph="&#xE74E;" FontSize="12" />
@@ -193,6 +205,8 @@
                                 <Button x:Name="UnlockBackupFolderButton"
                                         Style="{StaticResource ToolbarButton}"
                                         ToolTipService.ToolTip="Open the folder with timestamped database backups"
+                                        AutomationProperties.Name="Open backup folder"
+                                        AutomationProperties.AutomationId="UnlockBackupFolderButton"
                                         Click="UnlockBackupFolderButton_Click">
                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                         <FontIcon Glyph="&#xE8B7;" FontSize="12" />
@@ -206,11 +220,15 @@
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <PasswordBox x:Name="MasterPassword" PlaceholderText="Password"
                                          PasswordRevealMode="Peek"
+                                         AutomationProperties.Name="Master password"
+                                         AutomationProperties.AutomationId="MasterPassword"
                                          KeyDown="MasterPassword_KeyDown" />
                         </StackPanel>
                         <Button x:Name="UnlockButton" HorizontalAlignment="Stretch" Height="36"
                                 Margin="0,16,0,0"
                                 Style="{StaticResource AccentButtonStyle}"
+                                AutomationProperties.Name="Unlock database"
+                                AutomationProperties.AutomationId="UnlockButton"
                                 Click="UnlockButton_Click">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <FontIcon Glyph="&#xE72E;" FontSize="14" />
@@ -219,7 +237,8 @@
                         </Button>
                         <ProgressRing x:Name="UnlockProgress" IsActive="False"
                                       Width="22" Height="22" HorizontalAlignment="Center"
-                                      Margin="0,12,0,0" />
+                                      Margin="0,12,0,0"
+                                      AutomationProperties.Name="Unlocking database" />
                     </StackPanel>
 
                     <!-- Database source actions are a separate concern from Unlock. -->
@@ -235,6 +254,8 @@
                                 HorizontalAlignment="Stretch"
                                 HorizontalContentAlignment="Left"
                                 MinHeight="36"
+                                AutomationProperties.Name="Open local database file"
+                                AutomationProperties.AutomationId="OpenLocalDatabaseButton"
                                 Click="ChooseDatabaseButton_Click">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <FontIcon Glyph="&#xE8B7;" FontSize="13" />
@@ -246,6 +267,8 @@
                                 HorizontalAlignment="Stretch"
                                 HorizontalContentAlignment="Left"
                                 MinHeight="36"
+                                AutomationProperties.Name="Open database from WebDAV"
+                                AutomationProperties.AutomationId="OpenWebDavDatabaseButton"
                                 Click="OpenFromWebDavButton_Click">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <FontIcon Glyph="&#xE753;" FontSize="13" />
@@ -257,6 +280,8 @@
                                 HorizontalAlignment="Stretch"
                                 HorizontalContentAlignment="Left"
                                 MinHeight="36"
+                                AutomationProperties.Name="Create new database"
+                                AutomationProperties.AutomationId="NewDatabaseButton"
                                 Click="NewDatabaseButton_Click">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <FontIcon Glyph="&#xE710;" FontSize="13" />
@@ -280,6 +305,8 @@
                                 IsSettingsVisible="False"
                                 OpenPaneLength="232"
                                 Background="Transparent"
+                                AutomationProperties.Name="Database navigation"
+                                AutomationProperties.AutomationId="MainNavigation"
                                 SelectionChanged="NavView_SelectionChanged"
                                 ItemInvoked="NavView_ItemInvoked">
                     <NavigationView.Resources>
@@ -298,22 +325,33 @@
 
                     <NavigationView.FooterMenuItems>
                         <NavigationViewItem x:Name="SyncNavItem" Content="Local only" Tag="sync" UseSystemFocusVisuals="False"
-                                            SelectsOnInvoked="False">
+                                            SelectsOnInvoked="False"
+                                            AutomationProperties.Name="Sync status"
+                                            AutomationProperties.AutomationId="SyncStatus"
+                                            AutomationProperties.HelpText="Shows the last sync result; invokes a sync now"
+                                            AutomationProperties.LiveSetting="Polite">
                             <NavigationViewItem.Icon>
                                 <FontIcon Glyph="&#xE895;" />
                             </NavigationViewItem.Icon>
                         </NavigationViewItem>
-                        <NavigationViewItem Content="Backups" Tag="backups" SelectsOnInvoked="False" UseSystemFocusVisuals="False">
+                        <NavigationViewItem Content="Backups" Tag="backups" SelectsOnInvoked="False" UseSystemFocusVisuals="False"
+                                            AutomationProperties.Name="Backups"
+                                            AutomationProperties.AutomationId="BackupsNavigationItem">
                             <NavigationViewItem.Icon>
                                 <FontIcon Glyph="&#xE777;" />
                             </NavigationViewItem.Icon>
                         </NavigationViewItem>
-                        <NavigationViewItem Content="Lock" Tag="lock" SelectsOnInvoked="False" UseSystemFocusVisuals="False">
+                        <NavigationViewItem Content="Lock" Tag="lock" SelectsOnInvoked="False" UseSystemFocusVisuals="False"
+                                            AutomationProperties.Name="Lock vault"
+                                            AutomationProperties.AutomationId="LockNavigationItem"
+                                            AutomationProperties.HelpText="Locks the vault immediately (Ctrl+L)">
                             <NavigationViewItem.Icon>
                                 <FontIcon Glyph="&#xE72E;" />
                             </NavigationViewItem.Icon>
                         </NavigationViewItem>
-                        <NavigationViewItem x:Name="SettingsNavItem" Content="Settings" Tag="settings" SelectsOnInvoked="False" UseSystemFocusVisuals="False">
+                        <NavigationViewItem x:Name="SettingsNavItem" Content="Settings" Tag="settings" SelectsOnInvoked="False" UseSystemFocusVisuals="False"
+                                            AutomationProperties.Name="Settings"
+                                            AutomationProperties.AutomationId="SettingsNavigationItem">
                             <NavigationViewItem.Icon>
                                 <FontIcon Glyph="&#xE713;" />
                             </NavigationViewItem.Icon>
@@ -365,6 +403,8 @@
                                         <Button x:Name="ListOptionsButton"
                                                 Style="{StaticResource ToolbarButton}"
                                                 ToolTipService.ToolTip="Sort and filter"
+                                                AutomationProperties.Name="Sort and filter entries"
+                                                AutomationProperties.AutomationId="ListOptionsButton"
                                                 Click="ListOptionsButton_Click">
                                             <FontIcon Glyph="&#xE8CB;" FontSize="12" />
                                         </Button>
@@ -372,6 +412,8 @@
                                                 HorizontalAlignment="Right" VerticalAlignment="Center"
                                                 Style="{StaticResource AccentButtonStyle}"
                                                 Padding="12,4" FontSize="12"
+                                                AutomationProperties.Name="New entry"
+                                                AutomationProperties.AutomationId="NewEntryButton"
                                                 Click="NewEntryButton_Click">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <FontIcon Glyph="&#xE710;" FontSize="12" />
@@ -392,7 +434,9 @@
                                           CanReorderItems="False"
                                           DragItemsStarting="EntryList_DragItemsStarting"
                                           ItemContainerStyle="{StaticResource EntryListItemStyle}"
-                                          Background="Transparent" Padding="2,4,8,0">
+                                          Background="Transparent" Padding="2,4,8,0"
+                                          AutomationProperties.Name="Entries"
+                                          AutomationProperties.AutomationId="EntryList">
                                     <ListView.ItemContainerTransitions>
                                         <TransitionCollection>
                                             <AddDeleteThemeTransition />
@@ -453,7 +497,9 @@
                             </Grid>
 
                             <!-- detail -->
-                            <Grid x:Name="DetailPane" Grid.Column="1" Padding="32,22,32,24">
+                            <Grid x:Name="DetailPane" Grid.Column="1" Padding="32,22,32,24"
+                                  AutomationProperties.Name="Entry details"
+                                  AutomationProperties.AutomationId="DetailPanel">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="*" />
@@ -474,13 +520,17 @@
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
                                                 HorizontalAlignment="Right" VerticalAlignment="Top">
-                                        <Button Style="{StaticResource ToolbarButton}" Click="EditEntryButton_Click">
+                                        <Button Style="{StaticResource ToolbarButton}" Click="EditEntryButton_Click"
+                                                AutomationProperties.Name="Edit entry"
+                                                AutomationProperties.AutomationId="EditEntryButton">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <FontIcon Glyph="&#xE70F;" FontSize="12" />
                                                 <TextBlock Text="Edit" />
                                             </StackPanel>
                                         </Button>
-                                        <Button Style="{StaticResource DangerToolbarButton}" Click="DeleteEntryButton_Click">
+                                        <Button Style="{StaticResource DangerToolbarButton}" Click="DeleteEntryButton_Click"
+                                                AutomationProperties.Name="Delete entry"
+                                                AutomationProperties.AutomationId="DeleteEntryButton">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <FontIcon Glyph="&#xE74D;" FontSize="12" />
                                                 <TextBlock Text="Delete" />
@@ -509,7 +559,11 @@
                                                 <TextBlock x:Name="DetailUsername" Grid.Column="1"
                                                            Text="alex@example.com" Style="{StaticResource FieldValue}" />
                                                 <Button Grid.Column="2" Style="{StaticResource IconButton}"
-                                                        Click="CopyUsernameButton_Click" ToolTipService.ToolTip="Copy">
+                                                        Click="CopyUsernameButton_Click"
+                                                        ToolTipService.ToolTip="Copy"
+                                                        AutomationProperties.Name="Copy username"
+                                                        AutomationProperties.HelpText="Copies the username to the clipboard"
+                                                        AutomationProperties.AutomationId="CopyUsernameButton">
                                                     <FontIcon Glyph="&#xE8C8;" FontSize="12" />
                                                 </Button>
                                             </Grid>
@@ -528,11 +582,19 @@
                                                            FontFamily="Consolas" />
                                                 <Button x:Name="RevealPasswordButton" Grid.Column="2"
                                                         Style="{StaticResource IconButton}"
-                                                        Click="RevealPasswordButton_Click" ToolTipService.ToolTip="Show">
+                                                        Click="RevealPasswordButton_Click"
+                                                        ToolTipService.ToolTip="Show"
+                                                        AutomationProperties.Name="Show password"
+                                                        AutomationProperties.HelpText="Reveals the password in this panel"
+                                                        AutomationProperties.AutomationId="RevealPasswordButton">
                                                     <FontIcon Glyph="&#xE890;" FontSize="12" />
                                                 </Button>
                                                 <Button Grid.Column="3" Style="{StaticResource IconButton}"
-                                                        Click="CopyPasswordButton_Click" ToolTipService.ToolTip="Copy">
+                                                        Click="CopyPasswordButton_Click"
+                                                        ToolTipService.ToolTip="Copy"
+                                                        AutomationProperties.Name="Copy password"
+                                                        AutomationProperties.HelpText="Copies the password to the clipboard"
+                                                        AutomationProperties.AutomationId="CopyPasswordButton">
                                                     <FontIcon Glyph="&#xE8C8;" FontSize="12" />
                                                 </Button>
                                             </Grid>
@@ -549,11 +611,19 @@
                                                 <TextBlock x:Name="DetailUrl" Grid.Column="1"
                                                            Text="https://github.com" Style="{StaticResource FieldValue}" />
                                                 <Button Grid.Column="2" Style="{StaticResource IconButton}"
-                                                        Click="CopyUrlButton_Click" ToolTipService.ToolTip="Copy">
+                                                        Click="CopyUrlButton_Click"
+                                                        ToolTipService.ToolTip="Copy"
+                                                        AutomationProperties.Name="Copy website"
+                                                        AutomationProperties.HelpText="Copies the website URL to the clipboard"
+                                                        AutomationProperties.AutomationId="CopyUrlButton">
                                                     <FontIcon Glyph="&#xE8C8;" FontSize="12" />
                                                 </Button>
                                                 <Button Grid.Column="3" Style="{StaticResource IconButton}"
-                                                        Click="OpenUrlButton_Click" ToolTipService.ToolTip="Open">
+                                                        Click="OpenUrlButton_Click"
+                                                        ToolTipService.ToolTip="Open"
+                                                        AutomationProperties.Name="Open website"
+                                                        AutomationProperties.HelpText="Opens the website in the default browser"
+                                                        AutomationProperties.AutomationId="OpenUrlButton">
                                                     <FontIcon Glyph="&#xE8A7;" FontSize="12" />
                                                 </Button>
                                             </Grid>
@@ -592,6 +662,8 @@
                                                                FontWeight="SemiBold" FontFamily="Consolas"
                                                                CharacterSpacing="20"
                                                                TextTrimming="CharacterEllipsis"
+                                                               AutomationProperties.Name="One-time password"
+                                                               AutomationProperties.AutomationId="TotpCode"
                                                                Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                                                     <TextBlock x:Name="TotpRemainingText" Text=""
                                                                FontSize="11"
@@ -605,7 +677,10 @@
                                                 <StackPanel Grid.Column="1" Spacing="6"
                                                             HorizontalAlignment="Right" VerticalAlignment="Center">
                                                     <Button Style="{StaticResource ToolbarButton}"
-                                                            Click="CopyTotpButton_Click">
+                                                            Click="CopyTotpButton_Click"
+                                                            AutomationProperties.Name="Copy one-time password"
+                                                            AutomationProperties.HelpText="Copies the currently displayed one-time password"
+                                                            AutomationProperties.AutomationId="CopyTotpButton">
                                                         <StackPanel Orientation="Horizontal" Spacing="6">
                                                             <FontIcon Glyph="&#xE8C8;" FontSize="12" />
                                                             <TextBlock Text="Copy" />
@@ -636,7 +711,11 @@
                                                     <TextBlock x:Name="CustomFieldValue" Grid.Column="1" Text=""
                                                                Style="{StaticResource FieldValue}" />
                                                     <Button Grid.Column="2" Style="{StaticResource IconButton}"
-                                                            Click="CopyCustomFieldButton_Click" ToolTipService.ToolTip="Copy">
+                                                            Click="CopyCustomFieldButton_Click"
+                                                            ToolTipService.ToolTip="Copy"
+                                                            AutomationProperties.Name="Copy custom field"
+                                                            AutomationProperties.HelpText="Copies the custom field value to the clipboard"
+                                                            AutomationProperties.AutomationId="CopyCustomFieldButton">
                                                         <FontIcon Glyph="&#xE8C8;" FontSize="12" />
                                                     </Button>
                                                 </Grid>
@@ -671,6 +750,20 @@
 
         <InfoBar x:Name="Toast" Grid.Row="1" IsOpen="False" IsClosable="True" Severity="Success"
                  HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                 Margin="0,0,20,20" Width="340" />
+                 Margin="0,0,20,20" Width="340"
+                 AutomationProperties.Name="Status message"
+                 AutomationProperties.AutomationId="StatusToast"
+                 AutomationProperties.LiveSetting="Polite" />
+
+        <!-- Screen-reader live region: announcements (unlock/save/sync/lock
+             results) are written here and raised as a live-region change and a
+             UIA notification so they are read even when the toast is visually
+             too subtle to notice. Kept transparent and hit-test transparent
+             rather than removed from the tree. -->
+        <TextBlock x:Name="StatusAnnouncement" Grid.Row="1"
+                   Width="1" Height="1" Opacity="0" IsHitTestVisible="False"
+                   AutomationProperties.Name="Status"
+                   AutomationProperties.AutomationId="StatusAnnouncement"
+                   AutomationProperties.LiveSetting="Polite" />
     </Grid>
 </Window>

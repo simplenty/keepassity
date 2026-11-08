@@ -47,13 +47,24 @@ pending the 30-day real-use acceptance described in `docs/release.md`.
   (no administrator rights, install under `%LOCALAPPDATA%\Programs\keepassity`); a non-UI
   `--selftest` mode; `.kdbx` file association: the installer registers a per-user candidate
   association (no default-app override); double-click opens keepassity after the user
-  confirms/chooses it in Windows. <!-- TODO(lead): confirm association landed in the v1.0.0 build before publishing -->
+  confirms/chooses it in Windows.
+- **Desktop conveniences**: keyboard shortcuts (search, lock, new entry, sync, close panel),
+  dropping a `.kdbx` file onto the window, opening a database from Explorer (first launch and
+  while an instance is already running), and an explicit AppUserModelID so taskbar grouping
+  and pinned shortcuts behave.
+- **Branding**: the application ships its own icon (window, taskbar, notification area, About
+  page and installer) instead of a default framework icon.
 - **Engineering**: English-UI CI check (`ui-strings`), headless application-service tests
   (WebDAV client against an in-process mock including non-ASCII paths, backup
   retention/restore, DPAPI credentials, settings), a generated 500-entry synthetic
   database with performance evidence, mock-WebDAV drills (protocol, restore, offline replay,
-  conflict), and install/uninstall verification against an installed copy (per-user install,
-  shortcuts, Apps & Features entry, uninstall keeps user data).
+  conflict), fuzzing of the KDBX/TOTP/merge input surfaces with a nightly job, a second
+  independent interop reader (official KeePassLib built in CI), and install/uninstall
+  verification against an installed copy (per-user install, shortcuts, Apps & Features entry,
+  uninstall keeps user data).
+- **Hardening**: malformed KDBX input is rejected with a read error instead of aborting - the
+  upstream reader is guarded against its known panic paths, and the fuzzer-found inputs are
+  regression tests.
 
 ### Changed
 
