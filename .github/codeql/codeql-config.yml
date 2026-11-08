@@ -1,0 +1,25 @@
+# CodeQL configuration for keepassity.
+#
+# Goals:
+#   * analyze only the code this repository maintains: the C# sources of the
+#     WinUI shell and the headless application services. Generated build output
+#     (obj/, bin/) and XAML-generated partial classes are not reviewed code and
+#     produced hundreds of quality notes on every scan.
+#   * run the security-focused query suite. The quality suite (`-and-quality`)
+#     flags intentional patterns such as P/Invoke declarations, catch-all error
+#     handlers around UI/diagnostics work and `Path.Combine` with fixed paths;
+#     those are reviewed in code review and are not vulnerabilities.
+#
+# The workflow keeps `queries: security-extended` and passes this file as
+# `config-file`. If a genuine security finding appears it must be fixed or have
+# a documented dismissal here (workshop decision records).
+name: keepassity CodeQL config
+
+paths-ignore:
+  - '**/obj/**'
+  - '**/bin/**'
+  - '**/*.g.cs'
+  - '**/*.g.i.cs'
+  - '**/*.Designer.cs'
+  - 'apps/windows/**/obj/**'
+  - 'apps/windows/**/bin/**'

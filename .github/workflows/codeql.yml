@@ -27,7 +27,11 @@ jobs:
         uses: github/codeql-action/init@9418214df1f2c4b8128c770156c409013b07d6b9 # v3.39.3
         with:
           languages: csharp
-          queries: security-and-quality
+          # Security-only suite; quality findings (P/Invoke, catch-all handlers,
+          # Path.Combine with fixed paths) were reviewed manually and are not
+          # vulnerabilities. Generated files are excluded in the config file.
+          queries: security-extended
+          config-file: .github/codeql/codeql-config.yml
       - name: restore and build
         run: dotnet build apps/windows/Keepassity.sln -c Release
       - name: analyze

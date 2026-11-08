@@ -82,9 +82,11 @@ internal sealed class SingleInstanceRelay : IDisposable
     public static SingleInstanceRelay? TryStart(Action<string> onDatabasePath)
     {
         var relay = new SingleInstanceRelay(onDatabasePath);
+        bool created = false;
         try
         {
-            if (relay.CreateWindow())
+            created = relay.CreateWindow();
+            if (created)
             {
                 AppLog.Info("single-instance relay window ready");
                 return relay;
@@ -94,7 +96,15 @@ internal sealed class SingleInstanceRelay : IDisposable
         {
             AppLog.Error("single-instance relay could not be started", ex);
         }
-        relay.Dispose();
+        finally
+        {
+            // Always release the partially created window, also when logging or
+            // window creation threw (CodeQL cs/dispose-not-called-on-throw).
+            if (!created)
+            {
+                relay.Dispose();
+            }
+        }
         return null;
     }
 
