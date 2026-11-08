@@ -8,7 +8,7 @@
 | 来源 | 数量 | 许可证 | 说明 |
 |---|---|---|---|
 | [keepass-rs](https://github.com/sseemayer/keepass-rs) `tests/resources/` | 25 | MIT | 上游测试样本，覆盖 KDBX3.1/4.0/4.1、AES-KDF/Argon2/Argon2id、AES/ChaCha20/Twofish、附件、保护字段、TOTP、删除记录、损坏文件 |
-| 本仓库自建 | 0 | GPL-3.0-or-later | 需要「500 条目 / 非 ASCII 路径 / 真实 KeePass 2.x 形态」时用 KeePassLib 工具生成 |
+| 本仓库自建（`synthetic/`） | 1 | GPL-3.0-or-later | 500 条目的 KDBX 4.0 合成库（Argon2id），由 `crates/core/tests/synthetic_fixture.rs` 通过 keepassxcr 写入后端生成；含非 ASCII 标题/用户名、百分号编码 URL、20 个 TOTP 条目、10 条历史；**不含任何真实密钥**。详见 [`synthetic/README.md`](synthetic/README.md) |
 
 ## 主密码（测试用）
 
@@ -51,6 +51,15 @@
 | test_db_with_keyfile_xml.kdbx | FAIL | cannot read database: Key(IncorrectKey) |
 | test_db_with_password.kdbx | OK | entries=6 totp=0 |
 
+### 本仓库自建（2026-11-08）
+
+工具：`keepassity-cli inspect <file> --password demopass`（读取用 `keepass` crate 0.17.0）和
+`cargo test -p keepassity-core --test synthetic_fixture`（读取用 core reader，并校验形状）。
+
+| 文件 | 结果 | 备注 / 条目数 |
+|---|---|---|
+| synthetic/synthetic-500.kdbx | OK | entries=500 totp=20 groups=7 deleted_objects=3，KDBX 4.0；条目包含 39 个非 ASCII 标题、30 个非 ASCII 用户名、46 个百分号编码 URL、50 个 `Recovery` 自定义字段、10 个历史条目。SHA-256/大小为重新生成后由 `tools/fixture-gen/regenerate.ps1` 写回 `manifest.json` |
+
 **结论**：KDBX 3.1 / 4.0 / 4.1 主密码库全部可读；KDF（AES-KDF / Argon2d / Argon2id）与加密算法（AES / ChaCha20 / Twofish）覆盖；附件、保护字段、TOTP 字段、删除记录均可识别。需密钥文件的样本按 v1.0 范围排除。
 
 ## 观测到的错误分类（用于 §5.6「密码错 vs 文件损坏」）
@@ -65,5 +74,6 @@
 ## 使用规则
 
 1. 夹具只放合成/公开样本；真实库副本仅本地使用，**不入库**。
-2. 新增夹具必须在本表登记：文件名、来源、许可证、密码、用途。
-3. 写入路径改动必须至少跑：`kdbx41_features`、`kdbx4_with_password_argon2id_chacha20`、`kdbx3_with_attachments`、`deleted_entry`、两个 TOTP 样本。
+2. 新增夹具必须在本表登记：文件名、来源、许可证、密码、用途；并登记到 `manifest.json`（SHA-256 + 大小），`scripts/verify-fixtures.ps1` 会校验。
+3. 写入路径改动必须至少跑：`kdbx41_features`、`kdbx4_with_password_argon2id_chacha20`、`kdbx3_with_attachments`、`deleted_entry`、两个 TOTP 样本，以及 `synthetic_500`（500 条目的大型真实形状库）。
+4. `synthetic/` 的夹具是生成物：修改 `crates/core/tests/synthetic_fixture.rs` 后运行 `pwsh -File tools/fixture-gen/regenerate.ps1` 重新生成并刷新 manifest；不要手工编辑 `.kdbx` 文件（哈希会失配）。
