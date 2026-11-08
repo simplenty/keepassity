@@ -333,8 +333,16 @@ public sealed partial class MainWindow : Window
 
     private void UpdateDatabasePath()
     {
-        if (_dbPath is null)
+        bool hasDatabase = _dbPath is not null;
+        UnlockTitle.Text = hasDatabase ? "Unlock keepassity" : "keepassity";
+        UnlockStartHint.Visibility = hasDatabase ? Visibility.Collapsed : Visibility.Visible;
+        DatabasePathText.Visibility = hasDatabase ? Visibility.Visible : Visibility.Collapsed;
+        UnlockFormSection.Visibility = hasDatabase ? Visibility.Visible : Visibility.Collapsed;
+        UnlockDivider.Visibility = hasDatabase ? Visibility.Visible : Visibility.Collapsed;
+        DatabaseActionsLabel.Visibility = hasDatabase ? Visibility.Visible : Visibility.Collapsed;
+        if (!hasDatabase)
         {
+            UnlockError.IsOpen = false;
             DatabasePathText.Text = "No database selected";
             ToolTipService.SetToolTip(DatabasePathText,
                 "Open a local .kdbx file or open from WebDAV");

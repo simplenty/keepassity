@@ -135,44 +135,53 @@
         </Grid>
 
         <Grid Grid.Row="1">
-            <!-- Unlock: plain form. -->
+            <!-- Unlock or first-run start page. -->
             <Grid x:Name="UnlockRoot">
                 <StackPanel Width="380" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <!-- Unlock the currently selected database. -->
-                    <TextBlock Text="Unlock keepassity" FontSize="20" FontWeight="SemiBold" />
+                    <TextBlock x:Name="UnlockTitle" Text="keepassity"
+                               FontSize="20" FontWeight="SemiBold" />
+                    <TextBlock x:Name="UnlockStartHint"
+                               Text="Open a local .kdbx file, connect to WebDAV, or create a new database."
+                               FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     <TextBlock x:Name="DatabasePathText" Text="No database selected"
                                HorizontalAlignment="Left" TextTrimming="CharacterEllipsis"
-                               MaxWidth="380" Margin="0,4,0,0"
+                               MaxWidth="380" Margin="0,4,0,0" Visibility="Collapsed"
                                FontSize="11"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                    <InfoBar x:Name="UnlockError" IsOpen="False" Severity="Error"
-                             Title="Cannot unlock" IsClosable="False"
-                             Margin="0,12,0,0" />
-                    <StackPanel Spacing="6" Margin="0,20,0,0">
-                        <TextBlock Text="Master password" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <PasswordBox x:Name="MasterPassword" PlaceholderText="Password"
-                                     PasswordRevealMode="Peek"
-                                     KeyDown="MasterPassword_KeyDown" />
-                    </StackPanel>
-                    <Button x:Name="UnlockButton" HorizontalAlignment="Stretch" Height="36"
-                            Margin="0,16,0,0"
-                            Style="{StaticResource AccentButtonStyle}"
-                            Click="UnlockButton_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE72E;" FontSize="14" />
-                            <TextBlock Text="Unlock" />
+
+                    <!-- Only shown when there is a database to unlock. -->
+                    <StackPanel x:Name="UnlockFormSection" Visibility="Collapsed">
+                        <InfoBar x:Name="UnlockError" IsOpen="False" Severity="Error"
+                                 Title="Cannot unlock" IsClosable="False"
+                                 Margin="0,12,0,0" />
+                        <StackPanel Spacing="6" Margin="0,20,0,0">
+                            <TextBlock Text="Master password" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <PasswordBox x:Name="MasterPassword" PlaceholderText="Password"
+                                         PasswordRevealMode="Peek"
+                                         KeyDown="MasterPassword_KeyDown" />
                         </StackPanel>
-                    </Button>
-                    <ProgressRing x:Name="UnlockProgress" IsActive="False"
-                                  Width="22" Height="22" HorizontalAlignment="Center"
-                                  Margin="0,12,0,0" />
+                        <Button x:Name="UnlockButton" HorizontalAlignment="Stretch" Height="36"
+                                Margin="0,16,0,0"
+                                Style="{StaticResource AccentButtonStyle}"
+                                Click="UnlockButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE72E;" FontSize="14" />
+                                <TextBlock Text="Unlock" />
+                            </StackPanel>
+                        </Button>
+                        <ProgressRing x:Name="UnlockProgress" IsActive="False"
+                                      Width="22" Height="22" HorizontalAlignment="Center"
+                                      Margin="0,12,0,0" />
+                    </StackPanel>
 
                     <!-- Database source actions are a separate concern from Unlock. -->
-                    <Border Height="1" Margin="0,24,0,20"
+                    <Border x:Name="UnlockDivider" Height="1" Margin="0,24,0,20"
+                            Visibility="Collapsed"
                             Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                    <TextBlock Text="Open or create a database" FontSize="12"
-                               FontWeight="SemiBold"
+                    <TextBlock x:Name="DatabaseActionsLabel" Text="Open or create a database"
+                               FontSize="12" FontWeight="SemiBold" Visibility="Collapsed"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     <StackPanel Spacing="8" Margin="0,10,0,0">
                         <Button x:Name="ChooseDatabaseButton"
