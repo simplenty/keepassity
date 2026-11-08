@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# cargo-fuzz project for keepassity-core (M5-02).
+#
+# This manifest deliberately declares its own `[workspace]` so the fuzz crate is
+# NOT part of the main repository workspace (repo/Cargo.toml). That keeps
+# `cargo test --workspace`, `cargo clippy --workspace --all-targets` and
+# `cargo fmt --all` at the repository root unaffected by the fuzz harness, which
+# needs nightly + libFuzzer and would otherwise pollute the stable build.
+[package]
+name = "keepassity-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "libFuzzer targets for the keepassity core input surfaces (not shipped)."
+
+[workspace]
+resolver = "2"
+
+# cargo-fuzz builds with `profile.release.debug = "line-tables-only"`. On Windows
+# MSVC that makes the `hidapi` C dependency fail with C compiler error D8050
+# ("cannot put command line into debug record"). Same workaround as
+# repo/Cargo.toml, scoped to the release profile this harness uses.
+[profile.release.package.hidapi]
+debug = false
+
+# Required by `cargo fuzz` to recognise this directory as a fuzz project.
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+# The crate under test: KDBX reader, TOTP/otpauth parsing and merge/sync.
+keepassity-core = { path = ".." }
+# The merge target consumes the same JSON model that `Database::canonical_json`
+# produces; serde_json is already a core dependency, so no new product crate.
+serde_json = "1"
+
+# `cargo fuzz` convention: one [[bin]] per target, test/doc/bench disabled.
+[[bin]]
+name = "kdbx_parse"
+path = "fuzz_targets/kdbx_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "totp_uri"
+path = "fuzz_targets/totp_uri.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "merge_json"
+path = "fuzz_targets/merge_json.rs"
+test = false
+doc = false
+bench = false

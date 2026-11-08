@@ -1,0 +1,9 @@
+# Locally generated fuzzing state (never commit; see README.md).
+# The corpus and crash artifacts are generated OUTSIDE the repository by
+# scripts/seed-corpus.ps1 / -artifact_prefix (default <workspace>/out/...), so
+# these entries are defense in depth for direct `cargo fuzz run` invocations.
+/target
+/corpus
+/artifacts
+/coverage
+*.log
