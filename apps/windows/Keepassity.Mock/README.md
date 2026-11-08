@@ -40,6 +40,14 @@ window; pass `--allow-multiple` for isolated test instances (e.g. conflict tests
 and `--no-tray` when a test needs the close button to exit instead of hiding to
 the notification area.
 
+The tray menu can be opened without pointer input for visual checks:
+`KEEPASSITY_TRAY_MENU_AT="x,y"` (physical screen pixels) opens it 1.5 s after the
+window loads, `KEEPASSITY_TRAY_MENU_SCHEDULE="2000,x,y;8000,x,y"` lists exact
+delay/position toggles, `KEEPASSITY_TRAY_MENU_CYCLE_MS=12000` keeps toggling the
+menu for interactive capture, and `KEEPASSITY_TRAY_MENU_ANCHOR=icon` uses the real
+notification-icon rectangle instead of the point. Combine with
+`KEEPASSITY_DATA_DIR` to isolate settings/logs.
+
 ## Self-test
 
 The app can run a non-UI smoke test against a fixture copy:
