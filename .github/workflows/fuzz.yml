@@ -8,8 +8,8 @@
 # reproduce and minimize with `cargo fuzz tmin` as described in
 # crates/core/fuzz/README.md, then fix the core and add a regression test.
 #
-# Tool versions are pinned (dated nightly + cargo-fuzz) so build failures are
-# attributable; action tags are left as tags for the repo-wide SHA pinning pass.
+# Tool versions are pinned (dated nightly + cargo-fuzz) and every action is
+# pinned to a commit SHA so build failures are attributable.
 name: fuzz
 
 on:
@@ -33,14 +33,11 @@ jobs:
       fail-fast: false
       matrix:
         target: [kdbx_parse, totp_uri, merge_json]
-    env:
-      FUZZ_CORPUS: ${{ runner.temp }}/fuzz-corpus
-      FUZZ_ARTIFACTS: ${{ runner.temp }}/fuzz-artifacts
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install nightly Rust (pinned)
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-11-08
           components: rust-src
@@ -50,7 +47,9 @@ jobs:
 
       - name: Seed corpus outside the repository
         shell: pwsh
-        run: ./crates/core/fuzz/scripts/seed-corpus.ps1 -CorpusDir "$env:FUZZ_CORPUS"
+        # $RUNNER_TEMP keeps the seed corpus outside the checkout (the project
+        # forbids .kdbx files anywhere in the repository tree).
+        run: ./crates/core/fuzz/scripts/seed-corpus.ps1 -CorpusDir "$env:RUNNER_TEMP/fuzz-corpus"
 
       - name: Build fuzz target
         working-directory: crates/core/fuzz
@@ -61,11 +60,13 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mkdir -p "$FUZZ_ARTIFACTS/${{ matrix.target }}"
+          corpus="$RUNNER_TEMP/fuzz-corpus"
+          artifacts="$RUNNER_TEMP/fuzz-artifacts"
+          mkdir -p "$artifacts/${{ matrix.target }}"
           cargo +nightly-2026-11-08 fuzz run "${{ matrix.target }}" \
-            "$FUZZ_CORPUS/${{ matrix.target }}" -- \
+            "$corpus/${{ matrix.target }}" -- \
             -max_total_time=600 -timeout=25 -rss_limit_mb=4096 -print_final_stats=1 \
-            -artifact_prefix="$FUZZ_ARTIFACTS/${{ matrix.target }}/" \
+            -artifact_prefix="$artifacts/${{ matrix.target }}/" \
             2>&1 | tee "fuzz-${{ matrix.target }}.log"
 
       - name: Upload logs and crash artifacts
