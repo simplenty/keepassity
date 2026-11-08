@@ -267,7 +267,7 @@
                             </Grid.ColumnDefinitions>
 
                             <!-- entry list -->
-                            <Grid Grid.Column="0" Padding="16,14,12,12"
+                            <Grid x:Name="EntryColumn" Grid.Column="0" Padding="16,14,12,12"
                                   BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                                   BorderThickness="0,0,1,0">
                                 <Grid.RowDefinitions>
