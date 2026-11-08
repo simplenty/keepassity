@@ -87,7 +87,7 @@ protected fields, TOTP fields and deleted-object records are parsed (and preserv
 where v1.0 has no UI for them).
 
 **Write:** edits are saved through the vendored `keepassxcr` 0.3.1 backend (ADR-0002),
-which writes **KDBX 4.0** files with its defaults (AES-256, Argon2id, ChaCha20 protected
+which writes **KDBX 4.0** files with its defaults (AES-256, Argon2id at 128 MiB / 6 iterations / 4 lanes, ChaCha20 protected
 stream, gzip); a database opened as KDBX 3.1 or 4.1 is therefore written back as KDBX 4.0.
 Saves write a temporary file, take a timestamped backup and atomically replace the database;
 the core save protocol additionally verifies the rewritten bytes against the data model and

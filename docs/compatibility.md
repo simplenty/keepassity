@@ -22,7 +22,7 @@ trip runs in CI. The database used for the real-vault checks is never committed.
 
 ### KDBX write format
 
-App saves are written as **KDBX 4.0** with the backend defaults (AES-256, Argon2id, ChaCha20
+App saves are written as **KDBX 4.0** with the backend defaults (AES-256, Argon2id with 128 MiB / 6 iterations / 4 lanes for new databases, ChaCha20
 protected stream, gzip): a database opened as KDBX 3.1 or 4.1 is written back as KDBX 4.0.
 The CLI/interop `rewrite` path preserves the input version. Model data that the writer maps
 (entries, groups, fields, times, tags, history, attachments, deleted objects, TOTP fields) is
