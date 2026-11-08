@@ -159,39 +159,45 @@
                     <ProgressRing x:Name="UnlockProgress" IsActive="False"
                                   Width="22" Height="22" HorizontalAlignment="Center" />
                     <StackPanel Spacing="8">
-                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
-                            <Button x:Name="ChooseDatabaseButton"
-                                    Style="{StaticResource ToolbarButton}"
-                                    Click="ChooseDatabaseButton_Click">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE8B7;" FontSize="12" />
-                                    <TextBlock Text="Open local file…" />
-                                </StackPanel>
-                            </Button>
-                            <Button x:Name="OpenFromWebDavButton"
-                                    Style="{StaticResource ToolbarButton}"
-                                    Click="OpenFromWebDavButton_Click">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE753;" FontSize="12" />
-                                    <TextBlock Text="Open from WebDAV…" />
-                                </StackPanel>
-                            </Button>
-                        </StackPanel>
-                        <Grid>
-                            <Button x:Name="NewDatabaseButton" Style="{StaticResource ToolbarButton}"
-                                    HorizontalAlignment="Left"
-                                    Click="NewDatabaseButton_Click">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE710;" FontSize="12" />
-                                    <TextBlock Text="New database…" />
-                                </StackPanel>
-                            </Button>
-                            <TextBlock x:Name="DatabasePathText" Text="No database selected"
-                                       HorizontalAlignment="Right" VerticalAlignment="Center"
-                                       MaxWidth="200" TextTrimming="CharacterEllipsis"
-                                       FontSize="11"
-                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                        </Grid>
+                        <Button x:Name="ChooseDatabaseButton"
+                                Style="{StaticResource ToolbarButton}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                MinHeight="36"
+                                Click="ChooseDatabaseButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE8B7;" FontSize="13" />
+                                <TextBlock Text="Open local file…" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpenFromWebDavButton"
+                                Style="{StaticResource ToolbarButton}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                MinHeight="36"
+                                Click="OpenFromWebDavButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE753;" FontSize="13" />
+                                <TextBlock Text="Open from WebDAV…" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="NewDatabaseButton"
+                                Style="{StaticResource ToolbarButton}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                MinHeight="36"
+                                Click="NewDatabaseButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE710;" FontSize="13" />
+                                <TextBlock Text="New database…" />
+                            </StackPanel>
+                        </Button>
+                        <TextBlock x:Name="DatabasePathText" Text="No database selected"
+                                   HorizontalAlignment="Center" TextAlignment="Center"
+                                   MaxWidth="360" TextTrimming="CharacterEllipsis"
+                                   Margin="0,2,0,0"
+                                   FontSize="11"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                     </StackPanel>
                     <TextBlock Text="Local files are read and written through the keepassity core. Databases opened from WebDAV keep a local working copy and sync back on save."
                                FontSize="11" TextWrapping="Wrap"
