@@ -165,12 +165,20 @@ impl KdfConfig {
 
     /// Build a default Argon2id configuration.
     pub fn default_argon2id() -> Self {
+        // keepassity calibration (2026-11-09, M5-03): the requirements ask for
+        // roughly 0.5-1 s of KDF work on the target machine. Measured on the
+        // reference machine (i7-13700H) with the real reader, 64 MiB / I=3 / P=2
+        // opened in ~0.32 s while 128 MiB / I=6 / P=4 opened in ~0.71 s (two
+        // runs each), so the stronger parameters are the default for new
+        // databases. Existing databases keep the parameters in their header;
+        // only files written by this backend start from these values. Method
+        // and numbers: workshop/docs/verify/perf-2026-11-09.md.
         Self::Argon2 {
             kind: KdfType::Argon2id,
             salt: vec![0u8; 32],
-            iterations: 3,
-            memory_kib: 64 * 1024,
-            parallelism: 2,
+            iterations: 6,
+            memory_kib: 128 * 1024,
+            parallelism: 4,
             version: 0x13,
         }
     }
