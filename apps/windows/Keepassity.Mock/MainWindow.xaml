@@ -342,6 +342,9 @@
                                 <ListView x:Name="EntryList" Grid.Row="2" SelectionMode="Single"
                                           SelectionChanged="EntryList_SelectionChanged"
                                           RightTapped="EntryList_RightTapped"
+                                          CanDragItems="True"
+                                          CanReorderItems="False"
+                                          DragItemsStarting="EntryList_DragItemsStarting"
                                           ItemContainerStyle="{StaticResource EntryListItemStyle}"
                                           Background="Transparent" Padding="2,4,8,0">
                                     <ListView.ItemContainerTransitions>

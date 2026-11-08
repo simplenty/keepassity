@@ -2005,6 +2005,12 @@ public sealed partial class MainWindow : Window
                 Icon = new FontIcon { Glyph = group.Glyph },
                 ContextFlyout = BuildGroupContextMenu(group),
             };
+            if (group.Uuid is not null)
+            {
+                item.AllowDrop = true;
+                item.DragOver += GroupNavItem_DragOver;
+                item.Drop += GroupNavItem_Drop;
+            }
             if (group.CountValue > 0 &&
                 !IsRecycleBinGroup(group.Name) &&
                 !IsTemplatesGroup(group.Name))
@@ -2235,6 +2241,50 @@ public sealed partial class MainWindow : Window
         }
         NewEntryButton_Click(this, new RoutedEventArgs());
         await Task.CompletedTask;
+    }
+
+    private void GroupNavItem_DragOver(object sender, DragEventArgs e)
+    {
+        if (sender is not NavigationViewItem item ||
+            item.Tag is not string groupUuid ||
+            groupUuid == "all" ||
+            !e.DataView.Contains(StandardDataFormats.Text))
+        {
+            return;
+        }
+        e.AcceptedOperation = DataPackageOperation.Move;
+        e.DragUIOverride.Caption = $"Move to {item.Content}";
+        e.DragUIOverride.IsCaptionVisible = true;
+        e.DragUIOverride.IsGlyphVisible = false;
+        e.Handled = true;
+    }
+
+    private async void GroupNavItem_Drop(object sender, DragEventArgs e)
+    {
+        if (sender is not NavigationViewItem item ||
+            item.Tag is not string targetGroupUuid ||
+            targetGroupUuid == "all" ||
+            !e.DataView.Contains(StandardDataFormats.Text))
+        {
+            return;
+        }
+        e.Handled = true;
+        string entryUuid = (await e.DataView.GetTextAsync()).Trim();
+        if (entryUuid.Length == 0)
+        {
+            return;
+        }
+        try
+        {
+            await _core.MoveEntryAsync(entryUuid, targetGroupUuid);
+            await SaveAsync();
+            await ReloadVaultAsync(entryUuid);
+            ShowToast($"Moved to {item.Content}", InfoBarSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            ShowToast(ex.Message, InfoBarSeverity.Error);
+        }
     }
 
     private void PopulateEntries(IEnumerable<EntrySummaryDto> entries, string title)
@@ -2483,6 +2533,18 @@ public sealed partial class MainWindow : Window
         {
             ShowToast(ex.Message, InfoBarSeverity.Error);
         }
+    }
+
+    private void EntryList_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
+    {
+        if (e.Items.Count == 0 || e.Items[0] is not EntryItem entry)
+        {
+            e.Cancel = true;
+            return;
+        }
+        e.Data.SetText(entry.Uuid);
+        e.Data.RequestedOperation = DataPackageOperation.Move;
+        e.Data.Properties.Title = entry.Title;
     }
 
     private void EntryList_RightTapped(object sender, RightTappedRoutedEventArgs e)
