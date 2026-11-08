@@ -2023,6 +2023,19 @@ public sealed partial class MainWindow : Window
         _suppressNav = previousSuppress;
     }
 
+    private void SetSettingsHighlight(bool highlighted)
+    {
+        if (highlighted)
+        {
+            SettingsNavItem.Background =
+                (Brush)Application.Current.Resources["SubtleFillColorSecondaryBrush"];
+        }
+        else
+        {
+            SettingsNavItem.ClearValue(Control.BackgroundProperty);
+        }
+    }
+
     private void RestoreGroupNavSelection()
     {
         string tag = _selectedGroupUuid ?? "all";
@@ -3516,6 +3529,7 @@ public sealed partial class MainWindow : Window
         // footer item directly is not supported by NavigationView and can
         // destabilize its selection loop.
         SelectNavItem(null);
+        SetSettingsHighlight(true);
         var theme = new RadioButtons
         {
             Header = "Appearance",
@@ -3706,6 +3720,7 @@ public sealed partial class MainWindow : Window
         content.Children.Add(diagnostics);
         RightPanelResult settingsResult =
             await ShowRightPanelAsync("Settings", content, "Save", closeText: "Cancel");
+        SetSettingsHighlight(false);
         if (ReferenceEquals(NavView.SelectedItem, null))
         {
             RestoreGroupNavSelection();
