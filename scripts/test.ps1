@@ -14,6 +14,14 @@ param(
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
+# Prefer a user-local SDK when one is installed: the machine-wide SDK can be
+# broken (missing workload resolvers) while a dotnet-install copy works. CI has
+# no user-local copy, so this is a no-op there.
+$localDotnet = Join-Path $env:USERPROFILE '.dotnet'
+if (Test-Path (Join-Path $localDotnet 'dotnet.exe')) {
+  $env:PATH = $localDotnet + ';' + $env:PATH
+  $env:DOTNET_ROOT = $localDotnet
+}
 $failures = 0
 function Run([string]$name, [scriptblock]$action) {
   Write-Host "== $name =="
