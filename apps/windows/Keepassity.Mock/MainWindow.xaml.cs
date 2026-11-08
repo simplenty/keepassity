@@ -1858,13 +1858,16 @@ public sealed partial class MainWindow : Window
         UnlockRoot.Visibility = Visibility.Collapsed;
         MainRoot.Visibility = Visibility.Visible;
         SearchBox.Visibility = Visibility.Visible;
+        HamburgerButton.Visibility = Visibility.Visible;
         VaultNameText.Text = DisplayVaultName();
         _totpTimer.Start();
         _autoLockTimer.Start();
         TouchActivity();
         SetSyncStatus(IsSyncConfigured ? "Not synced" : "Local only");
         AnimateWorkspace();
-        EntryList.Focus(FocusState.Programmatic);
+        // Wait for the workspace to be laid out before taking focus, otherwise
+        // the first focusable title-bar control keeps the focus visual.
+        DispatcherQueue.TryEnqueue(() => EntryList.Focus(FocusState.Programmatic));
     }
 
     // ------------------------------------------------------------ vault data
@@ -3284,6 +3287,7 @@ public sealed partial class MainWindow : Window
         MainRoot.Visibility = Visibility.Collapsed;
         UnlockRoot.Visibility = Visibility.Visible;
         SearchBox.Visibility = Visibility.Collapsed;
+        HamburgerButton.Visibility = Visibility.Collapsed;
         SearchBox.Text = string.Empty;
         MasterPassword.Password = string.Empty;
         _masterPassword = null;

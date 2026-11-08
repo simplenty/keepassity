@@ -103,6 +103,7 @@
 
                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Button x:Name="HamburgerButton" Style="{StaticResource IconButton}"
+                            Visibility="Collapsed"
                             Click="HamburgerButton_Click"
                             IsDoubleTapEnabled="True"
                             DoubleTapped="TitleBarButton_DoubleTapped"
