@@ -438,28 +438,27 @@ public sealed partial class MainWindow : Window
 
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
         var duration = new Duration(TimeSpan.FromMilliseconds(280));
-        var middleTransform = new TranslateTransform { X = -14, Y = 22 };
-        var detailTransform = new TranslateTransform { X = 14, Y = 22 };
+        var middleTransform = new TranslateTransform { X = 18 };
+        var detailTransform = new TranslateTransform { X = 18 };
         EntryColumn.RenderTransform = middleTransform;
         EntryColumn.Opacity = 0;
         DetailPane.RenderTransform = detailTransform;
         DetailPane.Opacity = 0;
 
         var storyboard = new Storyboard();
-        void AddSlide(string property, TranslateTransform transform, double to)
+        void AddSlide(TranslateTransform transform)
         {
             var slide = new DoubleAnimation
             {
-                To = to,
+                To = 0,
                 Duration = duration,
                 EasingFunction = ease,
             };
             Storyboard.SetTarget(slide, transform);
-            Storyboard.SetTargetProperty(slide, property);
+            Storyboard.SetTargetProperty(slide, "X");
             storyboard.Children.Add(slide);
         }
-        AddSlide("X", middleTransform, 0);
-        AddSlide("Y", middleTransform, 0);
+        AddSlide(middleTransform);
         var middleFade = new DoubleAnimation
         {
             To = 1,
@@ -470,8 +469,7 @@ public sealed partial class MainWindow : Window
         Storyboard.SetTargetProperty(middleFade, "Opacity");
         storyboard.Children.Add(middleFade);
 
-        AddSlide("X", detailTransform, 0);
-        AddSlide("Y", detailTransform, 0);
+        AddSlide(detailTransform);
         var detailFade = new DoubleAnimation
         {
             To = 1,
