@@ -354,6 +354,57 @@ fn dispatch(state: &mut HandleState, command: &Value) -> Result<String, FfiError
         "list_groups" => with_database(state, |database| {
             Ok(json!(flatten_groups(database)).to_string())
         }),
+        "create_group" => with_database_dirty(state, |database| {
+            let parent_uuid = parse_uuid_arg(command, "parent_uuid")?;
+            let name = parse_group_name(command)?;
+            let parent =
+                find_group_mut(database, parent_uuid).ok_or_else(FfiError::not_found)?;
+            let uuid = new_uuid();
+            let now = now_unix();
+            let stamp = xml_datetime_from_unix(now);
+            let group = Group {
+                uuid,
+                name,
+                icon_id: 48,
+                times: Times {
+                    creation: stamp.clone(),
+                    last_modification: stamp.clone(),
+                    last_access: stamp.clone(),
+                    expiry: stamp.clone(),
+                    location_changed: stamp,
+                    ..Times::default()
+                },
+                is_expanded: true,
+                ..Group::default()
+            };
+            parent.groups.push(group);
+            Ok(json!({"uuid": uuid.to_hex()}).to_string())
+        }),
+        "rename_group" => with_database_dirty(state, |database| {
+            let uuid = parse_uuid_arg(command, "uuid")?;
+            let name = parse_group_name(command)?;
+            let group = find_group_mut(database, uuid).ok_or_else(FfiError::not_found)?;
+            group.name = name;
+            group.times.last_modification = xml_datetime_from_unix(now_unix());
+            Ok(json!({"uuid": uuid.to_hex()}).to_string())
+        }),
+        "delete_group" => with_database_dirty(state, |database| {
+            let uuid = parse_uuid_arg(command, "uuid")?;
+            if uuid == database.root.uuid {
+                return Err(FfiError::invalid("the root group cannot be deleted"));
+            }
+            if database.meta.recycle_bin_uuid == Some(uuid) {
+                return Err(FfiError::invalid("the recycle bin group cannot be deleted"));
+            }
+            let group = find_group(database, uuid).ok_or_else(FfiError::not_found)?;
+            if !group.entries.is_empty() || !group.groups.is_empty() {
+                return Err(FfiError::invalid(
+                    "only empty groups can be deleted; move or delete its contents first",
+                ));
+            }
+            remove_group(&mut database.root, uuid).ok_or_else(FfiError::not_found)?;
+            Ok(json!({"deleted": true}).to_string())
+        }),
         "list_entries" => with_database(state, |database| {
             let entries = select_entries(
                 database,
@@ -1094,6 +1145,28 @@ fn remove_entry(group: &mut Group, uuid: Uuid) -> Option<(Entry, Uuid)> {
         }
     }
     None
+}
+
+fn remove_group(group: &mut Group, uuid: Uuid) -> Option<Group> {
+    if let Some(index) = group.groups.iter().position(|child| child.uuid == uuid) {
+        return Some(group.groups.remove(index));
+    }
+    for child in &mut group.groups {
+        if let Some(found) = remove_group(child, uuid) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn parse_group_name(command: &Value) -> Result<String, FfiError> {
+    let name = command
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| FfiError::invalid("group name is required"))?;
+    Ok(name.to_string())
 }
 
 fn database_stats(database: &Database) -> (usize, usize, usize, usize) {
