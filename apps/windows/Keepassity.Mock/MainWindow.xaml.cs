@@ -3512,7 +3512,10 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        SelectNavItem(SettingsNavItem);
+        // Clear the group highlight while Settings is open. Selecting the
+        // footer item directly is not supported by NavigationView and can
+        // destabilize its selection loop.
+        SelectNavItem(null);
         var theme = new RadioButtons
         {
             Header = "Appearance",
@@ -3703,7 +3706,7 @@ public sealed partial class MainWindow : Window
         content.Children.Add(diagnostics);
         RightPanelResult settingsResult =
             await ShowRightPanelAsync("Settings", content, "Save", closeText: "Cancel");
-        if (ReferenceEquals(NavView.SelectedItem, SettingsNavItem))
+        if (ReferenceEquals(NavView.SelectedItem, null))
         {
             RestoreGroupNavSelection();
         }
