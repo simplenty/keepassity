@@ -108,7 +108,7 @@ locally with `cargo +nightly fuzz run <target>` from `crates/core/fuzz/` (see it
 |---|---|---|
 | Rust | `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`, `cargo test --workspace` | clippy is the Rust static analyzer; CodeQL has no Rust support |
 | Rust dependencies | `cargo deny check` (licenses, advisories, bans) in the `supply-chain` job | config in `deny.toml`, now including a sources policy |
-| C# / WinUI | `dotnet build` of the solution + the project-level publish path, CodeQL `csharp` | CodeQL only analyzes the C# side; there is no C# formatting gate yet (tracked as a v1.x idea) |
+| C# / WinUI | `dotnet build` of the solution + the project-level publish path, CodeQL `csharp` (`security-extended`, generated files excluded) | CodeQL only analyzes the C# side; there is no C# formatting gate yet (tracked as a v1.x idea) |
 | App text | `tools/check-ui-strings.ps1` (no hard-coded non-English UI strings) | keeps the UI English-only |
 | KDBX/parsers | fuzzing (`crates/core/fuzz`, nightly job) | panics inside the guarded upstream reader are classified, see `crates/core/fuzz/README.md` |
 
