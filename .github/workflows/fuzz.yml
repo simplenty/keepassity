@@ -4,9 +4,13 @@
 # fuzzing never blocks or slows pull requests. Each target runs for 600 s, so a
 # full run is ~30 minutes of fuzzing (three targets in parallel).
 #
-# Crash inputs are uploaded as artifacts. A failed run means a real finding:
-# reproduce and minimize with `cargo fuzz tmin` as described in
-# crates/core/fuzz/README.md, then fix the core and add a regression test.
+# Crash inputs are uploaded as artifacts. `libfuzzer-sys` turns every panic into
+# a process abort (it installs a panic hook that aborts before unwinding), so a
+# panic inside the third-party `keepass` reader also looks like a crash. The
+# product guards those reads with `catch_unwind` (see
+# crates/core/tests/malformed_input.rs), therefore the job replays every crash
+# artifact through the guarded reader: hardened upstream panics are reported as
+# a warning, anything not covered by the guard fails the job.
 #
 # Tool versions are pinned (dated nightly + cargo-fuzz) and every action is
 # pinned to a commit SHA so build failures are attributable.
@@ -56,6 +60,8 @@ jobs:
         run: cargo +nightly-2026-11-08 fuzz build ${{ matrix.target }}
 
       - name: Run fuzz target
+        id: fuzz-run
+        continue-on-error: true
         working-directory: crates/core/fuzz
         shell: bash
         run: |
@@ -68,6 +74,57 @@ jobs:
             -max_total_time=600 -timeout=25 -rss_limit_mb=4096 -print_final_stats=1 \
             -artifact_prefix="$artifacts/${{ matrix.target }}/" \
             2>&1 | tee "fuzz-${{ matrix.target }}.log"
+
+      # Replay every crash artifact through the guarded product reader. Exit 0
+      # means the guard converted the upstream panic into a normal read error
+      # (hardened, warning only); exit 2 means the input parsed, exit 3 means the
+      # product reader panicked despite the guard (coverage gap, hard failure).
+      - name: Classify crash artifacts with the guarded reader
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $target = '${{ matrix.target }}'
+          $artifacts = Join-Path $env:RUNNER_TEMP "fuzz-artifacts/$target"
+          $crashes = @(Get-ChildItem -LiteralPath $artifacts -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(crash|timeout|oom|leak)-' })
+          $fuzzFailed = '${{ steps.fuzz-run.outcome }}' -eq 'failure'
+          if (-not $crashes) {
+            if ($fuzzFailed) { throw "the $target fuzz run failed but produced no crash artifact (timeout, OOM, sanitizer report or build failure) - inspect fuzz-$target.log" }
+            Write-Host "no crash artifacts for $target"
+            exit 0
+          }
+          $resolved = (Resolve-Path .).Path
+          $cargoTarget = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $resolved 'target' }
+          Write-Host "replaying $($crashes.Count) artifact(s) through the guarded reader"
+          cargo build -p keepassity-core --example guarded_replay
+          if ($LASTEXITCODE -ne 0) { throw 'could not build the guarded replay helper' }
+          $helper = Join-Path $cargoTarget 'debug/examples/guarded_replay'
+          if (-not (Test-Path -LiteralPath $helper)) { throw "guarded replay helper missing: $helper" }
+          $guarded = 0
+          $problems = @()
+          foreach ($crash in $crashes) {
+            if ($crash.Name -notlike 'crash-*') {
+              $problems += "$($crash.Name): non-panic artifact (timeout/OOM/leak) is a real resource finding"
+              continue
+            }
+            & $helper $crash.FullName
+            $exitCode = $LASTEXITCODE
+            switch ($exitCode) {
+              0 { $guarded++ }
+              2 { $problems += "$($crash.Name): parsed successfully, not a crash input" }
+              3 { $problems += "$($crash.Name): the product reader panicked despite the guard (coverage gap)" }
+              default { $problems += "$($crash.Name): guarded replay helper failed with exit $exitCode" }
+            }
+          }
+          if ($guarded -gt 0) {
+            Write-Host "::warning::$guarded of $($crashes.Count) $target artifact(s) are upstream reader panics already converted to read errors by the product guard (hardened; see crates/core/tests/malformed_input.rs)"
+          }
+          if ($problems.Count -gt 0) {
+            $problems | ForEach-Object { Write-Host "::error::$_" }
+            throw "$($problems.Count) fuzz artifact(s) are not covered by the reader guard"
+          }
+          Write-Host "all $guarded $target artifact(s) are guarded upstream panics; job passes"
 
       - name: Upload logs and crash artifacts
         if: always()

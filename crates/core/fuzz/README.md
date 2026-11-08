@@ -115,6 +115,31 @@ underlying panic fixed in `crates/core` before the finding is considered done.
 `.github/workflows/fuzz.yml` added to `public.allowlist` before it can be
 tracked in the public repository.
 
+## Nightly CI and known upstream panics
+
+`.github/workflows/fuzz.yml` runs the three targets nightly (600 s each) and on
+`workflow_dispatch`. `libfuzzer-sys` aborts the process on every panic (its panic
+hook aborts before unwinding), which is the right default for fuzzing: a panic
+in the input path is a bug.
+
+The third-party `keepass` reader panics on a few malformed headers instead of
+returning an error. The product guards those reads (`keepassity_core::kdbx::reader`
+wraps them in `catch_unwind` and returns `KdbxReadError::Corrupt`; regression
+inputs live in `crates/core/tests/malformed_input.rs`). Because the fuzzer cannot
+see past the abort, the CI job replays every crash artifact through
+`cargo run -p keepassity-core --example guarded_replay -- <file>`:
+
+| replay result | meaning | job outcome |
+|---|---|---|
+| exit 0 (`GUARDED`) | upstream panic converted to a normal read error | pass, with a warning |
+| exit 2 (`PARSED`) | the artifact is not actually a crash input | fail |
+| exit 3 | the product reader panicked despite the guard | fail |
+| anything else | replay/setup problem | fail |
+
+So a green nightly run means "no crash outside the guarded upstream reader"; the
+warning keeps the known upstream panic visible for review. Any new, unguarded
+crash fails the job and uploads the artifact.
+
 ## Sources
 
 - cargo-fuzz book, setup & usage: <https://rust-fuzz.github.io/book/cargo-fuzz.html>,
