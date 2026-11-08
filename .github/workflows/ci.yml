@@ -82,12 +82,26 @@ jobs:
           dotnet-version: "8.0.x"
       - name: download and verify the official KeePass source release
         shell: pwsh
+        # SourceForge is the only official distributor and it answers differently
+        # depending on client, cookies and mirror state. Try the concrete mirror
+        # endpoints first with a browser User-Agent, then fall back to parsing the
+        # download page for a mirror link. The hash is the authority either way:
+        # the first candidate with the pinned SHA-256 wins and a mismatch fails
+        # the job loudly instead of silently skipping interop.
         run: |
           $ErrorActionPreference = 'Stop'
           $version = $env:KEEPASS_VERSION
           $archive = Join-Path $env:RUNNER_TEMP "KeePass-$version-Source.zip"
           $sourceRoot = Join-Path $env:RUNNER_TEMP 'keepass-source'
-          $pageUrl = "https://sourceforge.net/projects/keepass/files/KeePass%20$version/KeePass-$version-Source.zip/download"
+          $expected = $env:KEEPASS_SOURCE_SHA256
+          $ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'
+          $encoded = 'KeePass%20' + $version
+          $candidates = @(
+            "https://sourceforge.net/projects/keepass/files/$encoded/KeePass-$version-Source.zip/download",
+            "https://master.dl.sourceforge.net/project/keepass/$encoded/KeePass-$version-Source.zip?viasf=1",
+            "https://downloads.sourceforge.net/project/keepass/$encoded/KeePass-$version-Source.zip",
+            "https://downloads.sourceforge.net/project/keepass/$encoded/KeePass-$version-Source.zip?use_mirror=autoselect"
+          )
           function Test-ZipArchive([string]$path) {
             if (-not (Test-Path -LiteralPath $path)) { return $false }
             $stream = [System.IO.File]::OpenRead($path)
@@ -96,21 +110,45 @@ jobs:
             }
             finally { $stream.Dispose() }
           }
-          Invoke-WebRequest -Uri $pageUrl -OutFile $archive -UseBasicParsing
-          if (-not (Test-ZipArchive $archive)) {
-            # SourceForge sometimes answers with its download page (which carries
-            # a short-lived mirror link) instead of an HTTP redirect.
-            $html = Get-Content -LiteralPath $archive -Raw
-            $match = [regex]::Match($html, 'https://downloads\.sourceforge\.net/[^"''<> ]+KeePass-[^"''<> ]+\.zip[^"''<> ]*')
-            if (-not $match.Success) { throw 'SourceForge download page contained no mirror link' }
+          function Test-ExpectedHash([string]$path) {
+            if (-not (Test-ZipArchive $path)) { return $false }
+            return ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -eq $expected)
+          }
+          $ok = $false
+          foreach ($url in $candidates) {
+            if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }
+            Write-Host "trying $url"
+            & curl.exe --silent --show-error --location --fail --retry 2 --retry-delay 3 --max-time 300 `
+              --user-agent $ua --output $archive $url
+            if ($LASTEXITCODE -ne 0) { Write-Host "  curl exit $LASTEXITCODE"; continue }
+            if (Test-ExpectedHash $archive) {
+              Write-Host "  downloaded from this endpoint"
+              $ok = $true
+              break
+            }
+            Write-Host "  endpoint answered with $(if (Test-Path -LiteralPath $archive) { (Get-Item $archive).Length } else { 0 }) bytes that are not the pinned archive"
+          }
+          if (-not $ok) {
+            # Last resort: fetch the download page and follow any keepass zip link
+            # it advertises (the page embeds a short-lived mirror URL).
+            $pageUrl = $candidates[0]
+            Write-Host "parsing $pageUrl for a mirror link"
+            $html = & curl.exe --silent --show-error --location --fail --max-time 120 --user-agent $ua $pageUrl
+            if ($LASTEXITCODE -ne 0) { throw "could not fetch the SourceForge download page (curl exit $LASTEXITCODE)" }
+            $match = [regex]::Match(($html -join "`n"), 'https://[^"''<> ]*sourceforge\.net[^"''<> ]*KeePass-[^"''<> ]*\.zip[^"''<> ]*')
+            if (-not $match.Success) { throw 'no official KeePass source archive could be downloaded or found on the download page (SourceForge layout changed?)' }
             $mirror = $match.Value -replace '&amp;', '&'
-            Invoke-WebRequest -Uri $mirror -OutFile $archive -UseBasicParsing
+            Write-Host "trying mirror $mirror"
+            & curl.exe --silent --show-error --location --fail --retry 2 --retry-delay 3 --max-time 300 `
+              --user-agent $ua --output $archive $mirror
+            if ($LASTEXITCODE -ne 0) { throw "mirror download failed (curl exit $LASTEXITCODE)" }
+            if (-not (Test-ExpectedHash $archive)) {
+              $actual = if (Test-Path -LiteralPath $archive) { (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash } else { '<missing>' }
+              throw "KeePass source SHA-256 mismatch: $actual (expected $expected)"
+            }
+            $ok = $true
           }
-          if (-not (Test-ZipArchive $archive)) { throw 'downloaded KeePass source is not a zip archive' }
           $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
-          if ($hash -ne $env:KEEPASS_SOURCE_SHA256) {
-            throw "KeePass source SHA-256 mismatch: $hash (expected $env:KEEPASS_SOURCE_SHA256)"
-          }
           Write-Host "KeePass $version source verified: $hash"
           Expand-Archive -LiteralPath $archive -DestinationPath $sourceRoot -Force
       - name: build managed KeePassLib from source
