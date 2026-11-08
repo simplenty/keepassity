@@ -357,8 +357,7 @@ fn dispatch(state: &mut HandleState, command: &Value) -> Result<String, FfiError
         "create_group" => with_database_dirty(state, |database| {
             let parent_uuid = parse_uuid_arg(command, "parent_uuid")?;
             let name = parse_group_name(command)?;
-            let parent =
-                find_group_mut(database, parent_uuid).ok_or_else(FfiError::not_found)?;
+            let parent = find_group_mut(database, parent_uuid).ok_or_else(FfiError::not_found)?;
             let uuid = new_uuid();
             let now = now_unix();
             let stamp = xml_datetime_from_unix(now);
