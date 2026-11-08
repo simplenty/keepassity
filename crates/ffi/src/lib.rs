@@ -397,19 +397,19 @@ fn dispatch(state: &mut HandleState, command: &Value) -> Result<String, FfiError
                 return Err(FfiError::invalid("the recycle bin group cannot be deleted"));
             }
             let group = find_group(database, uuid).ok_or_else(FfiError::not_found)?;
-            if !group.entries.is_empty() || !group.groups.is_empty() {
-                return Err(FfiError::invalid(
-                    "only empty groups can be deleted; move or delete its contents first",
-                ));
-            }
+            let mut tombstones = Vec::new();
+            collect_group_tombstones(group, &mut tombstones);
             remove_group(&mut database.root, uuid).ok_or_else(FfiError::not_found)?;
-            // Groups have no dedicated tombstone table in KDBX, so record the
-            // deletion as a DeletedObject; the sync merge uses it to keep a
-            // remote copy from resurrecting the group.
-            database.deleted_objects.push(DeletedObject {
-                uuid,
-                deletion_time: xml_datetime_from_unix(now_unix()),
-            });
+
+            // Record the group and every removed descendant/entry. Without
+            // tombstones a later remote merge would resurrect the subtree.
+            let deletion_time = xml_datetime_from_unix(now_unix());
+            for deleted_uuid in tombstones {
+                database.deleted_objects.push(DeletedObject {
+                    uuid: deleted_uuid,
+                    deletion_time: deletion_time.clone(),
+                });
+            }
             Ok(json!({"deleted": true}).to_string())
         }),
         "list_entries" => with_database(state, |database| {
@@ -1164,6 +1164,16 @@ fn remove_group(group: &mut Group, uuid: Uuid) -> Option<Group> {
         }
     }
     None
+}
+
+fn collect_group_tombstones(group: &Group, out: &mut Vec<Uuid>) {
+    out.push(group.uuid);
+    for entry in &group.entries {
+        out.push(entry.uuid);
+    }
+    for child in &group.groups {
+        collect_group_tombstones(child, out);
+    }
 }
 
 fn parse_group_name(command: &Value) -> Result<String, FfiError> {
