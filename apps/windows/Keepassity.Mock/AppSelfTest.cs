@@ -10,10 +10,8 @@ internal static class AppSelfTest
 {
     public static int Run(string databasePath, string reportPath)
     {
-        var lines = new List<string>();
         void Record(string message)
         {
-            lines.Add(message);
             try
             {
                 File.AppendAllText(reportPath, message + Environment.NewLine);

@@ -49,3 +49,4 @@ installer/**
 .github/ISSUE_TEMPLATE/config.yml
 .github/workflows/codeql.yml
 .github/workflows/fuzz.yml
+.github/codeql/codeql-config.yml
