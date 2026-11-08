@@ -4,6 +4,12 @@
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>Keepassity.Mock</RootNamespace>
+    <!-- The project folder keeps its prototype name, but the shipped binary is
+         Keepassity.exe: process name, taskbar, Start Menu and "Open with" all
+         show the product name, not the internal project name. -->
+    <AssemblyName>Keepassity</AssemblyName>
+    <Product>keepassity</Product>
+    <Description>keepassity - local-first KeePass KDBX client</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
@@ -15,7 +21,17 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Win32/Explorer icon for the executable. Assets\app.ico is also listed as
+         Content below so the window, tray icon and About page can load the same
+         artwork from disk at runtime (AppWindow.SetIcon(string) needs a real
+         .ico path, not the embedded resource). -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Runtime icon assets copied next to the executable (and into publish/). -->
+    <Content Include="Assets\app.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\app-icon-256.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Keepassity.Core\Keepassity.Core.csproj" />
   </ItemGroup>

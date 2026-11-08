@@ -47,6 +47,54 @@ internal static class AppSelfTest
             {
                 throw new FileNotFoundException("Fixture not found.", databasePath);
             }
+            // Branding assets must be copied next to the executable; the window
+            // icon, tray icon and About logo all load them from there.
+            Record("checking icon assets");
+            if (!File.Exists(AppAssets.AppIconPath) ||
+                !File.Exists(AppAssets.AppIconPreviewPath))
+            {
+                throw new InvalidOperationException(
+                    "Icon assets are missing next to the executable (Assets/app.ico, " +
+                    "Assets/app-icon-256.png).");
+            }
+            string executable = Environment.ProcessPath ?? string.Empty;
+            using (System.Drawing.Icon? executableIcon =
+                   System.Drawing.Icon.ExtractAssociatedIcon(executable))
+            {
+                if (executableIcon is null || executableIcon.Width < 16)
+                {
+                    throw new InvalidOperationException(
+                        "The executable has no application icon resource.");
+                }
+                Record($"icons: assets present, executable icon " +
+                       $"{executableIcon.Width}x{executableIcon.Height}");
+            }
+            using (System.Drawing.Image aboutPreview =
+                   System.Drawing.Image.FromFile(AppAssets.AppIconPreviewPath))
+            {
+                if (aboutPreview.Width < 64 || aboutPreview.Height < 64)
+                {
+                    throw new InvalidOperationException(
+                        "The About icon preview is smaller than 64px.");
+                }
+                Record($"icons: about preview {aboutPreview.Width}x{aboutPreview.Height}");
+            }
+            // A bare .kdbx path (file association / Explorer "Open with") must be
+            // treated like --db; unrelated switches must be ignored.
+            Record("checking launch arguments");
+            string? fromSwitch = LaunchArguments.FindDatabasePath(
+                new[] { "keepassity.exe", "--db", databasePath }, File.Exists);
+            string? fromAssociation = LaunchArguments.FindDatabasePath(
+                new[] { "keepassity.exe", databasePath }, File.Exists);
+            string? ignoredSwitch = LaunchArguments.FindDatabasePath(
+                new[] { "keepassity.exe", "--data-dir", @"C:\keepassity-data" },
+                _ => true);
+            if (fromSwitch != databasePath || fromAssociation != databasePath ||
+                ignoredSwitch is not null)
+            {
+                throw new InvalidOperationException("Launch argument parsing is wrong.");
+            }
+            Record("launch arguments: --db and file-association paths recognized");
             Record("copying fixture");
             File.Copy(databasePath, temp, true);
             using (var core = new CoreClient())

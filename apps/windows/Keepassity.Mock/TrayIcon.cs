@@ -35,6 +35,7 @@ public sealed class TrayIcon : IDisposable
     private readonly TaskbarIcon _icon;
     private readonly MenuFlyout _menu;
     private readonly MenuFlyoutItem _lockItem;
+    private System.Drawing.Icon? _ownedIcon;
     private Window? _anchorWindow;
     private Border? _anchor;
     private ElementTheme _theme;
@@ -94,8 +95,8 @@ public sealed class TrayIcon : IDisposable
     private static extern int Shell_NotifyIconGetRect(ref NotifyIconIdentifier identifier,
         out NativeRect iconLocation);
 
-    public TrayIcon(string toolTip, ElementTheme theme, Action show, Action lockAction,
-        Action exit)
+    public TrayIcon(string toolTip, ElementTheme theme, string? iconPath, Action show,
+        Action lockAction, Action exit)
     {
         _theme = theme;
 
@@ -156,16 +157,44 @@ public sealed class TrayIcon : IDisposable
             LeftClickCommand = new TrayCommand(show),
             DoubleClickCommand = new TrayCommand(show),
             RightClickCommand = new TrayCommand(OpenMenuAtIcon),
-            IconSource = new GeneratedIconSource
+        };
+        // Prefer the real application artwork. H.NotifyIcon accepts a
+        // System.Drawing.Icon directly for the notification-area icon; the
+        // framework keeps using the icon for the lifetime of the tray icon, so
+        // the instance is owned and disposed here.
+        if (!TrySetApplicationIcon(iconPath))
+        {
+            _icon.IconSource = new GeneratedIconSource
             {
                 Text = "K",
                 FontSize = 34,
                 FontWeight = Microsoft.UI.Text.FontWeights.Bold,
                 Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
                 Background = new SolidColorBrush(Color.FromArgb(255, 0, 120, 212)),
-            },
-        };
+            };
+        }
         _icon.ForceCreate();
+    }
+
+    private bool TrySetApplicationIcon(string? iconPath)
+    {
+        if (string.IsNullOrWhiteSpace(iconPath) || !File.Exists(iconPath))
+        {
+            AppLog.Warn("tray icon: app.ico asset is missing; using the generated fallback");
+            return false;
+        }
+        try
+        {
+            _ownedIcon = new System.Drawing.Icon(iconPath);
+            _icon.Icon = _ownedIcon;
+            AppLog.Info("tray icon: loaded Assets/app.ico");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("tray icon: app.ico could not be loaded", ex);
+            return false;
+        }
     }
 
     public bool Available => !_disposed && _icon.IsCreated;
@@ -558,6 +587,15 @@ public sealed class TrayIcon : IDisposable
         try
         {
             _icon.Dispose();
+        }
+        catch
+        {
+            // Best-effort cleanup.
+        }
+        try
+        {
+            _ownedIcon?.Dispose();
+            _ownedIcon = null;
         }
         catch
         {
