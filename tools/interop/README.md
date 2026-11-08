@@ -55,6 +55,15 @@ The `interop-keepasslib / windows` CI job does exactly this, so the write closur
 is checked by two independent readers (`keepassxc-cli` on Linux and KeePassLib on
 Windows).
 
+SourceForge (the official distributor) rejects requests from cloud/datacenter
+addresses, including GitHub-hosted runners, so the CI job falls back to a pinned
+GitHub mirror of the official source package ([`csware/keepass2`](https://github.com/csware/keepass2),
+commit `5aa5bb77`, archive SHA-256 `c518a1ea...`). Both paths must match a pinned
+SHA-256 before use: the official archive against the hash published on
+<https://keepass.info/integrity.html>, the mirror archive against the hash pinned
+in `.github/workflows/ci.yml`. To run the job against a locally downloaded
+official package instead, set `KEEPASS_SOURCE_ZIP` in the environment.
+
 Known limitation: the managed KeePassLib build does not include the Twofish
 cipher plugin, so Twofish fixtures are skipped for the KeePassLib check and are
 covered by `keepassxc-cli` plus the CLI verifier instead.
