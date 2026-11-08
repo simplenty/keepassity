@@ -1896,8 +1896,11 @@ public sealed partial class MainWindow : Window
 
     // ------------------------------------------------------------ vault data
 
-    private async Task ReloadVaultAsync(string? selectEntryUuid)
+    private async Task ReloadVaultAsync(string? selectEntryUuid, bool preserveScroll = true)
     {
+        double entryScrollOffset = preserveScroll
+            ? FindDescendant<ScrollViewer>(EntryList)?.VerticalOffset ?? 0
+            : 0;
         List<GroupDto> groups = await _core.ListGroupsAsync();
         List<EntrySummaryDto> allEntries = await _core.ListEntriesAsync();
 
@@ -1988,6 +1991,35 @@ public sealed partial class MainWindow : Window
                 EntryList.SelectedItem = select;
             }
         }
+        if (preserveScroll && entryScrollOffset > 0)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+                FindDescendant<ScrollViewer>(EntryList)
+                    ?.ChangeView(null, entryScrollOffset, null, true));
+        }
+    }
+
+    private static T? FindDescendant<T>(DependencyObject? root) where T : DependencyObject
+    {
+        if (root is null)
+        {
+            return null;
+        }
+        int count = VisualTreeHelper.GetChildrenCount(root);
+        for (int index = 0; index < count; index++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                return match;
+            }
+            T? nested = FindDescendant<T>(child);
+            if (nested is not null)
+            {
+                return nested;
+            }
+        }
+        return null;
     }
 
     private void PopulateNavigation(string? selectedUuid)
@@ -2009,6 +2041,7 @@ public sealed partial class MainWindow : Window
             {
                 item.AllowDrop = true;
                 item.DragOver += GroupNavItem_DragOver;
+                item.DragLeave += GroupNavItem_DragLeave;
                 item.Drop += GroupNavItem_Drop;
             }
             if (group.CountValue > 0 &&
@@ -2153,7 +2186,7 @@ public sealed partial class MainWindow : Window
         string uuid = await _core.CreateGroupAsync(_rootGroupUuid, name);
         await SaveAsync();
         _selectedGroupUuid = uuid;
-        await ReloadVaultAsync(null);
+        await ReloadVaultAsync(null, preserveScroll: false);
         ShowToast($"Group \"{name}\" created", InfoBarSeverity.Success);
     }
 
@@ -2203,7 +2236,7 @@ public sealed partial class MainWindow : Window
             _selectedGroupUuid = null;
         }
         await SaveAsync();
-        await ReloadVaultAsync(null);
+        await ReloadVaultAsync(null, preserveScroll: false);
         ShowToast("Group deleted", InfoBarSeverity.Success);
     }
 
@@ -2252,11 +2285,31 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
+        item.Background =
+            (Brush)Application.Current.Resources["AccentFillColorSecondaryBrush"];
+        item.BorderBrush =
+            (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
+        item.BorderThickness = new Thickness(1);
         e.AcceptedOperation = DataPackageOperation.Move;
         e.DragUIOverride.Caption = $"Move to {item.Content}";
         e.DragUIOverride.IsCaptionVisible = true;
         e.DragUIOverride.IsGlyphVisible = false;
         e.Handled = true;
+    }
+
+    private void GroupNavItem_DragLeave(object sender, DragEventArgs e)
+    {
+        if (sender is NavigationViewItem item)
+        {
+            ClearGroupDragHighlight(item);
+        }
+    }
+
+    private static void ClearGroupDragHighlight(NavigationViewItem item)
+    {
+        item.ClearValue(Control.BackgroundProperty);
+        item.ClearValue(Control.BorderBrushProperty);
+        item.ClearValue(Control.BorderThicknessProperty);
     }
 
     private async void GroupNavItem_Drop(object sender, DragEventArgs e)
@@ -2269,6 +2322,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         e.Handled = true;
+        ClearGroupDragHighlight(item);
         string entryUuid = (await e.DataView.GetTextAsync()).Trim();
         if (entryUuid.Length == 0)
         {
@@ -2980,7 +3034,7 @@ public sealed partial class MainWindow : Window
                 string.IsNullOrWhiteSpace(title.Text) ? "Untitled entry" : title.Text.Trim(),
                 username.Text.Trim(), password.Password, url.Text.Trim(), notes.Text);
             await SaveAsync();
-            await ReloadVaultAsync(uuid);
+            await ReloadVaultAsync(uuid, preserveScroll: false);
             ShowToast("Entry created and saved", InfoBarSeverity.Success);
         }
         catch (Exception ex)
@@ -3153,7 +3207,7 @@ public sealed partial class MainWindow : Window
             await _core.MoveEntryAsync(uuid, target.Uuid);
             await SaveAsync();
             _selectedGroupUuid = target.Uuid;
-            await ReloadVaultAsync(uuid);
+            await ReloadVaultAsync(uuid, preserveScroll: false);
             ShowToast($"Moved to {target.Name}", InfoBarSeverity.Success);
         }
         catch (Exception ex)
