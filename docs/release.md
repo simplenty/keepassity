@@ -28,15 +28,14 @@ The public repository ships self-contained Windows packages built from a tag.
 
 Produce the 1.0.0 build and use it for the 30-day acceptance without creating a tag.
 
-The build output must live **outside the workspace** when the workspace carries a Low
-integrity label (the usual local setup here): a `setup.exe` started from a Low-labeled
-folder cannot create its `%TEMP%\is-*.tmp` files, so the install fails even though the
-build succeeded, and `icacls ... /setintegritylevel Medium` cannot relabel it without
-`SeRelabelPrivilege`. Build into a normal (Medium) folder such as
-`%USERPROFILE%\Desktop\keepassity-release`; the private wrapper
-`workshop/scripts/build-release.ps1` does exactly that and chains all four steps below,
-and `workshop/scripts/install-release.ps1` installs the result and runs
-`tools/installer/verify-install.ps1`.
+The build output must live in a **normal (Medium integrity) folder on disk** if your
+working directory carries a Low integrity label (some sandboxed setups do): a `setup.exe`
+started from a Low-labeled folder cannot create its `%TEMP%\is-*.tmp` files, so the install
+fails even though the build succeeded, and `icacls ... /setintegritylevel Medium` cannot
+relabel it without `SeRelabelPrivilege`. A folder such as
+`%USERPROFILE%\keepassity-release` works; `out\dist` inside a Low-labeled workspace does
+not. The four steps below produce the portable folder, the installer, the checksums and the
+SBOM, and `tools/installer/verify-install.ps1` checks the result after installing it.
 
 The app project's default FFI lookup is `out\cargo-target\release`, which is what
 `CARGO_TARGET_DIR` below matches. Inno Setup 6 must be installed for the installer step.

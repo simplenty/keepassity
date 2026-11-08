@@ -13,7 +13,7 @@
 // native core through the FFI v1 C ABI, so edits/saves/sync decisions/merges are
 // the product code paths. Only the WinUI conflict dialog and its conflict-copy
 // file naming remain UI/manual (documented in tools/drills/README.md and
-// workshop/docs/verify/drills-2026-11-08.md).
+// the project process documentation).
 
 using System.Security.Cryptography;
 using System.Text.Json;

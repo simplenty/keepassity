@@ -19,7 +19,8 @@
 //! | `BackupInfo` | `path, size, created_unix` |
 //! | `Error` | `code, message, retryable, detail?` |
 //!
-//! Note: the internal draft `.agents/contracts/dto.schema.json` is not fully
+//! Note: the internal DTO contract draft (kept with the project process
+//! documentation, not shipped in this repository) is not fully
 //! aligned with appendix D yet (it lacks `icon`/`has_totp` in `EntryFull` and
 //! has an undefined `fields` property). This module follows appendix D, which
 //! the M1-01 acceptance criterion names; M2-05 should reconcile the schema via

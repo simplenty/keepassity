@@ -26,11 +26,11 @@ Notes on scope:
 - The `kdbx_parse` seed corpus is the public `demopass` fixtures
   (`tests/fixtures/keepass-rs/`). Never seed with a real vault.
 - **The corpus is generated outside the repository** (default
-  `<workspace>/out/fuzz-corpus`). It must not live under `repo/`: the project
-  safety check (`workshop/scripts/check-system.ps1`) fails on any `.kdbx`
-  outside `tests/fixtures/`. `scripts/seed-corpus.ps1` recreates it from the
-  checked-in fixtures plus small synthetic JSON/text seeds and refuses to write
-  inside the repository.
+  `<parent of CARGO_TARGET_DIR>/fuzz-corpus`). It must not live under the
+  checkout: the repository is only allowed to contain `.kdbx` files under
+  `tests/fixtures/`. `scripts/seed-corpus.ps1` recreates it from the checked-in
+  fixtures plus small synthetic JSON/text seeds and refuses to write inside the
+  repository.
 
 ## Prerequisites (pinned)
 
@@ -66,9 +66,10 @@ Keep cargo output out of `repo/target` (workspace policy). Use an absolute
 target directory, e.g. `out/cargo-target`:
 
 ```powershell
-$env:CARGO_TARGET_DIR = 'C:\Users\lisha\Desktop\keepassity\out\cargo-target'
+# from the repository root; keep cargo output outside the checkout
+$env:CARGO_TARGET_DIR = "$env:USERPROFILE\keepassity-target"
 $env:PATH = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64;" + $env:PATH
-cd C:\Users\lisha\Desktop\keepassity\repo\crates\core\fuzz
+cd crates\core\fuzz
 
 # corpus goes outside the repo (mirrors CARGO_TARGET_DIR: out/fuzz-corpus)
 pwsh -File scripts/seed-corpus.ps1

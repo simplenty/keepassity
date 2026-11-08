@@ -2,10 +2,9 @@
 # Seeds the cargo-fuzz corpus for the keepassity-core fuzz targets.
 #
 # IMPORTANT: the corpus is written OUTSIDE the repository (never into
-# crates/core/fuzz/corpus). The project safety check
-# (workshop/scripts/check-system.ps1) fails on any `.kdbx` outside
-# tests/fixtures, and fuzz corpora are disposable generated state, so they must
-# not live in the repo tree.
+# crates/core/fuzz/corpus). The repository is only allowed to contain `.kdbx`
+# files under tests/fixtures, and fuzz corpora are disposable generated state,
+# so they must not live in the repo tree.
 #
 # Default corpus root, first match wins:
 #   1. -CorpusDir <path> argument
