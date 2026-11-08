@@ -1,38 +1,79 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-using System.Drawing;
-using System.Windows.Forms;
+using H.NotifyIcon;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Windows.UI;
 
 namespace Keepassity.Mock;
 
-/// <summary>Notification-area icon with Show / Lock / Exit.</summary>
+/// <summary>WinUI notification-area icon with Show / Lock / Exit.</summary>
 public sealed class TrayIcon : IDisposable
 {
-    private readonly ContextMenuStrip _menu;
-    private readonly NotifyIcon _icon;
-    private readonly Icon? _ownedIcon;
+    private readonly TaskbarIcon _icon;
+    private readonly MenuFlyout _menu;
     private bool _disposed;
 
-    public TrayIcon(string toolTip, Action show, Action lockAction, Action exit)
+    public TrayIcon(string toolTip, ElementTheme theme, Action show, Action lockAction,
+        Action exit)
     {
-        _ownedIcon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!);
-        _menu = new ContextMenuStrip();
-        _menu.Items.Add("Show keepassity", null, (_, _) => Invoke(show));
-        _menu.Items.Add("Lock", null, (_, _) => Invoke(lockAction));
-        _menu.Items.Add(new ToolStripSeparator());
-        _menu.Items.Add("Exit keepassity", null, (_, _) => Invoke(exit));
-        _icon = new NotifyIcon
+        var showItem = new MenuFlyoutItem
         {
-            Icon = _ownedIcon ?? SystemIcons.Application,
-            Text = toolTip,
-            ContextMenuStrip = _menu,
-            Visible = true,
+            Text = "Show keepassity",
+            Icon = new FontIcon { Glyph = "\uE8A7", FontSize = 12 },
         };
-        _icon.DoubleClick += (_, _) => Invoke(show);
+        showItem.Click += (_, _) => Invoke(show);
+
+        var lockItem = new MenuFlyoutItem
+        {
+            Text = "Lock",
+            Icon = new FontIcon { Glyph = "\uE72E", FontSize = 12 },
+        };
+        lockItem.Click += (_, _) => Invoke(lockAction);
+
+        var exitItem = new MenuFlyoutItem
+        {
+            Text = "Exit keepassity",
+            Icon = new FontIcon { Glyph = "\uE7E8", FontSize = 12 },
+            Foreground = (Brush)Application.Current.Resources["SystemFillColorCriticalBrush"],
+        };
+        exitItem.Click += (_, _) => Invoke(exit);
+
+        _menu = new MenuFlyout();
+        _menu.Items.Add(showItem);
+        _menu.Items.Add(lockItem);
+        _menu.Items.Add(new MenuFlyoutSeparator());
+        _menu.Items.Add(exitItem);
+
+        _icon = new TaskbarIcon
+        {
+            ToolTipText = toolTip,
+            ContextFlyout = _menu,
+            ContextMenuMode = ContextMenuMode.SecondWindow,
+            RequestedTheme = theme,
+            NoLeftClickDelay = true,
+            IconSource = new GeneratedIconSource
+            {
+                Text = "K",
+                FontSize = 34,
+                FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+                Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
+                Background = new SolidColorBrush(Color.FromArgb(255, 0, 120, 212)),
+            },
+            LeftClickCommand = new TrayCommand(show),
+            DoubleClickCommand = new TrayCommand(show),
+        };
+        _icon.ForceCreate();
     }
 
-    public bool Available => !_disposed && _icon.Visible;
+    public bool Available => !_disposed && _icon.IsCreated;
 
-    public Microsoft.UI.Xaml.UIElement? Element => null;
+    public void ApplyTheme(ElementTheme theme)
+    {
+        _icon.RequestedTheme = theme;
+    }
+
+    public UIElement? Element => _icon;
 
     public string? LastError { get; }
 
@@ -42,10 +83,7 @@ public sealed class TrayIcon : IDisposable
         {
             return;
         }
-        _icon.BalloonTipTitle = title;
-        _icon.BalloonTipText = message;
-        _icon.BalloonTipIcon = ToolTipIcon.Info;
-        _icon.ShowBalloonTip(5000);
+        _icon.ShowNotification(title, message);
     }
 
     private static void Invoke(Action action)
@@ -60,6 +98,23 @@ public sealed class TrayIcon : IDisposable
         }
     }
 
+    private sealed class TrayCommand : System.Windows.Input.ICommand
+    {
+        private readonly Action _action;
+
+        public TrayCommand(Action action) => _action = action;
+
+        public event EventHandler? CanExecuteChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public bool CanExecute(object? parameter) => true;
+
+        public void Execute(object? parameter) => Invoke(_action);
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -69,14 +124,11 @@ public sealed class TrayIcon : IDisposable
         _disposed = true;
         try
         {
-            _icon.Visible = false;
             _icon.Dispose();
         }
         catch
         {
             // Best-effort cleanup.
         }
-        _menu.Dispose();
-        _ownedIcon?.Dispose();
     }
 }

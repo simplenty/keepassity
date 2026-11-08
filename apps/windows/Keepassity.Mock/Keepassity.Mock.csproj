@@ -17,13 +17,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
-  </ItemGroup>
-  <ItemGroup>
     <ProjectReference Include="..\Keepassity.Core\Keepassity.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <PackageReference Include="H.NotifyIcon.WinUI" />
     <PackageReference Include="ZXing.Net" />
   </ItemGroup>
   <!-- The native FFI DLL is produced by building the Rust ffi crate in release mode.
