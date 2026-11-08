@@ -201,6 +201,9 @@ foreach ($name in $required) {
   $path = Join-Path $InstallDir $name
   if (Test-Path $path) { Pass ("file: " + $name) } else { Fail ("file: " + $name) 'missing' }
 }
+$legacy = Join-Path $InstallDir 'Keepassity.Mock.exe'
+if (Test-Path $legacy) { Warn 'legacy Keepassity.Mock.exe removed by the upgrade' $legacy } else { Pass 'no stale Keepassity.Mock.exe from the pre-1.0 installer' }
+
 $xbf = @(Get-ChildItem $InstallDir -Recurse -Filter '*.xbf' -File -ErrorAction SilentlyContinue)
 if ($xbf.Count -ge 2) { Pass 'XAML resources present' ("{0} .xbf" -f $xbf.Count) } else { Fail 'XAML resources present' ("{0} .xbf" -f $xbf.Count) }
 

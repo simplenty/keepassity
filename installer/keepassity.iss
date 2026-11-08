@@ -81,5 +81,11 @@ Root: HKCU; Subkey: "Software\Classes\Applications\{#AppExe}"; ValueType: string
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Launch keepassity"; Flags: nowait postinstall skipifsilent
 
+[InstallDelete]
+; Remove the pre-1.0 binary name so an upgrade does not leave a stale executable
+; (v0.1.0 shipped Keepassity.Mock.exe; v1.0.0 ships Keepassity.exe).
+Type: files; Name: "{app}\Keepassity.Mock.exe"
+Type: files; Name: "{app}\Keepassity.Mock.pdb"
+
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
