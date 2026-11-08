@@ -86,6 +86,7 @@ Filename: "{app}\{#AppExe}"; Description: "Launch keepassity"; Flags: nowait pos
 ; (v0.1.0 shipped Keepassity.Mock.exe; v1.0.0 ships Keepassity.exe).
 Type: files; Name: "{app}\Keepassity.Mock.exe"
 Type: files; Name: "{app}\Keepassity.Mock.pdb"
+Type: files; Name: "{app}\Keepassity.Mock.*"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
