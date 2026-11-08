@@ -4,41 +4,67 @@
 
 ## KDBX clients
 
-"Files we write" are produced by the ADR-0002 write backend (`keepassxcr`). The fixture set is
-`tests/fixtures/keepass-rs`: 25 public samples, of which 17 are rewritten and verified
+"Files we write" come from two paths: an **app save** writes a KDBX 4.0 file through the
+model writer (see KDBX write format below), while the **CLI `rewrite`** used for interop
+evidence re-saves through the backend and preserves the input format version. The fixture set
+is `tests/fixtures/keepass-rs`: 25 public samples, of which 17 are rewritten and verified
 end-to-end, two are broken files that must be rejected, and six key-file /
 challenge-response samples are outside the v1.0 scope.
 
 | Client | Can read files we write | We can read files it writes | Version | Status |
 |---|:--:|:--:|---|---|
-| KeePass 2.x (official) | tested: real KDBX 4.1 database rewritten and reopened; 10 entries (including 3 TOTP entries) spot-checked by the maintainer | not tested | 2.x (maintainer install; not pinned in CI) | manual gate G0, 2026-10-25, signed off |
+| KeePass 2.x (official) | tested: real KDBX 4.1 database rewritten and reopened, 10 entries (including 3 TOTP entries) spot-checked; an app-edited fixture was reopened by KeePass 2.x in the G3 manual gate | tested: the real KDBX 4.1 database opened at G0 was a KeePass 2.x database | 2.x (maintainer install; not pinned in CI) | manual gates G0 2026-10-25 and G3 2026-11-08, signed off |
 | KeePassLib (official C# library, test-only) | tested: fixture rewrite round trips + real database (canonical hash unchanged); broken files rejected as expected | not tested | 2.59.0 managed source build | local `tools/interop` only; Twofish fixtures skipped (no plugin) |
 | keepassxc-cli | tested: fixture rewrite round trips + real database; broken files rejected as expected | not tested | 2.8.0 / distro build | local check + CI `interop` job (green on `main`, 2026-11-08) |
 
-KeePass 2.x and KeePassLib were exercised manually/local-only; only the keepassxc-cli
-round-trip runs in CI. The database used for the real-vault checks is never committed.
+KeePass 2.x and KeePassLib are exercised manually/local-only; only the keepassxc-cli round
+trip runs in CI. The database used for the real-vault checks is never committed.
+
+### KDBX write format
+
+App saves are written as **KDBX 4.0** with the backend defaults (AES-256, Argon2id, ChaCha20
+protected stream, gzip): a database opened as KDBX 3.1 or 4.1 is written back as KDBX 4.0.
+The CLI/interop `rewrite` path preserves the input version. Model data that the writer maps
+(entries, groups, fields, times, tags, history, attachments, deleted objects, TOTP fields) is
+carried through an edit/save; raw XML blocks, custom icons and auto-type data that the model
+writer does not map are not preserved by an app save. The app edit/save path was manually
+checked at G3 (edit, save, reopen in KeePass 2.x); the interop matrix above covers the backend
+rewrite round trip.
 
 ## WebDAV servers
 
 The app uses a minimal WebDAV client (PROPFIND depth 0, GET, conditional PUT with
-ETag/If-Match and If-None-Match, 412 handling). It has only been tested against a local
-mock server; no real WebDAV provider has been verified yet.
+ETag/If-Match and If-None-Match, 412 handling). It is covered by an in-process mock in
+`tests/app-core` and by the mock-WebDAV drills (protocol, restore, offline replay, conflict);
+one real provider (Jianguoyun) was exercised manually during the G4 gate on 2026-11-09
+(configuration, save-sync, startup check, manual sync).
 
 | Server | PROPFIND | GET | PUT | If-Match (412) | Non-ASCII paths | Large files | Status |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|---|
-| Local mock WebDAV server (development) | tested | tested | tested | tested (incl. 412/404) | tested (percent-encoded target) | not tested | in-process mock in `tests/app-core` (runs in the CI `app` job) |
-| Jianguoyun (`dav.jianguoyun.com`) | not tested | not tested | not tested | not tested | not tested | not tested | **required for v1.0**; manual check pending |
+| Local mock WebDAV (development) | tested | tested | tested | tested (incl. 412/404) | tested (percent-encoded target) | not tested | in-process mock in `tests/app-core` (CI `app` job) + `tools/drills` |
+| Jianguoyun (`dav.jianguoyun.com`) | tested (manual) | tested (manual) | tested (manual) | tested (manual save sync) | not tested | not tested | manual acceptance G4, 2026-11-09 |
 | rclone serve webdav | not tested | not tested | not tested | not tested | not tested | not tested | not used by CI |
 | Nextcloud | not tested | not tested | not tested | not tested | not tested | not tested | best effort (not promised) |
 | Apache mod_dav | not tested | not tested | not tested | not tested | not tested | not tested | optional |
 
+## Windows integration
+
+| Item | Status |
+|---|---|
+| Installer / uninstaller | tested: per-user install (no UAC) under `%LOCALAPPDATA%\Programs\keepassity`, Start menu/desktop shortcuts, Apps & Features entry; clean install on a clean Windows 11 machine was a G4 manual item; uninstall removes program files and shortcuts and keeps user data; `tools/installer/verify-install.ps1` PASS at the 2026-11-08 gate (the v1.0.0 script adds `.kdbx` association checks) |
+| `.kdbx` file association | the installer registers a per-user candidate association (no default-app override); double-click opens keepassity after the user confirms/chooses it in Windows. Manual verification pending. <!-- TODO(lead): confirm association landed in the v1.0.0 build before publishing --> |
+| SmartScreen | the binaries are unsigned; Windows may show "Windows protected your PC". Verify the SHA-256 checksum first, then More info -> Run anyway |
+| Shell integration beyond open | no MSIX packaging, no auto-update, no Windows Hello, no auto-type |
+
 ## Known limitations (v1.0)
 
-- Windows 11 x64 only; master password only (no key files, no challenge-response, no
-  Windows Hello).
-- No attachments/history/recycle-bin management UI (the data itself is preserved).
+- Windows 11 x64 only; master password only (no key files, no challenge-response, no Windows
+  Hello).
+- No attachments/history/recycle-bin management UI (the mapped data itself is preserved).
 - Single database, English UI.
 - No auto-update, no MSIX; the installer and portable binaries are unsigned (README notes
   SmartScreen).
-- WebDAV: tested against a local mock only; real-server verification (Jianguoyun) is still
-  required for v1.0.
+- WebDAV: local mock and one real provider (Jianguoyun) tested; other providers are untested.
+- The app writes KDBX 4.0 files (see KDBX write format); use KeePass 2.x / KeePassXC to open
+  them if you need the data in another client.
+- The 30-day acceptance (G5) is still pending; `v1.0.0` is not published yet.

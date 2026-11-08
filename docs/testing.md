@@ -93,3 +93,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-ui-strings.ps1
 The release workflow (`.github/workflows/release.yml`) additionally runs `cargo test
 --workspace`, the `tests/app-core` suite and `scripts/verify-fixtures.ps1` before packaging,
 then self-tests the published application and builds the installer.
+
+## Fuzzing
+
+`.github/workflows/fuzz.yml` is a separate scheduled workflow (03:00 UTC plus manual
+dispatch; it never blocks pull requests). It fuzzes three core input surfaces with
+`cargo-fuzz` on nightly Rust — `kdbx_parse`, `totp_uri` and `merge_json` — for 600 seconds
+each, seeded from the public fixtures, and uploads logs/crash inputs as artifacts. Reproduce
+locally with `cargo +nightly fuzz run <target>` from `crates/core/fuzz/` (see its README).
