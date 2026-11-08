@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using H.NotifyIcon;
+using H.NotifyIcon.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using System.Runtime.InteropServices;
 using Windows.UI;
 
 namespace Keepassity.Mock;
@@ -13,6 +15,16 @@ public sealed class TrayIcon : IDisposable
     private readonly TaskbarIcon _icon;
     private readonly MenuFlyout _menu;
     private bool _disposed;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out NativePoint point);
 
     public TrayIcon(string toolTip, ElementTheme theme, Action show, Action lockAction,
         Action exit)
@@ -50,8 +62,10 @@ public sealed class TrayIcon : IDisposable
             ToolTipText = toolTip,
             ContextFlyout = _menu,
             ContextMenuMode = ContextMenuMode.SecondWindow,
+            MenuActivation = PopupActivationMode.None,
             RequestedTheme = theme,
             NoLeftClickDelay = true,
+            RightClickCommand = new TrayCommand(ShowMenuAtCursor),
             IconSource = new GeneratedIconSource
             {
                 Text = "K",
@@ -67,6 +81,16 @@ public sealed class TrayIcon : IDisposable
     }
 
     public bool Available => !_disposed && _icon.IsCreated;
+
+    private void ShowMenuAtCursor()
+    {
+        if (GetCursorPos(out NativePoint point))
+        {
+            // Open to the lower-right of the pointer; the tray menu library
+            // keeps it inside the current monitor's work area.
+            _icon.ShowContextMenu(new System.Drawing.Point(point.X + 8, point.Y + 8));
+        }
+    }
 
     public void ApplyTheme(ElementTheme theme)
     {
