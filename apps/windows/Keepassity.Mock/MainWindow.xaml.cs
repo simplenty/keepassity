@@ -2318,6 +2318,11 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
+        // Footer actions are invoked explicitly, never treated as groups.
+        if (tag is "settings" or "sync" or "backups" or "lock")
+        {
+            return;
+        }
         ClosePanels();
         _selectedGroupUuid = tag == "all" ? null : tag;
         try
