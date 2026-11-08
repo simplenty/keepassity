@@ -140,6 +140,34 @@ public sealed class CoreClient : IDisposable
         => await CallAsync<List<GroupDto>>("{\"command\":\"list_groups\"}")
             .ConfigureAwait(false);
 
+    public async Task<string> CreateGroupAsync(string parentUuid, string name)
+    {
+        string command = JsonSerializer.Serialize(new
+        {
+            command = "create_group",
+            parent_uuid = parentUuid,
+            name,
+        });
+        CreateGroupResponse response = await CallAsync<CreateGroupResponse>(command)
+            .ConfigureAwait(false);
+        return response.Uuid;
+    }
+
+    public async Task RenameGroupAsync(string uuid, string name)
+        => _ = await CallAsync<JsonElement>(JsonSerializer.Serialize(new
+        {
+            command = "rename_group",
+            uuid,
+            name,
+        })).ConfigureAwait(false);
+
+    public async Task DeleteGroupAsync(string uuid)
+        => _ = await CallAsync<JsonElement>(JsonSerializer.Serialize(new
+        {
+            command = "delete_group",
+            uuid,
+        })).ConfigureAwait(false);
+
     public async Task<List<EntrySummaryDto>> ListEntriesAsync(string? groupUuid = null)
     {
         string command = groupUuid is null
@@ -635,6 +663,11 @@ public sealed class SearchMatchDto
 }
 
 public sealed class CreateEntryResponse
+{
+    [JsonPropertyName("uuid")] public string Uuid { get; set; } = "";
+}
+
+public sealed class CreateGroupResponse
 {
     [JsonPropertyName("uuid")] public string Uuid { get; set; } = "";
 }

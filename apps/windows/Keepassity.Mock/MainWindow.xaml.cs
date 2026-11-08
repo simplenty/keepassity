@@ -475,7 +475,6 @@ public sealed partial class MainWindow : Window
             To = 1,
             Duration = duration,
             EasingFunction = ease,
-            BeginTime = TimeSpan.FromMilliseconds(70),
         };
         Storyboard.SetTarget(detailFade, DetailPane);
         Storyboard.SetTargetProperty(detailFade, "Opacity");
@@ -1979,6 +1978,7 @@ public sealed partial class MainWindow : Window
                 Content = group.Name,
                 Tag = group.Uuid ?? "all",
                 Icon = new FontIcon { Glyph = group.Glyph },
+                ContextFlyout = BuildGroupContextMenu(group),
             };
             if (group.CountValue > 0 &&
                 !IsRecycleBinGroup(group.Name) &&
@@ -2012,6 +2012,174 @@ public sealed partial class MainWindow : Window
         return value.Equals("模板", StringComparison.OrdinalIgnoreCase) ||
                value.Equals("Templates", StringComparison.OrdinalIgnoreCase) ||
                value.Equals("Template", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private MenuFlyout BuildGroupContextMenu(GroupItem group)
+    {
+        var flyout = new MenuFlyout();
+        void Add(string text, string glyph, Func<Task> action,
+            bool enabled = true, bool danger = false)
+        {
+            var item = new MenuFlyoutItem
+            {
+                Text = text,
+                Icon = new FontIcon { Glyph = glyph, FontSize = 12 },
+                IsEnabled = enabled,
+            };
+            if (danger)
+            {
+                item.Foreground =
+                    (Brush)Application.Current.Resources["SystemFillColorCriticalBrush"];
+            }
+            item.Click += async (_, _) =>
+            {
+                try
+                {
+                    await action();
+                }
+                catch (Exception ex)
+                {
+                    ShowToast(ex.Message, InfoBarSeverity.Error);
+                }
+            };
+            flyout.Items.Add(item);
+        }
+
+        Add("New group…", "\uE710", CreateGroupPromptAsync,
+            enabled: !string.IsNullOrEmpty(_rootGroupUuid));
+        if (group.Uuid is null)
+        {
+            Add("New entry", "\uE710", () =>
+            {
+                NewEntryButton_Click(this, new RoutedEventArgs());
+                return Task.CompletedTask;
+            });
+            return flyout;
+        }
+
+        bool recycleBin = IsRecycleBinGroup(group.Name);
+        bool templates = IsTemplatesGroup(group.Name);
+        if (!recycleBin)
+        {
+            Add("New entry here", "\uE710",
+                () => NewEntryInGroupAsync(group.Uuid!));
+        }
+        if (recycleBin || templates)
+        {
+            return flyout;
+        }
+
+        flyout.Items.Add(new MenuFlyoutSeparator());
+        Add("Rename group…", "\uE70F", () => RenameGroupPromptAsync(group));
+        Add("Delete group", "\uE74D", () => DeleteGroupAsync(group),
+            enabled: group.CountValue == 0, danger: true);
+        return flyout;
+    }
+
+    private async Task CreateGroupPromptAsync()
+    {
+        if (string.IsNullOrEmpty(_rootGroupUuid))
+        {
+            return;
+        }
+        string? name = await PromptForNameAsync("New group", "Group name", string.Empty);
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+        string uuid = await _core.CreateGroupAsync(_rootGroupUuid, name);
+        await SaveAsync();
+        _selectedGroupUuid = uuid;
+        await ReloadVaultAsync(null);
+        ShowToast($"Group \"{name}\" created", InfoBarSeverity.Success);
+    }
+
+    private async Task RenameGroupPromptAsync(GroupItem group)
+    {
+        if (group.Uuid is null)
+        {
+            return;
+        }
+        string? name = await PromptForNameAsync("Rename group", "Group name", group.Name);
+        if (string.IsNullOrWhiteSpace(name) ||
+            string.Equals(name, group.Name, StringComparison.Ordinal))
+        {
+            return;
+        }
+        await _core.RenameGroupAsync(group.Uuid, name);
+        await SaveAsync();
+        await ReloadVaultAsync(_selectedGroupUuid);
+        ShowToast("Group renamed", InfoBarSeverity.Success);
+    }
+
+    private async Task DeleteGroupAsync(GroupItem group)
+    {
+        if (group.Uuid is null)
+        {
+            return;
+        }
+        if (group.CountValue > 0)
+        {
+            ShowToast("Only empty groups can be deleted.", InfoBarSeverity.Warning);
+            return;
+        }
+        var dialog = new ContentDialog
+        {
+            Title = "Delete group?",
+            Content = $"The empty group \"{group.Name}\" will be removed.",
+            PrimaryButtonText = "Delete",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = Root.XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+        await _core.DeleteGroupAsync(group.Uuid);
+        if (_selectedGroupUuid == group.Uuid)
+        {
+            _selectedGroupUuid = null;
+        }
+        await SaveAsync();
+        await ReloadVaultAsync(null);
+        ShowToast("Group deleted", InfoBarSeverity.Success);
+    }
+
+    private async Task<string?> PromptForNameAsync(string title, string label,
+        string initial)
+    {
+        var box = new TextBox
+        {
+            Header = label,
+            Text = initial,
+        };
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = box,
+            PrimaryButtonText = initial.Length == 0 ? "Create" : "Rename",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Root.XamlRoot,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary
+            ? box.Text.Trim()
+            : null;
+    }
+
+    private async Task NewEntryInGroupAsync(string groupUuid)
+    {
+        _selectedGroupUuid = groupUuid;
+        NavigationViewItem? item = NavView.MenuItems
+            .OfType<NavigationViewItem>()
+            .FirstOrDefault(candidate => (candidate.Tag as string) == groupUuid);
+        if (item is not null)
+        {
+            NavView.SelectedItem = item;
+        }
+        NewEntryButton_Click(this, new RoutedEventArgs());
+        await Task.CompletedTask;
     }
 
     private void PopulateEntries(IEnumerable<EntrySummaryDto> entries, string title)
