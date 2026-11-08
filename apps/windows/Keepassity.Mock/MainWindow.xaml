@@ -242,7 +242,7 @@
                                 <FontIcon Glyph="&#xE72E;" />
                             </NavigationViewItem.Icon>
                         </NavigationViewItem>
-                        <NavigationViewItem Content="Settings" Tag="settings" SelectsOnInvoked="False" UseSystemFocusVisuals="False">
+                        <NavigationViewItem x:Name="SettingsNavItem" Content="Settings" Tag="settings" SelectsOnInvoked="False" UseSystemFocusVisuals="False">
                             <NavigationViewItem.Icon>
                                 <FontIcon Glyph="&#xE713;" />
                             </NavigationViewItem.Icon>
