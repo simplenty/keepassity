@@ -5,8 +5,18 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
-No unreleased changes yet. The `v1.0.0` tag and GitHub Release are created only after the
-30-day acceptance passes; see `docs/release.md`.
+- **Security (pre-release hardening):** the KDBX reader now validates the key-derivation
+  parameters from the file header before deriving any key. A file declaring an extreme KDF
+  (for example billions of AES-KDF rounds, or multi-GiB Argon2 memory) is rejected with an
+  explainable error instead of making the app spend minutes opening it; the daily fuzzing
+  job found this shape. Normal KeePass/KeePassXC databases are unaffected. See
+  `docs/compatibility.md` for the limits.
+- The entry list keeps its scroll position and selection when an entry is moved or when a
+  WebDAV merge reloads the database: unchanged lists are no longer re-rendered, and moved
+  rows are updated in place when they stay visible.
+
+The `v1.0.0` tag and GitHub Release are created only after the 30-day acceptance passes; see
+`docs/release.md`.
 
 ## [1.0.0] - 2026-11-09
 

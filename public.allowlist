@@ -50,3 +50,4 @@ installer/**
 .github/workflows/codeql.yml
 .github/workflows/fuzz.yml
 .github/codeql/codeql-config.yml
+crates/core/tests/data/extreme-kdf-rounds.bin

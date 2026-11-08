@@ -8,7 +8,7 @@
 //! that unmapped/unknown data is not lost; canonical dumps only expose its
 //! SHA-256.
 
-use crate::kdbx::detect_version;
+use crate::kdbx::{detect_version, KdbxVersion};
 use crate::model::{Association, AutoType, Binary, CustomData, CustomDataItem, CustomDataValue};
 use crate::model::{Database, DeletedObject, Entry, Group, MemoryProtection, Meta, StringField};
 use crate::model::{Times, Uuid};
@@ -83,6 +83,218 @@ fn guard_keepass<T>(
     }
 }
 
+/// Upper bounds for the key-derivation work a KDBX file may ask for.
+///
+/// The header is untrusted input: it can name arbitrary KDF parameters, and the
+/// reader would otherwise spend unbounded time (or memory) deriving a key from a
+/// hostile file before even noticing a wrong password. The daily fuzzing job
+/// found exactly that shape (a KDBX 3.1 header with ~2e18 AES-KDF rounds made the
+/// reader run for minutes). The limits are far above real-world databases - the
+/// writer's default is 128 MiB / 6 iterations / 4 lanes, about 0.7 s - and only
+/// reject requests that are clearly meant to exhaust the machine.
+const MAX_AES_KDF_ROUNDS: u64 = 10_000_000;
+const MAX_ARGON2_MEMORY_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const MAX_ARGON2_ITERATIONS: u64 = 64;
+const MAX_ARGON2_PARALLELISM: u32 = 16;
+/// `memory (MiB) * iterations` bound; about eight times the write default.
+const MAX_ARGON2_WORK_MIB_ITERATIONS: u64 = 6_144;
+
+const UUID_AES_KDF: [u8; 16] = [
+    0xC9, 0xD9, 0xF3, 0x9A, 0x62, 0x8A, 0x44, 0x60, 0xBF, 0x74, 0x0D, 0x08, 0xC1, 0x8A, 0x4F, 0xEA,
+];
+const UUID_ARGON2D: [u8; 16] = [
+    0xEF, 0x63, 0x6D, 0xDF, 0x8C, 0x29, 0x44, 0x4B, 0x91, 0xF7, 0xA9, 0xA4, 0x03, 0xE3, 0x0A, 0x0C,
+];
+const UUID_ARGON2ID: [u8; 16] = [
+    0x9E, 0x29, 0x8B, 0x19, 0x56, 0xDB, 0x47, 0x73, 0xB2, 0x3D, 0xFC, 0x3E, 0xC6, 0xF0, 0xA1, 0xE6,
+];
+
+fn extreme_kdf_error(detail: impl fmt::Display) -> KdbxReadError {
+    KdbxReadError::Unsupported(format!(
+        "the database asks for an extreme {detail} (opening it would take a very long \
+         time); open it in KeePass and re-save it with normal KDF settings"
+    ))
+}
+
+fn read_le_u16(bytes: &[u8], offset: usize) -> Option<u16> {
+    Some(u16::from_le_bytes(
+        bytes.get(offset..offset + 2)?.try_into().ok()?,
+    ))
+}
+
+fn read_le_u32(bytes: &[u8], offset: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(
+        bytes.get(offset..offset + 4)?.try_into().ok()?,
+    ))
+}
+
+fn read_le_u64(bytes: &[u8], offset: usize) -> Option<u64> {
+    Some(u64::from_le_bytes(
+        bytes.get(offset..offset + 8)?.try_into().ok()?,
+    ))
+}
+
+/// Rejects headers whose KDF parameters would make key derivation take far too
+/// long. Called before the third-party reader runs; a file that fails here is a
+/// normal read error (never a panic and never a multi-minute stall).
+pub(crate) fn validate_kdf_cost(bytes: &[u8], version: KdbxVersion) -> Result<(), KdbxReadError> {
+    match version {
+        KdbxVersion::V3_1 => validate_kdbx3_kdf(bytes),
+        KdbxVersion::V4_0 | KdbxVersion::V4_1 => validate_kdbx4_kdf(bytes),
+    }
+}
+
+fn validate_kdbx3_kdf(bytes: &[u8]) -> Result<(), KdbxReadError> {
+    let mut offset = 12usize;
+    loop {
+        let field = match bytes.get(offset) {
+            Some(value) => *value,
+            None => return Ok(()),
+        };
+        if field == 0 {
+            return Ok(());
+        }
+        let Some(length) = read_le_u16(bytes, offset + 1) else {
+            return Ok(());
+        };
+        let start = offset + 3;
+        let end = start + length as usize;
+        let Some(payload) = bytes.get(start..end) else {
+            return Ok(());
+        };
+        if field == 6 && payload.len() == 8 {
+            let rounds = u64::from_le_bytes(payload.try_into().expect("length checked"));
+            if rounds > MAX_AES_KDF_ROUNDS {
+                return Err(extreme_kdf_error(format_args!(
+                    "AES-KDF round count ({rounds})"
+                )));
+            }
+            return Ok(());
+        }
+        offset = end;
+    }
+}
+
+fn validate_kdbx4_kdf(bytes: &[u8]) -> Result<(), KdbxReadError> {
+    let mut offset = 12usize;
+    loop {
+        let field = match bytes.get(offset) {
+            Some(value) => *value,
+            None => return Ok(()),
+        };
+        if field == 0 {
+            return Ok(());
+        }
+        let Some(length) = read_le_u32(bytes, offset + 1) else {
+            return Ok(());
+        };
+        let start = offset + 5;
+        let end = start + length as usize;
+        let Some(payload) = bytes.get(start..end) else {
+            return Ok(());
+        };
+        if field == 11 {
+            return validate_kdbx4_kdf_parameters(payload);
+        }
+        offset = end;
+    }
+}
+
+fn validate_kdbx4_kdf_parameters(payload: &[u8]) -> Result<(), KdbxReadError> {
+    // VariantDictionary: u16 version, then (type u8, key, value) entries.
+    let mut offset = 2usize;
+    let mut uuid: Option<[u8; 16]> = None;
+    let mut rounds: Option<u64> = None;
+    let mut memory_bytes: Option<u64> = None;
+    let mut iterations: Option<u64> = None;
+    let mut parallelism: Option<u32> = None;
+    while offset < payload.len() {
+        let value_type = payload[offset];
+        offset += 1;
+        if value_type == 0 {
+            break;
+        }
+        let Some(key_length) = read_le_u32(payload, offset) else {
+            return Ok(());
+        };
+        offset += 4;
+        let key_end = offset + key_length as usize;
+        let Some(key) = payload.get(offset..key_end) else {
+            return Ok(());
+        };
+        offset = key_end;
+        let Some(value_length) = read_le_u32(payload, offset) else {
+            return Ok(());
+        };
+        offset += 4;
+        let value_end = offset + value_length as usize;
+        let Some(value) = payload.get(offset..value_end) else {
+            return Ok(());
+        };
+        offset = value_end;
+        if key == b"$UUID" && value_type == 0x0C && value.len() == 16 {
+            let mut parsed = [0u8; 16];
+            parsed.copy_from_slice(value);
+            uuid = Some(parsed);
+        } else if key == b"R" && value_type == 0x05 {
+            rounds = read_le_u64(value, 0);
+        } else if key == b"M" && value_type == 0x05 {
+            memory_bytes = read_le_u64(value, 0);
+        } else if key == b"I" && value_type == 0x05 {
+            iterations = read_le_u64(value, 0);
+        } else if key == b"P" && value_type == 0x04 {
+            parallelism = read_le_u32(value, 0);
+        }
+    }
+    let Some(uuid) = uuid else {
+        return Ok(());
+    };
+    if uuid == UUID_AES_KDF {
+        if let Some(rounds) = rounds {
+            if rounds > MAX_AES_KDF_ROUNDS {
+                return Err(extreme_kdf_error(format_args!(
+                    "AES-KDF round count ({rounds})"
+                )));
+            }
+        }
+        return Ok(());
+    }
+    if uuid != UUID_ARGON2D && uuid != UUID_ARGON2ID {
+        // Unknown KDFs are rejected by the reader itself, quickly.
+        return Ok(());
+    }
+    if let Some(memory) = memory_bytes {
+        if memory > MAX_ARGON2_MEMORY_BYTES {
+            return Err(extreme_kdf_error(format_args!(
+                "Argon2 memory size ({memory} bytes)"
+            )));
+        }
+    }
+    if let Some(iterations) = iterations {
+        if iterations > MAX_ARGON2_ITERATIONS {
+            return Err(extreme_kdf_error(format_args!(
+                "Argon2 iteration count ({iterations})"
+            )));
+        }
+    }
+    if let Some(parallelism) = parallelism {
+        if parallelism > MAX_ARGON2_PARALLELISM {
+            return Err(extreme_kdf_error(format_args!(
+                "Argon2 parallelism ({parallelism})"
+            )));
+        }
+    }
+    if let (Some(memory), Some(iterations)) = (memory_bytes, iterations) {
+        let work = (memory / (1024 * 1024)).saturating_mul(iterations);
+        if work > MAX_ARGON2_WORK_MIB_ITERATIONS {
+            return Err(extreme_kdf_error(format_args!(
+                "Argon2 work factor ({memory} bytes x {iterations} iterations)"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn open_with_keepass(bytes: &[u8], password: &str) -> Result<KpDatabase, KdbxReadError> {
     guard_keepass(|| {
         let mut cursor = Cursor::new(bytes);
@@ -120,6 +332,7 @@ pub fn parse(bytes: &[u8], password: &str) -> Result<Database, KdbxReadError> {
         }
     })?;
 
+    validate_kdf_cost(bytes, version)?;
     let kp = open_with_keepass(bytes, password)?;
     let xml = xml_with_keepass(bytes, password)?;
     let xml_hash = {
@@ -357,5 +570,142 @@ fn auto_type_from(auto_type: &KpAutoType) -> AutoType {
             })
             .collect(),
         unknown: Vec::new(),
+    }
+}
+#[cfg(test)]
+mod kdf_limit_tests {
+    use super::{
+        validate_kdf_cost, KdbxVersion, MAX_AES_KDF_ROUNDS, MAX_ARGON2_ITERATIONS,
+        MAX_ARGON2_MEMORY_BYTES, MAX_ARGON2_PARALLELISM,
+    };
+
+    const UUID_AES: [u8; 16] = [
+        0xC9, 0xD9, 0xF3, 0x9A, 0x62, 0x8A, 0x44, 0x60, 0xBF, 0x74, 0x0D, 0x08, 0xC1, 0x8A, 0x4F,
+        0xEA,
+    ];
+    const UUID_ARGON2ID: [u8; 16] = [
+        0x9E, 0x29, 0x8B, 0x19, 0x56, 0xDB, 0x47, 0x73, 0xB2, 0x3D, 0xFC, 0x3E, 0xC6, 0xF0, 0xA1,
+        0xE6,
+    ];
+
+    fn variant_entry(value_type: u8, key: &[u8], value: &[u8]) -> Vec<u8> {
+        let mut entry = vec![value_type];
+        entry.extend_from_slice(&(key.len() as u32).to_le_bytes());
+        entry.extend_from_slice(key);
+        entry.extend_from_slice(&(value.len() as u32).to_le_bytes());
+        entry.extend_from_slice(value);
+        entry
+    }
+
+    fn u64_entry(key: &[u8], value: u64) -> Vec<u8> {
+        variant_entry(0x05, key, &value.to_le_bytes())
+    }
+
+    fn u32_entry(key: &[u8], value: u32) -> Vec<u8> {
+        variant_entry(0x04, key, &value.to_le_bytes())
+    }
+
+    fn variant_dictionary(entries: &[Vec<u8>]) -> Vec<u8> {
+        let mut dictionary = vec![0x00, 0x01];
+        for entry in entries {
+            dictionary.extend_from_slice(entry);
+        }
+        dictionary.push(0);
+        dictionary
+    }
+
+    fn kdbx3_header(rounds: u64) -> Vec<u8> {
+        let mut bytes = vec![
+            0x03, 0xD9, 0xA2, 0x9A, 0x67, 0xFB, 0x4B, 0xB5, 0x01, 0x00, 0x03, 0x00,
+        ];
+        bytes.push(0x06);
+        bytes.extend_from_slice(&8u16.to_le_bytes());
+        bytes.extend_from_slice(&rounds.to_le_bytes());
+        bytes.push(0x00);
+        bytes.extend_from_slice(&4u16.to_le_bytes());
+        bytes.extend_from_slice(&[0x0D, 0x0A, 0x0D, 0x0A]);
+        bytes
+    }
+
+    fn kdbx4_header(dictionary: Vec<u8>) -> Vec<u8> {
+        let mut bytes = vec![
+            0x03, 0xD9, 0xA2, 0x9A, 0x67, 0xFB, 0x4B, 0xB5, 0x00, 0x00, 0x04, 0x00,
+        ];
+        bytes.push(0x0B);
+        bytes.extend_from_slice(&(dictionary.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&dictionary);
+        bytes.push(0x00);
+        bytes.extend_from_slice(&4u32.to_le_bytes());
+        bytes.extend_from_slice(&[0x0D, 0x0A, 0x0D, 0x0A]);
+        bytes
+    }
+
+    fn argon2_dictionary(
+        uuid: [u8; 16],
+        memory: u64,
+        iterations: u64,
+        parallelism: u32,
+    ) -> Vec<u8> {
+        variant_dictionary(&[
+            variant_entry(0x0C, b"$UUID", &uuid),
+            u64_entry(b"M", memory),
+            u64_entry(b"I", iterations),
+            u32_entry(b"P", parallelism),
+        ])
+    }
+
+    #[test]
+    fn normal_kdbx31_rounds_pass() {
+        assert!(validate_kdf_cost(&kdbx3_header(600_000), KdbxVersion::V3_1).is_ok());
+        assert!(validate_kdf_cost(&kdbx3_header(MAX_AES_KDF_ROUNDS), KdbxVersion::V3_1).is_ok());
+    }
+
+    #[test]
+    fn extreme_kdbx31_rounds_are_rejected() {
+        let error = validate_kdf_cost(&kdbx3_header(MAX_AES_KDF_ROUNDS + 1), KdbxVersion::V3_1)
+            .expect_err("an extreme round count must be rejected");
+        assert!(matches!(error, super::KdbxReadError::Unsupported(_)));
+    }
+
+    #[test]
+    fn normal_argon2id_parameters_pass() {
+        let bytes = kdbx4_header(argon2_dictionary(UUID_ARGON2ID, 128 * 1024 * 1024, 6, 4));
+        assert!(validate_kdf_cost(&bytes, KdbxVersion::V4_0).is_ok());
+    }
+
+    #[test]
+    fn extreme_argon2_parameters_are_rejected() {
+        for (memory, iterations, parallelism) in [
+            (MAX_ARGON2_MEMORY_BYTES + 1, 1, 1),
+            (128 * 1024 * 1024, MAX_ARGON2_ITERATIONS + 1, 1),
+            (128 * 1024 * 1024, 1, MAX_ARGON2_PARALLELISM + 1),
+            (2 * 1024 * 1024 * 1024, 8, 4), // within per-field caps, over the work cap
+        ] {
+            let bytes = kdbx4_header(argon2_dictionary(
+                UUID_ARGON2ID,
+                memory,
+                iterations,
+                parallelism,
+            ));
+            assert!(
+                validate_kdf_cost(&bytes, KdbxVersion::V4_0).is_err(),
+                "memory={memory} iterations={iterations} parallelism={parallelism} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn normal_aes_kdf_in_kdbx4_passes() {
+        let dictionary = variant_dictionary(&[
+            variant_entry(0x0C, b"$UUID", &UUID_AES),
+            u64_entry(b"R", 600_000),
+        ]);
+        assert!(validate_kdf_cost(&kdbx4_header(dictionary), KdbxVersion::V4_0).is_ok());
+    }
+
+    #[test]
+    fn unknown_kdf_is_left_to_the_reader() {
+        let dictionary = variant_dictionary(&[variant_entry(0x0C, b"$UUID", &[0x42; 16])]);
+        assert!(validate_kdf_cost(&kdbx4_header(dictionary), KdbxVersion::V4_0).is_ok());
     }
 }

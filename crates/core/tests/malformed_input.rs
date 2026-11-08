@@ -30,6 +30,33 @@ fn malformed_variant_dictionary_is_a_read_error_not_a_panic() {
     }
 }
 
+/// A KDBX 3.1 header can name an arbitrary AES-KDF round count; a hostile file
+/// with ~2e18 rounds would keep the reader busy for minutes (the daily fuzzing
+/// job produced exactly this input: `timeout-87bf88e5...`, minimized bytes are
+/// committed as `data/extreme-kdf-rounds.bin`). The reader must reject it
+/// immediately with a normal, explainable error instead of blocking the UI.
+#[test]
+fn extreme_kdf_parameters_are_rejected_quickly() {
+    const EXTREME: &[u8] = include_bytes!("data/extreme-kdf-rounds.bin");
+    let started = std::time::Instant::now();
+    let result = keepassity_core::kdbx::reader::parse(EXTREME, "demopass");
+    let elapsed = started.elapsed();
+    match result {
+        Err(keepassity_core::kdbx::reader::KdbxReadError::Unsupported(message)) => {
+            assert!(
+                message.contains("extreme") && message.contains("AES-KDF"),
+                "unexpected safety-limit reason: {message}"
+            );
+        }
+        Err(other) => panic!("expected the KDF safety-limit error, got {other:?}"),
+        Ok(_) => panic!("an extreme-KDF file must never parse"),
+    }
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "rejecting the file must not spend the KDF time (took {elapsed:?})"
+    );
+}
+
 /// A truncated file (shorter than the 12-byte header) is also a read error.
 #[test]
 fn short_input_is_a_header_error() {

@@ -56,6 +56,25 @@ one real provider (Jianguoyun) was exercised manually during the G4 gate on 2026
 | SmartScreen | the binaries are unsigned; Windows may show "Windows protected your PC". Verify the SHA-256 checksum first, then More info -> Run anyway |
 | Shell integration beyond open | no MSIX packaging, no auto-update, no Windows Hello, no auto-type |
 
+## Key-derivation safety limits
+
+A KDBX header is untrusted input: it declares the KDF parameters (AES-KDF round count or
+Argon2 memory/iterations/parallelism) the reader must execute before it can even tell the
+password is wrong. A hostile or corrupt header could therefore keep the app busy for a very
+long time. The reader validates the parameters before deriving any key and rejects files
+that ask for an extreme amount of work with a normal, explainable error (no hang, no panic):
+
+| KDF | Limit | Why |
+|---|---|---|
+| AES-KDF (KDBX 3.1 and 4.x) | 10,000,000 rounds | about 2-3 s of work on the reference machine; KeePass defaults are ~600k |
+| Argon2d / Argon2id memory | 2 GiB | far above real vaults (the writer default is 128 MiB) |
+| Argon2 iterations | 64 | the writer default is 6 |
+| Argon2 parallelism | 16 | the writer default is 4 |
+| Argon2 total work | memory (MiB) × iterations ≤ 6,144 | ~8x the write default, about 6 s |
+
+The limits only reject clearly abusive values: normal KeePass 2.x / KeePassXC databases,
+including high-security ones, stay well inside them. A file that trips a limit can still be
+opened in KeePass, which lets you re-save it with normal settings.
 ## Known limitations (v1.0)
 
 - Windows 11 x64 only; master password only (no key files, no challenge-response, no Windows
