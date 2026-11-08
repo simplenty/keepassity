@@ -52,7 +52,7 @@ one real provider (Jianguoyun) was exercised manually during the G4 gate on 2026
 | Item | Status |
 |---|---|
 | Installer / uninstaller | tested: per-user install (no UAC) under `%LOCALAPPDATA%\Programs\keepassity`, Start menu/desktop shortcuts, Apps & Features entry; clean install on a clean Windows 11 machine was a G4 manual item; uninstall removes program files and shortcuts and keeps user data; `tools/installer/verify-install.ps1` PASS at the 2026-11-08 gate (the v1.0.0 script adds `.kdbx` association checks) |
-| `.kdbx` file association | the installer registers a per-user candidate association (no default-app override); double-click opens keepassity after the user confirms/chooses it in Windows. Manual verification pending. <!-- TODO(lead): confirm association landed in the v1.0.0 build before publishing --> |
+| `.kdbx` file association | the installer registers a per-user candidate association (no default-app override); double-click opens keepassity after the user confirms/chooses it in Windows. Verified on the installed v1.0.0 build (2026-11-09). |
 | SmartScreen | the binaries are unsigned; Windows may show "Windows protected your PC". Verify the SHA-256 checksum first, then More info -> Run anyway |
 | Shell integration beyond open | no MSIX packaging, no auto-update, no Windows Hello, no auto-type |
 

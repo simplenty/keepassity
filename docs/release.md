@@ -73,7 +73,7 @@ repository's evidence) until the tag is created.
    - builds the Inno Setup installer with `scripts/build-installer.ps1` into
      `out/dist/keepassity-<version>-win-x64-setup.exe` (per-user install, no UAC; registers a
      per-user candidate `.kdbx` association without changing the default app).
-     <!-- TODO(lead): confirm association landed in the v1.0.0 build before publishing -->
+    
    - writes `SHA256SUMS` for the artifacts;
    - generates an SPDX SBOM (`sbom.spdx.json`) and build provenance attestations
      (`actions/attest-build-provenance`).
