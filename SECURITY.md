@@ -76,7 +76,11 @@ Also out of scope:
 
 - No telemetry, no accounts, no server. The only network access is the WebDAV server you
   configure.
-- Logs are redacted: no passwords, TOTP seeds, entry contents, or full paths.
+- Logs and the diagnostics export are redacted: no passwords, TOTP seeds, entry contents or
+  WebDAV credentials, and the diagnostics snapshot excludes database paths, WebDAV URLs and
+  usernames. Raw log files can still contain local filesystem paths (for example the
+  self-test report path); they stay on the machine unless the user exports and shares
+  diagnostics, so review an export before sending it.
 - WebDAV passwords are encrypted with Windows DPAPI for the current user and stored outside
   the settings file; they are never written to configuration files.
 - The release build is unsigned. Verify `SHA256SUMS` and, where provided, the build

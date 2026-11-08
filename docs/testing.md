@@ -101,3 +101,16 @@ dispatch; it never blocks pull requests). It fuzzes three core input surfaces wi
 `cargo-fuzz` on nightly Rust — `kdbx_parse`, `totp_uri` and `merge_json` — for 600 seconds
 each, seeded from the public fixtures, and uploads logs/crash inputs as artifacts. Reproduce
 locally with `cargo +nightly fuzz run <target>` from `crates/core/fuzz/` (see its README).
+
+## Static analysis and supply chain
+
+| Surface | What runs in CI | Notes |
+|---|---|---|
+| Rust | `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`, `cargo test --workspace` | clippy is the Rust static analyzer; CodeQL has no Rust support |
+| Rust dependencies | `cargo deny check` (licenses, advisories, bans) in the `supply-chain` job | config in `deny.toml`, now including a sources policy |
+| C# / WinUI | `dotnet build` of the solution + the project-level publish path, CodeQL `csharp` | CodeQL only analyzes the C# side; there is no C# formatting gate yet (tracked as a v1.x idea) |
+| App text | `tools/check-ui-strings.ps1` (no hard-coded non-English UI strings) | keeps the UI English-only |
+| KDBX/parsers | fuzzing (`crates/core/fuzz`, nightly job) | panics inside the guarded upstream reader are classified, see `crates/core/fuzz/README.md` |
+
+CodeQL does not support Rust (checked 2026-11); the Rust side relies on clippy, the
+fuzzer, `cargo deny` and the integration tests above.

@@ -8,3 +8,7 @@ multiple-versions = "warn"
 
 [advisories]
 yanked = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
