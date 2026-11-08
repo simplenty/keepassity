@@ -1,28 +1,74 @@
+# Dependabot configuration.
+#
+# Minor and patch upgrades are grouped per ecosystem to keep PR noise down; major upgrades
+# stay as individual PRs so they can be reviewed and tested deliberately.
+#
+# NuGet uses central package management: package versions live in Directory.Packages.props
+# at the repository root and the Windows projects under apps/windows consume it, so the
+# NuGet update entry points at "/".
+#
+# vendor/keepassxcr is vendored source for the pinned keepassxcr 0.3.1 fork (a `path`
+# dependency, excluded from the Cargo workspace). Dependabot does not manage vendored
+# source, so upgrades there are manual and must be reviewed through the lockfile diff and
+# the interop/round-trip tests.
 version: 2
 updates:
   - package-ecosystem: "cargo"
     directory: "/"
+    target-branch: develop
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
       - "rust"
+    groups:
+      cargo-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "nuget"
     directory: "/"
+    target-branch: develop
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
       - "csharp"
+    groups:
+      nuget-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: develop
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
       - "ci"
+    groups:
+      github-actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
