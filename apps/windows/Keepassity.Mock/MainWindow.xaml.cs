@@ -2328,17 +2328,57 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
+        string? selectedUuid = (EntryList.SelectedItem as EntryItem)?.Uuid;
+        double scrollOffset = CaptureEntryScrollOffset();
         try
         {
             await _core.MoveEntryAsync(entryUuid, targetGroupUuid);
             await SaveAsync();
-            await ReloadVaultAsync(entryUuid);
+            await ReloadVaultAsync(selectedUuid);
+            RestoreEntryScrollOffset(scrollOffset);
             ShowToast($"Moved to {item.Content}", InfoBarSeverity.Success);
         }
         catch (Exception ex)
         {
             ShowToast(ex.Message, InfoBarSeverity.Error);
         }
+    }
+
+    private static ScrollViewer? FindEntryScrollViewer(DependencyObject root)
+    {
+        int count = VisualTreeHelper.GetChildrenCount(root);
+        for (int index = 0; index < count; index++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, index);
+            if (child is ScrollViewer scrollViewer)
+            {
+                return scrollViewer;
+            }
+            ScrollViewer? nested = FindEntryScrollViewer(child);
+            if (nested is not null)
+            {
+                return nested;
+            }
+        }
+        return null;
+    }
+
+    private double CaptureEntryScrollOffset()
+        => FindEntryScrollViewer(EntryList)?.VerticalOffset ?? 0;
+
+    private void RestoreEntryScrollOffset(double offset)
+    {
+        if (offset <= 0)
+        {
+            return;
+        }
+        DispatcherQueue.TryEnqueue(
+            Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+            () =>
+            {
+                EntryList.UpdateLayout();
+                FindEntryScrollViewer(EntryList)?.ChangeView(null, offset, null, true);
+            });
     }
 
     private void PopulateEntries(IEnumerable<EntrySummaryDto> entries, string title)
