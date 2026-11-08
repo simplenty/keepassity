@@ -464,7 +464,7 @@
                                                     <TextBlock Text="{x:Bind Title}" FontSize="14"
                                                                FontWeight="SemiBold"
                                                                TextTrimming="CharacterEllipsis" />
-                                                    <TextBlock Text="{x:Bind Secondary}" FontSize="12"
+                                                    <TextBlock Text="{x:Bind Secondary, Mode=OneWay}" FontSize="12"
                                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                                TextTrimming="CharacterEllipsis" />
                                                 </StackPanel>
