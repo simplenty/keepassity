@@ -13,3 +13,11 @@ indent_size = 4
 
 [*.cs]
 indent_size = 4
+
+# C# conventions used by the code base (no formatter gate yet; these lines keep
+# editors and `dotnet format` agreeing when one is introduced).
+[*.cs]
+csharp_style_namespace_declarations = file_scoped:suggestion
+csharp_using_directive_placement = outside_namespace:suggestion
+csharp_prefer_braces = true:suggestion
+dotnet_sort_system_directives_first = true

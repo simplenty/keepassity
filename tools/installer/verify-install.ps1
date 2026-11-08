@@ -9,7 +9,8 @@
   everything around it is machine-checkable. This script checks the layout,
   licence files, shortcut targets, the Apps & Features (uninstall registry)
   entry, the installed binary version, the per-user .kdbx file association
-  (extension -> ProgID, DefaultIcon, shell\open\command with %1) and - when a
+  (candidate registration: ProgID, DefaultIcon, shell\open\command with %1, OpenWithProgids,
+  Applications\...\SupportedTypes, and that the .kdbx default handler was not taken over) and - when a
   fixture is given - runs the installed application's own `--selftest`.
 
   With -ExpectUninstalled it instead checks that the program folder, the

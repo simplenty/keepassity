@@ -1,5 +1,9 @@
 # keepassity
 
+[![CI](https://github.com/simplenty/keepassity/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/simplenty/keepassity/actions/workflows/ci.yml)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
+[![Platform: Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%2F11-informational)](#install-and-run)
+
 A Windows-first, open-source password manager for KeePass **KDBX** databases, with native
 **WebDAV** support and built-in **TOTP**. Rust core + WinUI 3 shell, GPL-3.0-or-later.
 
