@@ -13,6 +13,10 @@ KDBX write-path changes must state the compatibility impact.
   catalogs (`Keepassity.Core/Localization/*.zh-CN.json`) keyed by the English source text, so
   an untranslated string falls back to readable English. New gates: `tools/check-localization.ps1`
   and catalog tests in `tests/app-core` (see `docs/testing.md`).
+- **Entries can leave a folder again:** the virtual "All entries" row is a drop target that moves
+  an entry to the vault root, and the Move dialog offers `Top level (no folder)`. Dropping an
+  entry on the group (or top level) it already lives in is refused with a hint instead of a
+  pointless save and a row that disappears until the next reload.
 - **WebDAV 412 back-off retry (SY-08):** when the remote file changes while an upload is being prepared (HTTP 412), the app now retries three times with the same 0.5 s / 1.5 s / 4 s back-off schedule as the core sync state machine, then resolves the change through the three-way merge/conflict path - the remote is never overwritten silently.
 - **WebDAV server presets and app-password guidance:** the Open-from-WebDAV dialog offers URL presets for Nextcloud/ownCloud, Synology WebDAV and Jianguoyun, and every WebDAV entry point (open, new database, settings, sync) refuses plain `http://` URLs and reminds two-factor accounts to use an app password.
 - **WebDAV TLS and self-signed certificates:** WebDAV URLs now require `https://` (Basic

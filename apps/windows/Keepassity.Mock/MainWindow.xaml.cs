@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -3239,7 +3239,10 @@ public sealed partial class MainWindow : Window
                 Icon = new FontIcon { Glyph = group.Glyph },
                 ContextFlyout = BuildGroupContextMenu(group),
             };
-            if (group.Uuid is not null)
+            // Real groups and the virtual "All entries" row are drop targets.
+            // Dropping on "All entries" moves the entry to the vault root group,
+            // i.e. back out of the folder to the top level.
+            if (group.Uuid is not null || !string.IsNullOrEmpty(_rootGroupUuid))
             {
                 item.AllowDrop = true;
                 item.DragOver += GroupNavItem_DragOver;
@@ -3481,33 +3484,59 @@ public sealed partial class MainWindow : Window
         await Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Resolves a navigation drop target to the group an entry would move into.
+    /// Real group rows use their own uuid; the virtual "All entries" row maps to
+    /// the vault root group, which is how an entry leaves a folder again.
+    /// Returns null when the row cannot take drops.
+    /// </summary>
+    private string? ResolveDropTargetGroupUuid(NavigationViewItem item)
+    {
+        if (item.Tag is not string tag)
+        {
+            return null;
+        }
+        return tag == "all" ? _rootGroupUuid : tag;
+    }
+
+    private static bool IsTopLevelDropTarget(NavigationViewItem item)
+        => (item.Tag as string) == "all";
+
     private void GroupNavItem_DragOver(object sender, DragEventArgs e)
     {
         if (sender is not NavigationViewItem item ||
-            item.Tag is not string groupUuid ||
-            groupUuid == "all" ||
             !e.DataView.Contains(StandardDataFormats.Text))
         {
             return;
         }
-        if (_draggedEntryGroupUuid is not null && _draggedEntryGroupUuid == groupUuid)
+        string? targetGroupUuid = ResolveDropTargetGroupUuid(item);
+        if (string.IsNullOrEmpty(targetGroupUuid))
         {
-            // The row already lives in this group. Refuse the drop here: the move
-            // path removes the row from the current group view and, since the
-            // group does not change, never puts it back - the row would be
-            // ejected for nothing. A hint explains why the drop is refused.
-            string sameGroupName = item.Content as string ?? Loc.T("this group");
+            return;
+        }
+        bool topLevel = IsTopLevelDropTarget(item);
+        if (_draggedEntryGroupUuid is not null && _draggedEntryGroupUuid == targetGroupUuid)
+        {
+            // The row already lives in this group (or at the top level). Refuse
+            // the drop here: the move path removes the row from the current group
+            // view and, since the group does not change, never puts it back - the
+            // row would be ejected for nothing. A hint explains the refusal.
             ClearGroupDragHighlight(item);
             e.AcceptedOperation = DataPackageOperation.None;
-            e.DragUIOverride.Caption = Loc.T("Already in {0}", sameGroupName);
+            e.DragUIOverride.Caption = topLevel
+                ? Loc.T("Already at the top level")
+                : Loc.T("Already in {0}", item.Content ?? string.Empty);
             e.DragUIOverride.IsCaptionVisible = true;
             e.DragUIOverride.IsGlyphVisible = false;
             if (!_dragSameGroupHintShown)
             {
                 _dragSameGroupHintShown = true;
                 string draggedTitle = _draggedEntryTitle ?? Loc.T("The entry");
-                ShowToast(Loc.T("\"{0}\" is already in {1} — nothing to move.",
-                        draggedTitle, sameGroupName),
+                ShowToast(topLevel
+                        ? Loc.T("\"{0}\" is already at the top level — nothing to move.",
+                            draggedTitle)
+                        : Loc.T("\"{0}\" is already in {1} — nothing to move.",
+                            draggedTitle, item.Content ?? string.Empty),
                     InfoBarSeverity.Informational);
             }
             e.Handled = true;
@@ -3519,7 +3548,9 @@ public sealed partial class MainWindow : Window
             (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
         item.BorderThickness = new Thickness(1);
         e.AcceptedOperation = DataPackageOperation.Move;
-        e.DragUIOverride.Caption = Loc.T("Move to {0}", item.Content);
+        e.DragUIOverride.Caption = topLevel
+            ? Loc.T("Move to the top level")
+            : Loc.T("Move to {0}", item.Content ?? string.Empty);
         e.DragUIOverride.IsCaptionVisible = true;
         e.DragUIOverride.IsGlyphVisible = false;
         e.Handled = true;
@@ -3543,12 +3574,19 @@ public sealed partial class MainWindow : Window
     private async void GroupNavItem_Drop(object sender, DragEventArgs e)
     {
         if (sender is not NavigationViewItem item ||
-            item.Tag is not string targetGroupUuid ||
-            targetGroupUuid == "all" ||
             !e.DataView.Contains(StandardDataFormats.Text))
         {
             return;
         }
+        string? targetGroupUuid = ResolveDropTargetGroupUuid(item);
+        if (string.IsNullOrEmpty(targetGroupUuid))
+        {
+            return;
+        }
+        bool topLevel = IsTopLevelDropTarget(item);
+        string targetLabel = topLevel
+            ? Loc.T("the top level")
+            : item.Content as string ?? Loc.T("the group");
         e.Handled = true;
         ClearGroupDragHighlight(item);
         string entryUuid = (await e.DataView.GetTextAsync()).Trim();
@@ -3562,11 +3600,12 @@ public sealed partial class MainWindow : Window
         {
             // Defensive: DragOver already refuses this drop, but a stale or
             // programmatic drop must not turn into a pointless save + ejection.
-            string sameGroupName = item.Content as string ??
-                _groupNames.GetValueOrDefault(targetGroupUuid, Loc.T("this group"));
             string movedTitle = movedItem?.Title ?? Loc.T("The entry");
-            ShowToast(Loc.T("\"{0}\" is already in {1} — nothing to move.",
-                    movedTitle, sameGroupName),
+            ShowToast(topLevel
+                    ? Loc.T("\"{0}\" is already at the top level — nothing to move.",
+                        movedTitle)
+                    : Loc.T("\"{0}\" is already in {1} — nothing to move.",
+                        movedTitle, targetLabel),
                 InfoBarSeverity.Informational);
             return;
         }
@@ -3578,9 +3617,10 @@ public sealed partial class MainWindow : Window
             // Update only the affected row(s); a full reload would reset the
             // scroll position for a move that usually does not change the view.
             ApplyEntryMovedLocally(entryUuid, sourceGroupUuid, targetGroupUuid,
-                item.Content as string ?? _groupNames.GetValueOrDefault(targetGroupUuid, Loc.T("the group")));
+                item.Content as string ??
+                _groupNames.GetValueOrDefault(targetGroupUuid, Loc.T("the group")));
             RestoreEntryScrollOffset(scrollOffset);
-            ShowToast(Loc.T("Moved to {0}", item.Content), InfoBarSeverity.Success);
+            ShowToast(Loc.T("Moved to {0}", targetLabel), InfoBarSeverity.Success);
         }
         catch (Exception ex)
         {
@@ -4805,15 +4845,27 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
+        // Offer the vault root as "Top level (no folder)" so an entry that was
+        // moved into a folder can always be moved back out without dragging.
+        var moveTargets = new List<GroupDto>(_selectableGroups);
+        if (!string.IsNullOrEmpty(_rootGroupUuid) &&
+            moveTargets.All(group => group.Uuid != _rootGroupUuid))
+        {
+            moveTargets.Insert(0, new GroupDto
+            {
+                Uuid = _rootGroupUuid!,
+                Name = Loc.T("Top level (no folder)"),
+            });
+        }
         var choices = new ComboBox
         {
-            Header = Loc.T("Move to group"),
-            ItemsSource = _selectableGroups,
+            Header = Loc.T("Move to"),
+            ItemsSource = moveTargets,
             DisplayMemberPath = "Name",
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
-        choices.SelectedItem = _selectableGroups.FirstOrDefault(group =>
-            group.Uuid == _currentFull.GroupUuid) ?? _selectableGroups[0];
+        choices.SelectedItem = moveTargets.FirstOrDefault(group =>
+            group.Uuid == _currentFull.GroupUuid) ?? moveTargets[0];
         if (await ShowDetailPanelAsync(Loc.T("Move entry"), choices, Loc.T("Move"),
                 primaryGlyph: "\uE8DE") !=
                 RightPanelResult.Primary ||
@@ -4823,10 +4875,16 @@ public sealed partial class MainWindow : Window
             return;
         }
         string uuid = _currentFull.Uuid;
+        bool toTopLevel = !string.IsNullOrEmpty(_rootGroupUuid) &&
+            target.Uuid == _rootGroupUuid;
+        string targetLabel = toTopLevel ? Loc.T("the top level") : target.Name;
         if (target.Uuid == _currentFull.GroupUuid)
         {
-            ShowToast(Loc.T("\"{0}\" is already in {1} — nothing to move.",
-                    _currentFull.Title, target.Name),
+            ShowToast(toTopLevel
+                    ? Loc.T("\"{0}\" is already at the top level — nothing to move.",
+                        _currentFull.Title)
+                    : Loc.T("\"{0}\" is already in {1} — nothing to move.",
+                        _currentFull.Title, target.Name),
                 InfoBarSeverity.Informational);
             return;
         }
@@ -4834,9 +4892,9 @@ public sealed partial class MainWindow : Window
         {
             await _core.MoveEntryAsync(uuid, target.Uuid);
             await SaveAsync();
-            _selectedGroupUuid = target.Uuid;
+            _selectedGroupUuid = toTopLevel ? null : target.Uuid;
             await ReloadVaultAsync(uuid);
-            ShowToast(Loc.T("Moved to {0}", target.Name), InfoBarSeverity.Success);
+            ShowToast(Loc.T("Moved to {0}", targetLabel), InfoBarSeverity.Success);
         }
         catch (Exception ex)
         {
