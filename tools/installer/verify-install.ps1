@@ -41,7 +41,7 @@
 
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File tools\installer\verify-install.ps1 `
-    -Version 0.1.0 -Fixture tests/fixtures/keepass-rs/test_db_kdbx4_with_password_aes.kdbx -FixturePassword demopass
+    -Version 1.0.0 -Fixture tests/fixtures/keepass-rs/test_db_kdbx4_with_password_aes.kdbx -FixturePassword demopass
 
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File tools\installer\verify-install.ps1 -ExpectUninstalled

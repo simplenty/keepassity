@@ -21,7 +21,7 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = ($props.Project.PropertyGroup | Where-Object { $_.KeepassityVersion } |
         Select-Object -First 1).KeepassityVersion
     if ([string]::IsNullOrWhiteSpace($Version)) {
-        $Version = "0.1.0-dev"
+        $Version = "1.0.0-dev"
     }
 }
 
