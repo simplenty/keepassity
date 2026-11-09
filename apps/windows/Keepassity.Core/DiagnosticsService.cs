@@ -13,7 +13,14 @@ namespace Keepassity.Mock;
 /// </summary>
 public static class DiagnosticsService
 {
-    public static async Task<string> ExportAsync(AppSettings settings)
+    /// <summary>
+    /// Builds the diagnostics archive on a worker thread; the UI calls this
+    /// without blocking while the logs are zipped.
+    /// </summary>
+    public static Task<string> ExportAsync(AppSettings settings)
+        => Task.Run(() => ExportCore(settings));
+
+    private static string ExportCore(AppSettings settings)
     {
         string directory = Path.Combine(AppDataPaths.Root, "diagnostics");
         Directory.CreateDirectory(directory);
