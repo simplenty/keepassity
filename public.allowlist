@@ -51,3 +51,5 @@ installer/**
 .github/workflows/fuzz.yml
 .github/codeql/codeql-config.yml
 crates/core/tests/data/extreme-kdf-rounds.bin
+apps/windows/Keepassity.Core/WebDavTls.cs
+tests/app-core/Keepassity.Core.Tests/WebDavTlsTests.cs

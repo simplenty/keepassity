@@ -31,6 +31,26 @@ writer does not map are not preserved by an app save. The app edit/save path was
 checked at G3 (edit, save, reopen in KeePass 2.x); the interop matrix above covers the backend
 rewrite round trip.
 
+## WebDAV TLS and self-signed certificates
+
+WebDAV URLs must use `https://`: the password is sent with Basic authentication, so the app
+rejects plain `http://` URLs instead of leaking credentials over the network.
+
+Server certificates are validated by the operating system first. A certificate Windows does
+not trust (typical for a self-installed NAS, Nextcloud or router) is never accepted silently;
+the app opens a confirmation dialog that shows the server, subject, issuer, expiry and the
+**SHA-256 fingerprint** of the presented certificate:
+
+- **Trust** pins that exact certificate for the `host:port` in `settings.json` and retries the
+  connection. Only that certificate is accepted from then on, in addition to the normal
+  platform-trusted chain - certificate validation is never disabled globally.
+- **Cancel** aborts the operation; no request, credentials or database bytes are sent.
+- If the server certificate changes later (renewal, re-install), the app notices during the
+  next connection check and asks again instead of silently trusting the new certificate.
+
+Only trust a certificate if you installed the server yourself or your administrator gave you the
+fingerprint out of band.
+
 ## WebDAV servers
 
 The app uses a minimal WebDAV client (PROPFIND depth 0, GET, conditional PUT with

@@ -25,6 +25,13 @@ public sealed class AppSettings
     public int? WindowWidth { get; set; }
     public int? WindowHeight { get; set; }
     public bool StartMinimized { get; set; }
+    /// <summary>
+    /// Explicitly trusted self-signed WebDAV certificates (SY-04), keyed by
+    /// <c>host:port</c>; the value is the lowercase hex SHA-256 fingerprint. Only
+    /// the exact certificate is accepted, and only after the user confirmed its
+    /// fingerprint in the trust dialog.
+    /// </summary>
+    public Dictionary<string, string> TrustedCertificates { get; set; } = new();
 }
 
 public sealed class AppSettingsStore
