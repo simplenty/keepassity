@@ -94,6 +94,12 @@ public sealed partial class MainWindow : Window
     private long _totpPrefetchTargetUnix = long.MinValue;
     private bool _totpPrefetchInFlight;
     private bool _announcePeerWarningLogged;
+    // Drag-move state: which row is being dragged and which group it already
+    // lives in, so a drop onto that same group is refused with a hint instead of
+    // ejecting the row from the list and putting it straight back.
+    private string? _draggedEntryGroupUuid;
+    private string? _draggedEntryTitle;
+    private bool _dragSameGroupHintShown;
 
     private enum RightPanelResult
     {
@@ -3447,6 +3453,28 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
+        if (_draggedEntryGroupUuid is not null && _draggedEntryGroupUuid == groupUuid)
+        {
+            // The row already lives in this group. Refuse the drop here: the move
+            // path removes the row from the current group view and, since the
+            // group does not change, never puts it back - the row would be
+            // ejected for nothing. A hint explains why the drop is refused.
+            string sameGroupName = item.Content as string ?? "this group";
+            ClearGroupDragHighlight(item);
+            e.AcceptedOperation = DataPackageOperation.None;
+            e.DragUIOverride.Caption = $"Already in {sameGroupName}";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsGlyphVisible = false;
+            if (!_dragSameGroupHintShown)
+            {
+                _dragSameGroupHintShown = true;
+                string draggedTitle = _draggedEntryTitle ?? "The entry";
+                ShowToast($"\"{draggedTitle}\" is already in {sameGroupName} — nothing to move.",
+                    InfoBarSeverity.Informational);
+            }
+            e.Handled = true;
+            return;
+        }
         item.Background =
             (Brush)Application.Current.Resources["AccentFillColorSecondaryBrush"];
         item.BorderBrush =
@@ -3492,6 +3520,17 @@ public sealed partial class MainWindow : Window
         }
         EntryItem? movedItem = Entries.FirstOrDefault(entry => entry.Uuid == entryUuid);
         string? sourceGroupUuid = movedItem?.GroupUuid;
+        if (sourceGroupUuid is not null && sourceGroupUuid == targetGroupUuid)
+        {
+            // Defensive: DragOver already refuses this drop, but a stale or
+            // programmatic drop must not turn into a pointless save + ejection.
+            string sameGroupName = item.Content as string ??
+                _groupNames.GetValueOrDefault(targetGroupUuid, "this group");
+            string movedTitle = movedItem?.Title ?? "The entry";
+            ShowToast($"\"{movedTitle}\" is already in {sameGroupName} — nothing to move.",
+                InfoBarSeverity.Informational);
+            return;
+        }
         double scrollOffset = CaptureEntryScrollOffset();
         try
         {
@@ -3682,6 +3721,12 @@ public sealed partial class MainWindow : Window
     private void ApplyEntryMovedLocally(string entryUuid, string? sourceGroupUuid,
         string targetGroupUuid, string targetGroupName)
     {
+        if (sourceGroupUuid is not null && sourceGroupUuid == targetGroupUuid)
+        {
+            // Nothing moved: removing the row would drop it from the group view
+            // that still contains it (it is only put back by a later reload).
+            return;
+        }
         string targetName = _groupNames.GetValueOrDefault(targetGroupUuid, targetGroupName);
         EntryItem? item = Entries.FirstOrDefault(entry => entry.Uuid == entryUuid);
         if (item is not null)
@@ -3965,14 +4010,26 @@ public sealed partial class MainWindow : Window
 
     private void EntryList_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
     {
+        _draggedEntryGroupUuid = null;
+        _draggedEntryTitle = null;
+        _dragSameGroupHintShown = false;
         if (e.Items.Count == 0 || e.Items[0] is not EntryItem entry)
         {
             e.Cancel = true;
             return;
         }
+        _draggedEntryGroupUuid = entry.GroupUuid;
+        _draggedEntryTitle = entry.Title;
         e.Data.SetText(entry.Uuid);
         e.Data.RequestedOperation = DataPackageOperation.Move;
         e.Data.Properties.Title = entry.Title;
+    }
+
+    private void EntryList_DragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
+    {
+        _draggedEntryGroupUuid = null;
+        _draggedEntryTitle = null;
+        _dragSameGroupHintShown = false;
     }
 
     private void EntryList_RightTapped(object sender, RightTappedRoutedEventArgs e)
@@ -4717,6 +4774,12 @@ public sealed partial class MainWindow : Window
             return;
         }
         string uuid = _currentFull.Uuid;
+        if (target.Uuid == _currentFull.GroupUuid)
+        {
+            ShowToast($"\"{_currentFull.Title}\" is already in {target.Name} — nothing to move.",
+                InfoBarSeverity.Informational);
+            return;
+        }
         try
         {
             await _core.MoveEntryAsync(uuid, target.Uuid);

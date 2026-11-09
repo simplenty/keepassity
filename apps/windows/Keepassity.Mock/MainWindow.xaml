@@ -437,6 +437,7 @@
                                           CanDragItems="True"
                                           CanReorderItems="False"
                                           DragItemsStarting="EntryList_DragItemsStarting"
+                                          DragItemsCompleted="EntryList_DragItemsCompleted"
                                           ItemContainerStyle="{StaticResource EntryListItemStyle}"
                                           Background="Transparent" Padding="2,4,8,0"
                                           AutomationProperties.Name="Entries"
