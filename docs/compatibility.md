@@ -54,7 +54,9 @@ fingerprint out of band.
 ## WebDAV servers
 
 The app uses a minimal WebDAV client (PROPFIND depth 0, GET, conditional PUT with
-ETag/If-Match and If-None-Match, 412 handling). It is covered by an in-process mock in
+ETag/If-Match and If-None-Match; a 412 means the remote changed while the upload was
+being prepared and is retried with 0.5 s / 1.5 s / 4 s back-off before the three-way
+merge/conflict flow). It is covered by an in-process mock in
 `tests/app-core` and by the mock-WebDAV drills (protocol, restore, offline replay, conflict);
 one real provider (Jianguoyun) was exercised manually during the G4 gate on 2026-11-09
 (configuration, save-sync, startup check, manual sync). The Open-from-WebDAV dialog

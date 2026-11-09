@@ -1509,7 +1509,7 @@ public sealed partial class MainWindow : Window
             WebDavFileInfo? metadata = await dav.GetMetadataAsync();
             if (metadata is null)
             {
-                await UploadLocalAsync(dav, state, url, username);
+                await UploadWithBackoffAsync(dav, state, url, username);
                 return;
             }
 
@@ -1534,7 +1534,7 @@ public sealed partial class MainWindow : Window
                     SetSyncStatus(decision.Degraded ? "Synced (degraded)" : "Synced");
                     break;
                 case "upload":
-                    await UploadLocalAsync(dav, state, url, username);
+                    await UploadWithBackoffAsync(dav, state, url, username);
                     break;
                 case "download":
                     await DownloadRemoteAsync(dav, metadata, state, url, username);
@@ -1594,21 +1594,10 @@ public sealed partial class MainWindow : Window
     {
         byte[] bytes = await _core.SaveBytesAsync();
         await WriteLocalBytesAsync(_dbPath!, bytes);
-        string? etag;
-        try
-        {
-            etag = await dav.UploadAsync(bytes, state.Etag);
-        }
-        catch (WebDavException ex) when (ex.Conflict)
-        {
-            WebDavFileInfo? metadata = await dav.GetMetadataAsync();
-            if (metadata is null)
-            {
-                throw;
-            }
-            await MergeRemoteAsync(dav, metadata, state, url, username);
-            return;
-        }
+        // A 412 means the remote changed while we were preparing the upload; it
+        // is handled by UploadWithBackoffAsync, which retries with the core
+        // state machine's back-off schedule and merges after the last retry.
+        string? etag = await dav.UploadAsync(bytes, state.Etag);
         string sha = Sha256Hex(bytes);
         await _core.SyncCommitAsync(etag, sha);
         state.Etag = etag;
@@ -1618,6 +1607,50 @@ public sealed partial class MainWindow : Window
         state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         _syncStates.Save(url, username, _dbPath!, state);
         SetSyncStatus("Synced");
+    }
+
+    /// <summary>
+    /// Uploads the current database, retrying a 412 (remote changed during the
+    /// upload) three times with the same 0.5 s / 1.5 s / 4 s back-off schedule as
+    /// the core sync state machine (SY-08). After the last retry the remote
+    /// change is resolved through the normal three-way merge/conflict path; the
+    /// remote is never overwritten silently.
+    /// </summary>
+    private async Task UploadWithBackoffAsync(WebDavClient dav, SyncState state,
+        string url, string username)
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await UploadLocalAsync(dav, state, url, username);
+                return;
+            }
+            catch (WebDavException ex) when (ex.Conflict)
+            {
+                if (attempt >= 3)
+                {
+                    AppLog.Warn("sync: PUT 412 after three back-off retries; merging");
+                    WebDavFileInfo? metadata = await dav.GetMetadataAsync();
+                    if (metadata is null)
+                    {
+                        throw;
+                    }
+                    SetSyncStatus("Resolving conflict");
+                    await MergeRemoteAsync(dav, metadata, state, url, username);
+                    return;
+                }
+                int delayMs = attempt switch
+                {
+                    0 => 500,
+                    1 => 1500,
+                    _ => 4000,
+                };
+                SetSyncStatus($"Retrying sync in {delayMs} ms");
+                AppLog.Warn($"sync: PUT 412, retry {attempt + 1}/3 after {delayMs} ms");
+                await Task.Delay(delayMs);
+            }
+        }
     }
 
     private async Task DownloadRemoteAsync(WebDavClient dav, WebDavFileInfo metadata,
