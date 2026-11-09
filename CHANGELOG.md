@@ -140,7 +140,8 @@ English UI. The full matrix, including untested states, is in `docs/compatibilit
   checksums and build-provenance attestations only (no code signing, no MSIX, no
   auto-update).
 - `v1.0.0` is not published yet: the 30-day acceptance runs first, then the tag/release is
-  created and the obsolete `v0.1.0` draft is removed (see `docs/release.md`).
+  created. No GitHub Release exists today; the obsolete `v0.1.0` draft and tag were removed
+  on 2026-11-09 (see `docs/release.md`).
 - Windows 11 x64 only; Linux is planned for v1.x.
 
 ## [0.1.0] - 2026-10-28

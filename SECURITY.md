@@ -8,7 +8,7 @@ handled **best effort, with no SLA**. Please do not open a public issue for a vu
 | Version | Supported |
 |---|---|
 | `v1.0.x` (current source tree; tag and GitHub Release pending the 30-day acceptance) | Yes |
-| `v0.1.0` draft from 2026-10-28 | No — obsolete draft, do not use |
+| Pre-1.0 builds (the obsolete `v0.1.0` draft/tag were removed on 2026-11-09) | No |
 | Any other/pre-1.0 build | No |
 
 The `v1.0.0` tag and GitHub Release are created only after the acceptance period described

@@ -1,4 +1,4 @@
-# keepassity Windows app (test branch)
+# keepassity Windows app
 
 Functional WinUI 3 shell on top of the Rust core. It opens a real KDBX database
 through the FFI v1 C ABI, shows its groups/entries, reads and writes entries,
@@ -33,14 +33,16 @@ apps/windows/Keepassity.Mock/bin/Debug/net8.0-windows10.0.19041.0/win-x64/Keepas
    copied to `.keepassity\backups\<db>\` before every save. Lock saves and closes
    the handle.
 
-For local UI testing only, `--db <path>` pre-fills the database, and the
-`KEEPASSITY_MOCK_PASSWORD` environment variable auto-unlocks the app. Do not put
-real passwords in arguments. A second normal launch activates the existing
-window; pass `--allow-multiple` for isolated test instances (e.g. conflict tests)
-and `--no-tray` when a test needs the close button to exit instead of hiding to
-the notification area.
+`--db <path>` pre-fills the database, and a bare `.kdbx` path (file association /
+"Open with") is handed to the running instance. The diagnostic overrides are
+release-safe: `KEEPASSITY_MOCK_PASSWORD`, `--allow-multiple`, `--no-tray` and the
+tray-menu hooks only work in a debug build or together with `--enable-test-hooks`.
+Do not put real passwords in arguments. A second normal launch activates the
+existing window instead of starting a second copy. `--data-dir <path>` (or
+`KEEPASSITY_DATA_DIR`) keeps settings, logs and backups away from the real profile.
 
-The tray menu can be opened without pointer input for visual checks:
+The tray menu can be opened without pointer input for visual checks (requires
+`--enable-test-hooks`):
 `KEEPASSITY_TRAY_MENU_AT="x,y"` (physical screen pixels) opens it 1.5 s after the
 window loads, `KEEPASSITY_TRAY_MENU_SCHEDULE="2000,x,y;8000,x,y"` lists exact
 delay/position toggles, `KEEPASSITY_TRAY_MENU_CYCLE_MS=12000` keeps toggling the
@@ -76,8 +78,9 @@ non-zero on failure. The report contains counts/status only, never secrets.
   `otpauth://` clipboard URI; manual Base32 remains available. QR decoding stays
   in the UI layer (ZXing.Net) and only the resulting URI/secret reaches core.
 - Lock/unlock, light/dark theme, Mica/titlebar layout.
-- Single instance (a second launch restores and focuses the existing window) and
-  persisted window position/size; `--allow-multiple` is a test-only bypass.
+- Single instance (a second launch restores and focuses the existing window, and a
+  `.kdbx` path passed to it is forwarded to the running copy) and persisted window
+  position/size; `--allow-multiple` is a gated test-only bypass.
 - Notification-area icon: left/double click shows the window, right click offers
   Show / Lock / Exit, and closing the window hides it to the tray with a one-time
   hint. An optional setting starts the app minimized; `--no-tray` is a test-only
@@ -90,14 +93,16 @@ non-zero on failure. The report contains counts/status only, never secrets.
   (`ClipboardContentOptions`).
 - Auto-lock after the configured inactivity period (default 15 minutes); activity
   from pointer or keyboard resets the timer.
-- **WebDAV sync**: configure a file URL and username in Settings; the password is
-  stored with Windows DPAPI. The app checks the remote on unlock, syncs on save
-  (toggle), and supports manual sync from the footer. It implements PROPFIND
-  depth 0 metadata, conditional GET/PUT with ETag/If-Match/If-None-Match, download,
-  upload, and local merge. Non-overlapping changes merge automatically; when the
-  same item changed on both sides, a three-choice dialog offers Keep local, Keep
-  remote, or Keep both (recommended), and local/remote conflict copies are written
-  before any choice.
+- **WebDAV sync**: configure an https file URL and username in Settings (the Open
+  dialog offers presets for Nextcloud/ownCloud, Synology and Jianguoyun); the
+  password is stored with Windows DPAPI. Self-signed certificates require an
+  explicit fingerprint confirmation and are then pinned per host. The app checks
+  the remote on unlock, syncs on save (toggle), and supports manual sync from the
+  footer. It implements PROPFIND depth 0 metadata, conditional GET/PUT with
+  ETag/If-Match/If-None-Match, download, upload, local merge, and 412 back-off
+  retries. Non-overlapping changes merge automatically; when the same item changed
+  on both sides, a three-choice dialog offers Keep local, Keep remote, or Keep both
+  (recommended), and local/remote conflict copies are written before any choice.
   Baseline ETag/hash/dirty state is kept under `%LOCALAPPDATA%\keepassity\state\`.
 - **Backups**: every save (local or sync write) first copies the current database
   to `.keepassity\backups\<db>\<timestamp>.kdbx`; the newest `BackupRetention`
@@ -105,10 +110,11 @@ non-zero on failure. The report contains counts/status only, never secrets.
   a selected backup after validating that it opens with the current password and
   backing up the current file first.
 
-## Not implemented yet
+## Not implemented in v1.0
 
-- Keyfile/challenge-response credentials.
-- History/attachment UI.
+- Keyfile/challenge-response credentials (master password only).
+- History/attachment/recycle-bin management UI (the data is preserved).
+- Windows Hello / quick unlock, auto-type, browser integration, multi-database.
 
 ## Notes
 
