@@ -5,6 +5,7 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **WebDAV 412 back-off retry (SY-08):** when the remote file changes while an upload is being prepared (HTTP 412), the app now retries three times with the same 0.5 s / 1.5 s / 4 s back-off schedule as the core sync state machine, then resolves the change through the three-way merge/conflict path - the remote is never overwritten silently.
 - **WebDAV server presets and app-password guidance:** the Open-from-WebDAV dialog offers URL presets for Nextcloud/ownCloud, Synology WebDAV and Jianguoyun, and every WebDAV entry point (open, new database, settings, sync) refuses plain `http://` URLs and reminds two-factor accounts to use an app password.
 - **WebDAV TLS and self-signed certificates:** WebDAV URLs now require `https://` (Basic
   authentication must not travel over plain HTTP). A server certificate Windows does not trust
