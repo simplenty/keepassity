@@ -48,9 +48,10 @@ preserved). The v1.0 scope is frozen by the maintainer.
 - **Security:** auto-lock after inactivity and on Windows session lock/logoff/suspend,
   clipboard secrets cleared after 30 seconds and marked not to enter Win+V / cloud clipboard
   history, WebDAV passwords stored with Windows DPAPI.
-- **Shell:** English WinUI 3 UI with system/light/dark theme, search, sorting and filtering,
-  entry/group drag-and-drop, tray menu (show / lock / exit), single-instance behaviour,
-  inline settings panel and `--selftest` mode.
+- **Shell:** WinUI 3 UI with **English and Simplified Chinese** (switchable at runtime in
+  Settings or on the unlock page, plus "use the system language"), system/light/dark theme,
+  search, sorting and filtering, entry/group drag-and-drop, tray menu (show / lock / exit),
+  single-instance behaviour, inline settings panel and `--selftest` mode.
 - **Windows integration:** the installer is per-user (no administrator rights), installs
   under `%LOCALAPPDATA%\Programs\keepassity` with Start menu / desktop shortcuts and an
   uninstaller that keeps user data, and registers a per-user candidate `.kdbx` association
