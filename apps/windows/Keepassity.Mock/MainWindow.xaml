@@ -364,11 +364,15 @@
                              of two independently positioned overlays. -->
                         <Grid x:Name="WorkspaceHost">
                     <!-- The workspace owns its frame: rounded top-left only; right
-                         and bottom are square and sit on the window edge. -->
+                         and bottom are square and sit on the window edge. The top
+                         and left hairlines wrap the rounded corner (the same
+                         1,1,0,0 frame NavigationView draws for its content grid);
+                         with only the top side stroked the corner would end in a
+                         dangling hook and the pane/content seam would have no line. -->
                     <Border x:Name="WorkspaceFrame" Margin="0" CornerRadius="8,0,0,0"
                             Background="{ThemeResource LayerFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="0,1,0,0">
+                            BorderThickness="1,1,0,0">
                         <Grid x:Name="WorkspacePanel">
                         <Grid>
                             <Grid.ColumnDefinitions>
