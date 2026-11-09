@@ -124,6 +124,7 @@ try
     // M4-01: WebDavClient against an in-process WebDAV mock on a CJK path; also
     // proves the client sends the percent-encoded request target.
     WebDavNonAsciiPathTests.Run(Check);
+    WebDavTlsTests.Run(Check);
 
     // backups
     string database = Path.Combine(dataDirectory, "sample.kdbx");

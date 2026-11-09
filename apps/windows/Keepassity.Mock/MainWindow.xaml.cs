@@ -1347,6 +1347,111 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private static string CertificateTrustKey(string url)
+    {
+        return Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)
+            ? $"{uri.Host}:{uri.Port}"
+            : url;
+    }
+
+    /// <summary>
+    /// Creates the WebDAV client, asking the user to confirm a self-signed server
+    /// certificate first (SY-04: explicit trust with fingerprint, never a global
+    /// validation bypass). Publicly trusted certificates need no prompt.
+    /// </summary>
+    private async Task<WebDavClient> CreateWebDavClientAsync(string url, string username,
+        string password)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) ||
+            uri.Scheme != Uri.UriSchemeHttps)
+        {
+            return new WebDavClient(url, username, password);
+        }
+        TlsCertificateInfo info;
+        try
+        {
+            info = await WebDavTls.ProbeAsync(uri.Host, uri.Port);
+        }
+        catch (WebDavException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new WebDavException(
+                $"Could not check the TLS certificate of {uri.Host}:{uri.Port}: {ex.Message}");
+        }
+        if (info.IsPubliclyTrusted)
+        {
+            return new WebDavClient(url, username, password);
+        }
+        string key = CertificateTrustKey(url);
+        if (Settings.TrustedCertificates.TryGetValue(key, out string? trusted) &&
+            string.Equals(trusted, info.Sha256FingerprintHex, StringComparison.Ordinal))
+        {
+            return new WebDavClient(url, username, password, trusted);
+        }
+        bool changed = Settings.TrustedCertificates.ContainsKey(key);
+        if (!await ConfirmWebDavCertificateAsync(info, changed))
+        {
+            throw new WebDavException(
+                $"The certificate presented by {info.Endpoint} was not trusted, " +
+                "so the connection was cancelled.");
+        }
+        Settings.TrustedCertificates[key] = info.Sha256FingerprintHex;
+        _settingsStore.Save();
+        AppLog.Info("trusted WebDAV certificate for " + key +
+                    " (sha256 " + info.Sha256FingerprintHex + ")");
+        return new WebDavClient(url, username, password, info.Sha256FingerprintHex);
+    }
+
+    private async Task<bool> ConfirmWebDavCertificateAsync(TlsCertificateInfo info, bool changed)
+    {
+        var content = new StackPanel { Spacing = 8 };
+        content.Children.Add(new TextBlock
+        {
+            Text = changed
+                ? "The server's certificate changed since it was trusted. Only continue " +
+                  "if you changed it yourself or an administrator did."
+                : "Windows does not trust this server's certificate. That is normal for a " +
+                  "self-signed certificate; only trust it if you installed the server or " +
+                  "an administrator gave you this fingerprint.",
+            TextWrapping = TextWrapping.Wrap,
+        });
+        void AddRow(string label, string value)
+        {
+            var row = new StackPanel { Spacing = 1 };
+            row.Children.Add(new TextBlock
+            {
+                Text = label,
+                FontSize = 11,
+                Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+            });
+            row.Children.Add(new TextBlock
+            {
+                Text = value,
+                FontFamily = new FontFamily("Consolas"),
+                TextWrapping = TextWrapping.Wrap,
+                IsTextSelectionEnabled = true,
+            });
+            content.Children.Add(row);
+        }
+        AddRow("Server", info.Endpoint);
+        AddRow("Subject", info.Subject);
+        AddRow("Issuer", info.Issuer);
+        AddRow("Expires", info.NotAfter.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
+        AddRow("SHA-256 fingerprint", info.Sha256FingerprintHex);
+        var dialog = new ContentDialog
+        {
+            Title = changed ? "Server certificate changed" : "Trust this server certificate?",
+            Content = content,
+            PrimaryButtonText = "Trust",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = Root.XamlRoot,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
     private async Task SyncAsync(bool startup = false)
     {
         if (!await _syncGate.WaitAsync(0))
@@ -1387,7 +1492,7 @@ public sealed partial class MainWindow : Window
             {
                 await _core.SyncCommitAsync(state.Etag, state.Sha256);
             }
-            using var dav = new WebDavClient(url, username, password);
+            using var dav = await CreateWebDavClientAsync(url, username, password);
             WebDavFileInfo? metadata = await dav.GetMetadataAsync();
             if (metadata is null)
             {
@@ -2029,7 +2134,8 @@ public sealed partial class MainWindow : Window
             string? error = null;
             if (!IsWebDavUrl(url))
             {
-                error = "Enter an absolute http(s) URL that points to the .kdbx file.";
+                error = "Enter an https:// URL that points to the .kdbx file " +
+                        "(Basic authentication requires TLS).";
             }
             else if (username.Length == 0)
             {
@@ -2100,7 +2206,7 @@ public sealed partial class MainWindow : Window
             }
             WebDavFileInfo? metadata;
             byte[] bytes;
-            using (var dav = new WebDavClient(remoteUrl, remoteUsername, remotePassword))
+            using (var dav = await CreateWebDavClientAsync(remoteUrl, remoteUsername, remotePassword))
             {
                 metadata = await dav.GetMetadataAsync();
                 if (metadata is null)
@@ -2179,9 +2285,13 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// WebDAV URLs must use HTTPS: the password travels with Basic
+    /// authentication, which must never cross a plain-text connection.
+    /// </summary>
     private static bool IsWebDavUrl(string url)
         => Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) &&
-           (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+           uri.Scheme == Uri.UriSchemeHttps;
 
     private void ApplyWebDavSource(string url, string username, string workingPath)
     {
@@ -2631,7 +2741,7 @@ public sealed partial class MainWindow : Window
             {
                 string workingPath = RemoteDatabaseStore.PathFor(remoteUrl, remoteUsername);
                 string? etag;
-                using (var dav = new WebDavClient(remoteUrl, remoteUsername, remotePassword))
+                using (var dav = await CreateWebDavClientAsync(remoteUrl, remoteUsername, remotePassword))
                 {
                     try
                     {
@@ -5459,9 +5569,11 @@ public sealed partial class MainWindow : Window
         string url = webdavUrl.Text.Trim();
         if (url.Length > 0 &&
             (!Uri.TryCreate(url, UriKind.Absolute, out Uri? parsed) ||
-             (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps)))
+             parsed.Scheme != Uri.UriSchemeHttps))
         {
-            ShowToast("WebDAV URL must be an absolute http(s) file URL.", InfoBarSeverity.Error);
+            ShowToast("WebDAV URLs must use https:// (the password is sent with " +
+                      "Basic authentication, which requires TLS).",
+                InfoBarSeverity.Error);
             return;
         }
         string username = webdavUser.Text.Trim();

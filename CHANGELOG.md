@@ -5,6 +5,13 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **WebDAV TLS and self-signed certificates:** WebDAV URLs now require `https://` (Basic
+  authentication must not travel over plain HTTP). A server certificate Windows does not trust
+  is shown to the user with subject, issuer, expiry and SHA-256 fingerprint; only an explicit
+  confirmation pins that exact certificate for the host, and a changed certificate is
+  re-confirmed. Certificate validation is never disabled globally. Covered by settings,
+  client and certificate-probe checks in `tests/app-core`, plus a manual check against a real
+  TLS server.
 - **Security (pre-release hardening):** the KDBX reader now validates the key-derivation
   parameters from the file header before deriving any key. A file declaring an extreme KDF
   (for example billions of AES-KDF rounds, or multi-GiB Argon2 memory) is rejected with an

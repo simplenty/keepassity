@@ -2,12 +2,14 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Security;
+using System.Security.Authentication;
 using System.Text;
 using System.Xml.Linq;
 
 namespace Keepassity.Mock;
 
-public sealed class WebDavException : Exception
+public class WebDavException : Exception
 {
     public WebDavException(string message, int? statusCode = null, bool conflict = false)
         : base(message)
@@ -38,7 +40,13 @@ public sealed class WebDavClient : IDisposable
     private readonly HttpClient _client;
     private readonly Uri _fileUri;
 
-    public WebDavClient(string fileUrl, string username, string password)
+    /// <param name="trustedCertificateSha256">
+    /// Lowercase hex SHA-256 of a certificate the user explicitly trusted (SY-04).
+    /// Only that exact certificate is accepted in addition to the platform-trusted
+    /// chain; certificate validation is never disabled globally.
+    /// </param>
+    public WebDavClient(string fileUrl, string username, string password,
+        string? trustedCertificateSha256 = null)
     {
         if (!Uri.TryCreate(fileUrl, UriKind.Absolute, out Uri? uri) ||
             (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
@@ -52,6 +60,15 @@ public sealed class WebDavClient : IDisposable
             PreAuthenticate = true,
             AllowAutoRedirect = true,
         };
+        if (!string.IsNullOrWhiteSpace(trustedCertificateSha256))
+        {
+            string pinned = trustedCertificateSha256.Trim().ToLowerInvariant();
+            handler.ServerCertificateCustomValidationCallback = (_, certificate, _, errors) =>
+                errors == SslPolicyErrors.None ||
+                (certificate is not null &&
+                 string.Equals(WebDavTls.Fingerprint(certificate), pinned,
+                     StringComparison.Ordinal));
+        }
         _client = new HttpClient(handler)
         {
             Timeout = TimeSpan.FromSeconds(45),
@@ -67,6 +84,8 @@ public sealed class WebDavClient : IDisposable
 
     public async Task<WebDavFileInfo?> GetMetadataAsync(CancellationToken cancellationToken = default)
     {
+        try
+        {
         using var request = new HttpRequestMessage(new HttpMethod("PROPFIND"), _fileUri);
         request.Headers.TryAddWithoutValidation("Depth", "0");
         request.Content = new StringContent(PropfindBody, Encoding.UTF8, "application/xml");
@@ -103,14 +122,26 @@ public sealed class WebDavClient : IDisposable
             Size = size,
             ModifiedUnix = modified,
         };
+        }
+        catch (HttpRequestException ex) when (ex.InnerException is AuthenticationException tls)
+        {
+            throw new WebDavTlsException(_fileUri, tls);
+        }
     }
 
     public async Task<byte[]> DownloadAsync(CancellationToken cancellationToken = default)
     {
-        using HttpResponseMessage response = await _client.GetAsync(_fileUri,
-            HttpCompletionOption.ResponseContentRead, cancellationToken);
-        await EnsureSuccessAsync(response, cancellationToken);
-        return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        try
+        {
+            using HttpResponseMessage response = await _client.GetAsync(_fileUri,
+                HttpCompletionOption.ResponseContentRead, cancellationToken);
+            await EnsureSuccessAsync(response, cancellationToken);
+            return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        }
+        catch (HttpRequestException ex) when (ex.InnerException is AuthenticationException tls)
+        {
+            throw new WebDavTlsException(_fileUri, tls);
+        }
     }
 
     public async Task<string?> UploadAsync(byte[] bytes, string? ifMatch,
@@ -128,8 +159,18 @@ public sealed class WebDavClient : IDisposable
         {
             request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
         }
-        using HttpResponseMessage response = await _client.SendAsync(request,
-            HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        HttpResponseMessage response;
+        try
+        {
+            response = await _client.SendAsync(request,
+                HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        }
+        catch (HttpRequestException ex) when (ex.InnerException is AuthenticationException tls)
+        {
+            throw new WebDavTlsException(_fileUri, tls);
+        }
+        using (response)
+        {
         if (response.StatusCode == HttpStatusCode.PreconditionFailed)
         {
             throw new WebDavException("The remote database changed during sync.", 412,
@@ -140,6 +181,7 @@ public sealed class WebDavClient : IDisposable
                ?? (response.Headers.TryGetValues("ETag", out IEnumerable<string>? values)
                    ? values.FirstOrDefault()?.Trim()
                    : null);
+        }
     }
 
     private static async Task EnsureSuccessAsync(HttpResponseMessage response,
