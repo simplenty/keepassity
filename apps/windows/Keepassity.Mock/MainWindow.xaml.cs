@@ -1474,6 +1474,19 @@ public sealed partial class MainWindow : Window
                 return;
             }
             string url = Settings.WebDavUrl!.Trim();
+            // A settings file written by an older build could still hold a plain
+            // http URL; never send Basic credentials over it (SY-03/SY-04 policy).
+            if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? syncUri) ||
+                syncUri.Scheme != Uri.UriSchemeHttps)
+            {
+                SetSyncStatus("WebDAV needs https");
+                if (!startup)
+                {
+                    ShowToast("WebDAV sync requires an https:// URL: Basic " +
+                              "authentication must use TLS.", InfoBarSeverity.Warning);
+                }
+                return;
+            }
             string username = Settings.WebDavUsername!.Trim();
             string? password = _credentials.LoadPassword(url, username);
             if (password is null)
@@ -2104,7 +2117,37 @@ public sealed partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Visibility = Visibility.Collapsed,
         };
+        // SY-09: server presets that fill in the URL shape of the common
+        // self-hosted WebDAV endpoints.
+        var preset = new ComboBox
+        {
+            Header = "Server preset",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        preset.Items.Add("Custom / paste a URL");
+        preset.Items.Add("Nextcloud / ownCloud");
+        preset.Items.Add("Synology WebDAV");
+        preset.Items.Add("Jianguoyun (Nutstore)");
+        preset.SelectedIndex = 0;
+        preset.SelectionChanged += (_, _) =>
+        {
+            string? template = preset.SelectedIndex switch
+            {
+                1 => "https://your-server/remote.php/dav/files/your-user/keepassity/Keywords.kdbx",
+                2 => "https://your-server:5006/keepassity/Keywords.kdbx",
+                3 => "https://dav.jianguoyun.com/dav/keepassity/Keywords.kdbx",
+                _ => null,
+            };
+            if (template is null)
+            {
+                return;
+            }
+            urlBox.Text = template;
+            urlBox.SelectionStart = urlBox.Text.Length;
+            urlBox.Focus(FocusState.Programmatic);
+        };
         var content = new StackPanel { Spacing = 12 };
+        content.Children.Add(preset);
         content.Children.Add(urlBox);
         content.Children.Add(userBox);
         content.Children.Add(passwordBox);
@@ -2113,7 +2156,9 @@ public sealed partial class MainWindow : Window
         content.Children.Add(new TextBlock
         {
             Text = "The .kdbx file is downloaded to an encrypted local working copy. " +
-                   "Saves sync back to this URL; conflicts never overwrite silently.",
+                   "Saves sync back to this URL; conflicts never overwrite silently. " +
+                   "Nextcloud/ownCloud accounts with two-factor authentication need an " +
+                   "app password, not the account password.",
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
@@ -5440,6 +5485,15 @@ public sealed partial class MainWindow : Window
         content.Children.Add(webdavUrl);
         content.Children.Add(webdavUser);
         content.Children.Add(webdavPassword);
+        content.Children.Add(new TextBlock
+        {
+            Text = "Nextcloud/ownCloud with two-factor authentication requires an app " +
+                   "password. Server URL presets are offered when opening a database from " +
+                   "WebDAV.",
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+        });
         content.Children.Add(storedPasswordRow);
         content.Children.Add(syncOnSave);
         content.Children.Add(new TextBlock

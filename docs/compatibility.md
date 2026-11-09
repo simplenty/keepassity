@@ -57,7 +57,9 @@ The app uses a minimal WebDAV client (PROPFIND depth 0, GET, conditional PUT wit
 ETag/If-Match and If-None-Match, 412 handling). It is covered by an in-process mock in
 `tests/app-core` and by the mock-WebDAV drills (protocol, restore, offline replay, conflict);
 one real provider (Jianguoyun) was exercised manually during the G4 gate on 2026-11-09
-(configuration, save-sync, startup check, manual sync).
+(configuration, save-sync, startup check, manual sync). The Open-from-WebDAV dialog
+offers URL presets for Nextcloud/ownCloud, Synology WebDAV and Jianguoyun, and
+two-factor accounts are pointed at app passwords.
 
 | Server | PROPFIND | GET | PUT | If-Match (412) | Non-ASCII paths | Large files | Status |
 |---|:--:|:--:|:--:|:--:|:--:|:--:|---|
