@@ -5,6 +5,7 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **WebDAV server presets and app-password guidance:** the Open-from-WebDAV dialog offers URL presets for Nextcloud/ownCloud, Synology WebDAV and Jianguoyun, and every WebDAV entry point (open, new database, settings, sync) refuses plain `http://` URLs and reminds two-factor accounts to use an app password.
 - **WebDAV TLS and self-signed certificates:** WebDAV URLs now require `https://` (Basic
   authentication must not travel over plain HTTP). A server certificate Windows does not trust
   is shown to the user with subject, issuer, expiry and SHA-256 fingerprint; only an explicit
