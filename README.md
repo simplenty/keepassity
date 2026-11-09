@@ -36,7 +36,11 @@ preserved). The v1.0 scope is frozen by the maintainer.
 - **WebDAV:** open a `.kdbx` directly from a WebDAV URL (the encrypted file is downloaded to
   a local working copy, unlocked locally, and written back), sync on save and on demand,
   three-way merge of non-overlapping changes, and conflict copies plus a Keep local /
-  Keep remote / Keep both choice when the same item changed on both sides.
+  Keep remote / Keep both choice when the same item changed on both sides. HTTPS is
+  required; a self-signed / private-CA certificate is trusted only after an explicit
+  fingerprint confirmation (then pinned per server), server presets cover
+  Nextcloud/ownCloud, Synology and Jianguoyun, and an upload conflict (HTTP 412) is
+  retried with back-off before the merge path.
 - **TOTP:** read, display, edit and generate codes for both KeePass `TimeOtp-*` and
   `otpauth`/`otp` fields; import from a QR image, a clipboard QR screenshot or an
   `otpauth://` URI.
