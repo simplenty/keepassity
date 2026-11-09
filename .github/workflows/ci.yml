@@ -286,9 +286,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: reject hard-coded CJK text in the English UI
+      - name: reject hard-coded CJK text in the shell sources
         shell: pwsh
         run: ./tools/check-ui-strings.ps1
+      - name: check UI language catalogs and key usage
+        shell: pwsh
+        run: ./tools/check-localization.ps1 -Strict
 
   secret-scan:
     name: secret-scan

@@ -67,6 +67,8 @@ public sealed partial class MainWindow : Window
     private string _entrySort = "title";
     private bool _onlyTotp;
     private string _lastEntryFingerprint = string.Empty;
+    private string _syncStatusSource = "Local only";
+    private object?[] _syncStatusArguments = Array.Empty<object?>();
     private Grid? _rightPanel;
     private TextBlock? _rightPanelTitle;
     private ContentControl? _rightPanelContent;
@@ -112,6 +114,9 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
+        // Resolve the saved UI language before InitializeComponent so the XAML
+        // attached localization properties apply the right strings on first load.
+        Loc.Initialize(Settings.Language);
         InitializeComponent();
         ApplyThemePreference(Settings.Theme);
         Title = "keepassity";
@@ -144,6 +149,8 @@ public sealed partial class MainWindow : Window
             }
         }
         UpdateDatabasePath();
+        Root.Language = Loc.IsChinese ? "zh-CN" : "en-US";
+        InitializeLanguageUi();
 
         // Security: lock the vault on Windows session lock, logoff, session end
         // and system suspend (see SessionLockMonitor). The network monitor
@@ -232,7 +239,7 @@ public sealed partial class MainWindow : Window
         if (_busy)
         {
             _trayIcon?.ShowInfo("keepassity",
-                "Busy saving or syncing; the vault was not locked. Try again in a moment.");
+                Loc.T("Busy saving or syncing; the vault was not locked. Try again in a moment."));
             return;
         }
         // Lock in place: a tray lock must not raise the window (and with it the
@@ -259,7 +266,7 @@ public sealed partial class MainWindow : Window
         {
             _trayHintShown = true;
             _trayIcon.ShowInfo("keepassity",
-                "Still running in the notification area. Use its menu to exit.");
+                Loc.T("Still running in the notification area. Use its menu to exit."));
         }
     }
 
@@ -494,7 +501,7 @@ public sealed partial class MainWindow : Window
                 await content.GetTextAsync() == expected)
             {
                 Clipboard.Clear();
-                ShowToast("Clipboard cleared", InfoBarSeverity.Informational);
+                ShowToast(Loc.T("Clipboard cleared"), InfoBarSeverity.Informational);
             }
         }
         catch
@@ -665,7 +672,7 @@ public sealed partial class MainWindow : Window
     {
         RefreshRecentDatabaseList();
         bool hasDatabase = _dbPath is not null;
-        UnlockTitle.Text = hasDatabase ? "Unlock keepassity" : "keepassity";
+        UnlockTitle.Text = hasDatabase ? Loc.T("Unlock keepassity") : "keepassity";
         UnlockStartHint.Visibility = hasDatabase ? Visibility.Collapsed : Visibility.Visible;
         DatabasePathText.Visibility = hasDatabase ? Visibility.Visible : Visibility.Collapsed;
         UnlockFormSection.Visibility = hasDatabase ? Visibility.Visible : Visibility.Collapsed;
@@ -675,16 +682,17 @@ public sealed partial class MainWindow : Window
         {
             UnlockError.IsOpen = false;
             HideUnlockFailureActions();
-            DatabasePathText.Text = "No database selected";
+            DatabasePathText.Text = Loc.T("No database selected");
             ToolTipService.SetToolTip(DatabasePathText,
-                "Open a local .kdbx file or open from WebDAV");
+                Loc.T("Open a local .kdbx file or open from WebDAV"));
             return;
         }
         if (_webDavSource && !string.IsNullOrWhiteSpace(_sourceWebDavUrl))
         {
-            DatabasePathText.Text = "WebDAV: " + _sourceWebDavUrl;
+            DatabasePathText.Text = Loc.T("WebDAV: {0}", _sourceWebDavUrl);
             ToolTipService.SetToolTip(DatabasePathText,
-                _sourceWebDavUrl + Environment.NewLine + "Local working copy: " + _dbPath);
+                _sourceWebDavUrl + Environment.NewLine +
+                Loc.T("Local working copy: {0}", _dbPath));
             return;
         }
         DatabasePathText.Text = Path.GetFileName(_dbPath);
@@ -708,7 +716,7 @@ public sealed partial class MainWindow : Window
                 // Fall back to the working-copy file name.
             }
         }
-        return _dbPath is null ? "Vault" : Path.GetFileNameWithoutExtension(_dbPath);
+        return _dbPath is null ? Loc.T("Vault") : Path.GetFileNameWithoutExtension(_dbPath);
     }
 
     // ------------------------------------------------------ window assets
@@ -863,13 +871,13 @@ public sealed partial class MainWindow : Window
         // save for a synced database; without WebDAV it just reports the truth.
         if (IsSyncConfigured)
         {
-            ShowToast("Changes are saved automatically; syncing now…",
+            ShowToast(Loc.T("Changes are saved automatically; syncing now…"),
                 InfoBarSeverity.Informational);
             _ = SyncAsync();
         }
         else
         {
-            ShowToast("Every change is saved automatically — nothing to save.",
+            ShowToast(Loc.T("Every change is saved automatically — nothing to save."),
                 InfoBarSeverity.Informational);
         }
     }
@@ -920,7 +928,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         e.AcceptedOperation = DataPackageOperation.Copy;
-        e.DragUIOverride.Caption = "Open database";
+        e.DragUIOverride.Caption = Loc.T("Open database");
         e.DragUIOverride.IsCaptionVisible = true;
         e.DragUIOverride.IsGlyphVisible = false;
         e.Handled = true;
@@ -941,7 +949,7 @@ public sealed partial class MainWindow : Window
                     StringComparison.OrdinalIgnoreCase));
             if (database is null)
             {
-                ShowToast("Only .kdbx database files can be opened this way.",
+                ShowToast(Loc.T("Only .kdbx database files can be opened this way."),
                     InfoBarSeverity.Warning);
                 return;
             }
@@ -950,7 +958,7 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             AppLog.Error("dropped-file handling failed", ex);
-            ShowToast("The dropped file could not be read.", InfoBarSeverity.Error);
+            ShowToast(Loc.T("The dropped file could not be read."), InfoBarSeverity.Error);
         }
     }
 
@@ -965,7 +973,7 @@ public sealed partial class MainWindow : Window
         if (_busy)
         {
             AppLog.Info($"open request ({origin}) ignored: application busy");
-            ShowToast("Busy saving or syncing; try again in a moment.",
+            ShowToast(Loc.T("Busy saving or syncing; try again in a moment."),
                 InfoBarSeverity.Informational);
             return;
         }
@@ -977,13 +985,13 @@ public sealed partial class MainWindow : Window
         catch
         {
             AppLog.Warn($"open request ({origin}) ignored: invalid path");
-            ShowToast("The database path is not valid.", InfoBarSeverity.Error);
+            ShowToast(Loc.T("The database path is not valid."), InfoBarSeverity.Error);
             return;
         }
         if (!File.Exists(fullPath))
         {
             AppLog.Warn($"open request ({origin}) ignored: file missing");
-            ShowToast("The database file no longer exists.", InfoBarSeverity.Error);
+            ShowToast(Loc.T("The database file no longer exists."), InfoBarSeverity.Error);
             return;
         }
         // MainRoot visibility is the reliable "vault is unlocked" signal here:
@@ -993,7 +1001,7 @@ public sealed partial class MainWindow : Window
         if (unlocked && string.Equals(_dbPath, fullPath, StringComparison.OrdinalIgnoreCase))
         {
             AppLog.Info($"open request ({origin}) ignored: database already open");
-            ShowToast("That database is already open.", InfoBarSeverity.Informational);
+            ShowToast(Loc.T("That database is already open."), InfoBarSeverity.Informational);
             return;
         }
         if (unlocked)
@@ -1031,8 +1039,8 @@ public sealed partial class MainWindow : Window
         }
         UpdateDatabasePath();
         UnlockError.Severity = InfoBarSeverity.Informational;
-        UnlockError.Title = "Database ready to unlock";
-        UnlockError.Message = "Enter the master password to unlock this database.";
+        UnlockError.Title = Loc.T("Database ready to unlock");
+        UnlockError.Message = Loc.T("Enter the master password to unlock this database.");
         UnlockError.IsOpen = true;
         HideUnlockFailureActions();
         MasterPassword.Focus(FocusState.Programmatic);
@@ -1282,10 +1290,26 @@ public sealed partial class MainWindow : Window
         !string.IsNullOrWhiteSpace(Settings.WebDavUrl) &&
         !string.IsNullOrWhiteSpace(Settings.WebDavUsername);
 
-    private void SetSyncStatus(string text)
+    /// <summary>
+    /// Remembers the sync state as a catalog key (+ arguments) and renders it, so
+    /// a language switch can re-render the same state instead of leaving a stale
+    /// label. <paramref name="source"/> is an English source string from the
+    /// catalog; use <c>{0}</c> placeholders for <paramref name="arguments"/>.
+    /// </summary>
+    private void SetSyncStatus(string source, params object?[] arguments)
     {
+        _syncStatusSource = source;
+        _syncStatusArguments = arguments;
+        RenderSyncStatus();
+    }
+
+    private void RenderSyncStatus()
+    {
+        string text = _syncStatusArguments.Length == 0
+            ? Loc.T(_syncStatusSource)
+            : Loc.T(_syncStatusSource, _syncStatusArguments);
         SyncNavItem.Content = text;
-        Announce($"Sync status: {text}");
+        Announce(Loc.T("Sync status: {0}", text));
     }
 
     // ------------------------------------------------------ accessibility
@@ -1385,7 +1409,8 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             throw new WebDavException(
-                $"Could not check the TLS certificate of {uri.Host}:{uri.Port}: {ex.Message}");
+                Loc.T("Could not check the TLS certificate of {0}:{1}: {2}",
+                    uri.Host, uri.Port, ex.Message));
         }
         if (info.IsPubliclyTrusted)
         {
@@ -1400,9 +1425,9 @@ public sealed partial class MainWindow : Window
         bool changed = Settings.TrustedCertificates.ContainsKey(key);
         if (!await ConfirmWebDavCertificateAsync(info, changed))
         {
-            throw new WebDavException(
-                $"The certificate presented by {info.Endpoint} was not trusted, " +
-                "so the connection was cancelled.");
+            throw new WebDavException(Loc.T(
+                "The certificate presented by {0} was not trusted, so the connection was " +
+                "cancelled.", info.Endpoint));
         }
         Settings.TrustedCertificates[key] = info.Sha256FingerprintHex;
         _settingsStore.Save();
@@ -1417,11 +1442,13 @@ public sealed partial class MainWindow : Window
         content.Children.Add(new TextBlock
         {
             Text = changed
-                ? "The server's certificate changed since it was trusted. Only continue " +
-                  "if you changed it yourself or an administrator did."
-                : "Windows does not trust this server's certificate. That is normal for a " +
-                  "self-signed certificate; only trust it if you installed the server or " +
-                  "an administrator gave you this fingerprint.",
+                ? Loc.TLong("Dialog.CertificateChangedBody",
+                    "The server's certificate changed since it was trusted. Only continue " +
+                    "if you changed it yourself or an administrator did.")
+                : Loc.TLong("Dialog.CertificateUntrustedBody",
+                    "Windows does not trust this server's certificate. That is normal for a " +
+                    "self-signed certificate; only trust it if you installed the server or " +
+                    "an administrator gave you this fingerprint."),
             TextWrapping = TextWrapping.Wrap,
         });
         void AddRow(string label, string value)
@@ -1442,17 +1469,19 @@ public sealed partial class MainWindow : Window
             });
             content.Children.Add(row);
         }
-        AddRow("Server", info.Endpoint);
-        AddRow("Subject", info.Subject);
-        AddRow("Issuer", info.Issuer);
-        AddRow("Expires", info.NotAfter.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
-        AddRow("SHA-256 fingerprint", info.Sha256FingerprintHex);
+        AddRow(Loc.T("Server"), info.Endpoint);
+        AddRow(Loc.T("Subject"), info.Subject);
+        AddRow(Loc.T("Issuer"), info.Issuer);
+        AddRow(Loc.T("Expires"), info.NotAfter.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
+        AddRow(Loc.T("SHA-256 fingerprint"), info.Sha256FingerprintHex);
         var dialog = new ContentDialog
         {
-            Title = changed ? "Server certificate changed" : "Trust this server certificate?",
+            Title = changed
+                ? Loc.T("Server certificate changed")
+                : Loc.T("Trust this server certificate?"),
             Content = content,
-            PrimaryButtonText = "Trust",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = Loc.T("Trust"),
+            CloseButtonText = Loc.T("Cancel"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Root.XamlRoot,
         };
@@ -1475,7 +1504,7 @@ public sealed partial class MainWindow : Window
                 SetSyncStatus("Local only");
                 if (!startup)
                 {
-                    ShowToast("Configure WebDAV in Settings first.", InfoBarSeverity.Informational);
+                    ShowToast(Loc.T("Configure WebDAV in Settings first."), InfoBarSeverity.Informational);
                 }
                 return;
             }
@@ -1488,8 +1517,7 @@ public sealed partial class MainWindow : Window
                 SetSyncStatus("WebDAV needs https");
                 if (!startup)
                 {
-                    ShowToast("WebDAV sync requires an https:// URL: Basic " +
-                              "authentication must use TLS.", InfoBarSeverity.Warning);
+                    ShowToast(Loc.T("WebDAV sync requires an https:// URL: Basic authentication must use TLS."), InfoBarSeverity.Warning);
                 }
                 return;
             }
@@ -1500,7 +1528,7 @@ public sealed partial class MainWindow : Window
                 SetSyncStatus("No credentials");
                 if (!startup)
                 {
-                    ShowToast("Set the WebDAV password in Settings.", InfoBarSeverity.Warning);
+                    ShowToast(Loc.T("Set the WebDAV password in Settings."), InfoBarSeverity.Warning);
                 }
                 return;
             }
@@ -1557,7 +1585,7 @@ public sealed partial class MainWindow : Window
                     SetSyncStatus("Offline");
                     if (!startup)
                     {
-                        ShowToast($"Sync skipped: {decision.Reason}", InfoBarSeverity.Warning);
+                        ShowToast(Loc.T("Sync skipped: {0}", decision.Reason), InfoBarSeverity.Warning);
                     }
                     break;
             }
@@ -1577,7 +1605,7 @@ public sealed partial class MainWindow : Window
             SetSyncStatus("Offline");
             if (!startup)
             {
-                ShowToast("WebDAV is unreachable; working offline.", InfoBarSeverity.Warning);
+                ShowToast(Loc.T("WebDAV is unreachable; working offline."), InfoBarSeverity.Warning);
             }
         }
         catch (Exception ex)
@@ -1586,7 +1614,7 @@ public sealed partial class MainWindow : Window
             SetSyncStatus("Sync error");
             if (!startup)
             {
-                ShowToast($"Sync failed: {ex.Message}", InfoBarSeverity.Error);
+                ShowToast(Loc.T("Sync failed: {0}", ex.Message), InfoBarSeverity.Error);
             }
         }
         finally
@@ -1652,7 +1680,7 @@ public sealed partial class MainWindow : Window
                     1 => 1500,
                     _ => 4000,
                 };
-                SetSyncStatus($"Retrying sync in {delayMs} ms");
+                SetSyncStatus("Retrying sync in {0} ms", delayMs);
                 AppLog.Warn($"sync: PUT 412, retry {attempt + 1}/3 after {delayMs} ms");
                 await Task.Delay(delayMs);
             }
@@ -1691,7 +1719,7 @@ public sealed partial class MainWindow : Window
         SetSyncStatus("Synced");
         if (contentChanged)
         {
-            ShowToast("Downloaded remote changes", InfoBarSeverity.Success);
+            ShowToast(Loc.T("Downloaded remote changes"), InfoBarSeverity.Success);
         }
     }
 
@@ -1727,8 +1755,8 @@ public sealed partial class MainWindow : Window
                 state.LocalDirty = true;
                 _syncStates.Save(url, username, _dbPath!, state);
                 SetSyncStatus("Conflict");
-                ShowToast("Sync paused. Local and remote are unchanged; conflict copies were saved.",
-                    InfoBarSeverity.Warning);
+            ShowToast(Loc.T("Sync paused. Local and remote are unchanged; conflict copies were saved."),
+                InfoBarSeverity.Warning);
                 break;
         }
     }
@@ -1747,15 +1775,16 @@ public sealed partial class MainWindow : Window
         var panel = new StackPanel { Spacing = 12 };
         panel.Children.Add(new TextBlock
         {
-            Text = "Local and remote both changed. Conflict copies have been saved " +
-                   "before asking what to do.",
+            Text = Loc.TLong("Dialog.ConflictBody",
+                "Local and remote both changed. Conflict copies have been saved before " +
+                "asking what to do."),
             TextWrapping = TextWrapping.Wrap,
             FontSize = 13,
         });
         panel.Children.Add(new TextBlock
         {
-            Text = $"Local copy: {Path.GetFileName(localCopy)}\n" +
-                   $"Remote copy: {Path.GetFileName(remoteCopy)}",
+            Text = Loc.T("Local copy: {0}", Path.GetFileName(localCopy)) + "\n" +
+                   Loc.T("Remote copy: {0}", Path.GetFileName(remoteCopy)),
             TextWrapping = TextWrapping.Wrap,
             FontSize = 11,
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
@@ -1765,7 +1794,7 @@ public sealed partial class MainWindow : Window
             var lines = conflicts.Take(6).Select(conflict =>
             {
                 string fields = conflict.Fields.Count == 0
-                    ? "entry changed on both sides"
+                    ? Loc.T("entry changed on both sides")
                     : string.Join(", ", conflict.Fields);
                 return $"• {conflict.Kind}: {fields}";
             });
@@ -1780,23 +1809,23 @@ public sealed partial class MainWindow : Window
         ConflictChoice choice = ConflictChoice.Cancel;
         var keepBoth = new Button
         {
-            Content = "Keep both (recommended)",
+            Content = Loc.T("Keep both (recommended)"),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Style = (Style)Application.Current.Resources["AccentButtonStyle"],
         };
         var keepLocal = new Button
         {
-            Content = "Keep local",
+            Content = Loc.T("Keep local"),
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         var keepRemote = new Button
         {
-            Content = "Keep remote",
+            Content = Loc.T("Keep remote"),
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         var cancel = new Button
         {
-            Content = "Cancel and keep both files untouched",
+            Content = Loc.T("Cancel and keep both files untouched"),
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         panel.Children.Add(keepBoth);
@@ -1805,7 +1834,7 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(cancel);
         var dialog = new ContentDialog
         {
-            Title = "Sync conflict",
+            Title = Loc.T("Sync conflict"),
             Content = panel,
             XamlRoot = Root.XamlRoot,
         };
@@ -1864,16 +1893,17 @@ public sealed partial class MainWindow : Window
             state.LocalDirty = true;
             _syncStates.Save(url, username, _dbPath!, state);
             SetSyncStatus("Conflict");
-            ShowToast("Remote changed again; merged locally, will retry next sync.",
+            ShowToast(Loc.T("Remote changed again; merged locally, will retry next sync."),
                 InfoBarSeverity.Warning);
             return;
         }
         await CommitSyncedAsync(state, merged.Bytes, etag, metadata, url, username,
             autoMerged ? "Synced" : "Merged");
-        string copies = $"local: {Path.GetFileName(localCopy)}; remote: {Path.GetFileName(remoteCopy)}";
+        string copies = Loc.T("local: {0}; remote: {1}",
+            Path.GetFileName(localCopy), Path.GetFileName(remoteCopy));
         ShowToast(autoMerged
-                ? $"Merged remote changes automatically ({copies})."
-                : $"Kept both versions; merged and uploaded ({copies}).",
+                ? Loc.T("Merged remote changes automatically ({0}).", copies)
+                : Loc.T("Kept both versions; merged and uploaded ({0}).", copies),
             InfoBarSeverity.Success);
     }
 
@@ -1891,12 +1921,12 @@ public sealed partial class MainWindow : Window
             state.LocalDirty = true;
             _syncStates.Save(url, username, _dbPath!, state);
             SetSyncStatus("Conflict");
-            ShowToast("Remote changed again; local version kept, will retry next sync.",
+            ShowToast(Loc.T("Remote changed again; local version kept, will retry next sync."),
                 InfoBarSeverity.Warning);
             return;
         }
         await CommitSyncedAsync(state, localBytes, etag, metadata, url, username, "Synced");
-        ShowToast("Kept local version; remote copy was saved.", InfoBarSeverity.Success);
+        ShowToast(Loc.T("Kept local version; remote copy was saved."), InfoBarSeverity.Success);
     }
 
     private async Task KeepRemoteConflictAsync(WebDavClient dav, WebDavFileInfo metadata,
@@ -1906,7 +1936,7 @@ public sealed partial class MainWindow : Window
         await ReopenFromLocalAsync();
         await CommitSyncedAsync(state, remote, metadata.ETag, metadata, url, username,
             "Synced");
-        ShowToast("Kept remote version; local copy was saved.", InfoBarSeverity.Success);
+        ShowToast(Loc.T("Kept remote version; local copy was saved."), InfoBarSeverity.Success);
     }
 
     private async Task CommitSyncedAsync(SyncState state, byte[] bytes, string? etag,
@@ -2020,12 +2050,12 @@ public sealed partial class MainWindow : Window
         List<BackupEntry> backups = BackupService.ListBackups(_dbPath);
         if (backups.Count == 0)
         {
-            ShowToast("No backups yet. They are created before each save.", InfoBarSeverity.Informational);
+            ShowToast(Loc.T("No backups yet. They are created before each save."), InfoBarSeverity.Informational);
             return;
         }
         var choices = new ComboBox
         {
-            Header = "Backup",
+            Header = Loc.T("Backup"),
             ItemsSource = backups,
             SelectedIndex = 0,
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -2033,13 +2063,13 @@ public sealed partial class MainWindow : Window
         var content = new StackPanel { Spacing = 10 };
         content.Children.Add(new TextBlock
         {
-            Text = $"Restoring backs up the current database first. Keeping {Settings.BackupRetention} copies.",
+            Text = Loc.T("Restoring backs up the current database first. Keeping {0} copies.", Settings.BackupRetention),
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
         });
         content.Children.Add(choices);
-        if (await ShowDetailPanelAsync("Restore backup", content, "Restore",
+        if (await ShowDetailPanelAsync(Loc.T("Restore backup"), content, Loc.T("Restore"),
                 primaryGlyph: "\uE777") !=
                 RightPanelResult.Primary ||
             choices.SelectedItem is not BackupEntry selected)
@@ -2048,7 +2078,7 @@ public sealed partial class MainWindow : Window
         }
         if (string.IsNullOrEmpty(_masterPassword))
         {
-            ShowToast("Unlock the vault before restoring a backup.", InfoBarSeverity.Warning);
+            ShowToast(Loc.T("Unlock the vault before restoring a backup."), InfoBarSeverity.Warning);
             return;
         }
         try
@@ -2063,7 +2093,7 @@ public sealed partial class MainWindow : Window
             BackupService.RestoreBytes(_dbPath, selectedBytes, Settings.BackupRetention);
             await ReopenFromLocalAsync();
             MarkLocalDirty();
-            ShowToast("Backup restored", InfoBarSeverity.Success);
+            ShowToast(Loc.T("Backup restored"), InfoBarSeverity.Success);
             if (IsSyncConfigured)
             {
                 _ = SyncAsync();
@@ -2071,7 +2101,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ShowToast($"Restore failed: {ex.Message}", InfoBarSeverity.Error);
+            ShowToast(Loc.T("Restore failed: {0}", ex.Message), InfoBarSeverity.Error);
         }
     }
 
@@ -2130,24 +2160,24 @@ public sealed partial class MainWindow : Window
             ?? string.Empty;
         var urlBox = new TextBox
         {
-            Header = "WebDAV file URL",
+            Header = Loc.T("WebDAV file URL"),
             Text = initialUrl,
             PlaceholderText = "https://dav.jianguoyun.com/dav/keepassity/Keywords.kdbx",
         };
         var userBox = new TextBox
         {
-            Header = "WebDAV username",
+            Header = Loc.T("WebDAV username"),
             Text = initialUsername,
         };
         var passwordBox = new PasswordBox
         {
-            Header = "WebDAV password",
+            Header = Loc.T("WebDAV password"),
             PasswordRevealMode = PasswordRevealMode.Peek,
-            PlaceholderText = "Leave blank to use the stored password",
+            PlaceholderText = Loc.T("Leave blank to use the stored password"),
         };
         var rememberBox = new CheckBox
         {
-            Content = "Remember password with Windows DPAPI",
+            Content = Loc.T("Remember password with Windows DPAPI"),
             IsChecked = true,
         };
         var errorText = new TextBlock
@@ -2160,10 +2190,10 @@ public sealed partial class MainWindow : Window
         // self-hosted WebDAV endpoints.
         var preset = new ComboBox
         {
-            Header = "Server preset",
+            Header = Loc.T("Server preset"),
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
-        preset.Items.Add("Custom / paste a URL");
+        preset.Items.Add(Loc.T("Custom / paste a URL"));
         preset.Items.Add("Nextcloud / ownCloud");
         preset.Items.Add("Synology WebDAV");
         preset.Items.Add("Jianguoyun (Nutstore)");
@@ -2194,20 +2224,21 @@ public sealed partial class MainWindow : Window
         content.Children.Add(errorText);
         content.Children.Add(new TextBlock
         {
-            Text = "The .kdbx file is downloaded to an encrypted local working copy. " +
-                   "Saves sync back to this URL; conflicts never overwrite silently. " +
-                   "Nextcloud/ownCloud accounts with two-factor authentication need an " +
-                   "app password, not the account password.",
+            Text = Loc.TLong("Dialog.WebDavOpenBody",
+                "The .kdbx file is downloaded to an encrypted local working copy. " +
+                "Saves sync back to this URL; conflicts never overwrite silently. " +
+                "Nextcloud/ownCloud accounts with two-factor authentication need an " +
+                "app password, not the account password."),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
         });
         var dialog = new ContentDialog
         {
-            Title = "Open from WebDAV",
+            Title = Loc.T("Open from WebDAV"),
             Content = content,
-            PrimaryButtonText = "Open",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = Loc.T("Open"),
+            CloseButtonText = Loc.T("Cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Root.XamlRoot,
         };
@@ -2218,17 +2249,16 @@ public sealed partial class MainWindow : Window
             string? error = null;
             if (!IsWebDavUrl(url))
             {
-                error = "Enter an https:// URL that points to the .kdbx file " +
-                        "(Basic authentication requires TLS).";
+                error = Loc.T("Enter an https:// URL that points to the .kdbx file (Basic authentication requires TLS).");
             }
             else if (username.Length == 0)
             {
-                error = "Enter the WebDAV username.";
+                error = Loc.T("Enter the WebDAV username.");
             }
             else if (passwordBox.Password.Length == 0 &&
                      _credentials.LoadPassword(url, username) is null)
             {
-                error = "Enter the WebDAV password (or use a URL whose credential is stored).";
+                error = Loc.T("Enter the WebDAV password (or use a URL whose credential is stored).");
             }
             if (error is null)
             {
@@ -2250,7 +2280,7 @@ public sealed partial class MainWindow : Window
         bool rememberPassword = rememberBox.IsChecked == true;
         if (remotePassword.Length == 0)
         {
-            ShowUnlockError("Cannot open database", "Enter the WebDAV password.");
+            ShowUnlockError(Loc.T("Cannot open database"), Loc.T("Enter the WebDAV password."));
             return;
         }
 
@@ -2279,10 +2309,11 @@ public sealed partial class MainWindow : Window
                 }
                 ApplyWebDavSource(remoteUrl, remoteUsername, pendingPath);
                 UnlockError.Severity = InfoBarSeverity.Warning;
-                UnlockError.Title = "Unsynced local changes";
-                UnlockError.Message = "The local working copy has changes that were not " +
-                                      "uploaded yet. Opening it; conflicts will be handled " +
-                                      "after unlock.";
+                UnlockError.Title = Loc.T("Unsynced local changes");
+                UnlockError.Message = Loc.TLong("Unlock.UnsyncedChangesBody",
+                    "The local working copy has changes that were not " +
+                    "uploaded yet. Opening it; conflicts will be handled " +
+                    "after unlock.");
                 UnlockError.IsOpen = true;
                 HideUnlockFailureActions();
                 MasterPassword.Focus(FocusState.Programmatic);
@@ -2295,8 +2326,8 @@ public sealed partial class MainWindow : Window
                 metadata = await dav.GetMetadataAsync();
                 if (metadata is null)
                 {
-                    throw new WebDavException(
-                        "The remote database file was not found. Check the WebDAV file URL.", 404);
+                    throw new WebDavException(Loc.T(
+                        "The remote database file was not found. Check the WebDAV file URL."), 404);
                 }
                 bytes = await dav.DownloadAsync();
             }
@@ -2316,16 +2347,15 @@ public sealed partial class MainWindow : Window
             state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             _syncStates.Save(remoteUrl, remoteUsername, workingPath, state);
             UnlockError.Severity = InfoBarSeverity.Success;
-            UnlockError.Title = "Downloaded from WebDAV";
-            UnlockError.Message =
-                "Enter the master password to unlock. Saves will sync back to this file.";
+            UnlockError.Title = Loc.T("Downloaded from WebDAV");
+            UnlockError.Message = Loc.T("Enter the master password to unlock. Saves will sync back to this file.");
             UnlockError.IsOpen = true;
             HideUnlockFailureActions();
             MasterPassword.Focus(FocusState.Programmatic);
         }
         catch (WebDavException ex)
         {
-            ShowUnlockError("Cannot open database", ex.Message);
+            ShowUnlockError(Loc.T("Cannot open database"), ex.Message);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
@@ -2345,21 +2375,20 @@ public sealed partial class MainWindow : Window
                 }
                 ApplyWebDavSource(remoteUrl, remoteUsername, workingPath);
                 UnlockError.Severity = InfoBarSeverity.Warning;
-                UnlockError.Title = "WebDAV unreachable";
-                UnlockError.Message = "Opening the local working copy. " +
-                                      "Changes will sync when the network is back.";
+                UnlockError.Title = Loc.T("WebDAV unreachable");
+                UnlockError.Message = Loc.T("Opening the local working copy. Changes will sync when the network is back.");
                 UnlockError.IsOpen = true;
                 HideUnlockFailureActions();
                 MasterPassword.Focus(FocusState.Programmatic);
             }
             else
             {
-                ShowUnlockError("Cannot open database", ex.Message);
+                ShowUnlockError(Loc.T("Cannot open database"), ex.Message);
             }
         }
         catch (Exception ex)
         {
-            ShowUnlockError("Cannot open database", ex.Message);
+                ShowUnlockError(Loc.T("Cannot open database"), ex.Message);
         }
         finally
         {
@@ -2400,7 +2429,7 @@ public sealed partial class MainWindow : Window
         UnlockError.Message = message;
         UnlockError.IsOpen = true;
         ShowUnlockFailureActions();
-        Announce($"{title}: {message}");
+        Announce(Loc.T("{0}: {1}", title, message));
     }
 
     private void SetUnlockControlsEnabled(bool enabled)
@@ -2466,11 +2495,12 @@ public sealed partial class MainWindow : Window
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Padding = new Thickness(12, 8, 12, 8),
             };
-            AutomationProperties.SetName(button, $"Open recent database {entry.DisplayName}");
+            AutomationProperties.SetName(button,
+                Loc.T("Open recent database {0}", entry.DisplayName));
             AutomationProperties.SetHelpText(button, secondary);
             button.Click += (_, _) => SelectRecentDatabase(entry);
             var menu = new MenuFlyout();
-            var remove = new MenuFlyoutItem { Text = "Remove from recent list" };
+            var remove = new MenuFlyoutItem { Text = Loc.T("Remove from recent list") };
             remove.Click += (_, _) =>
             {
                 _recentDatabases.Remove(entry.Path);
@@ -2496,10 +2526,11 @@ public sealed partial class MainWindow : Window
         if (!File.Exists(entry.Path))
         {
             UnlockError.Severity = InfoBarSeverity.Warning;
-            UnlockError.Title = "Database file not found";
-            UnlockError.Message = "The database file is no longer at this path. It may have " +
-                                  "moved or be on a drive that is not connected. Use " +
-                                  "\"Open local file…\" to locate it again.";
+            UnlockError.Title = Loc.T("Database file not found");
+            UnlockError.Message = Loc.TLong("Unlock.DatabaseMissingBody",
+                "The database file is no longer at this path. It may have " +
+                "moved or be on a drive that is not connected. Use " +
+                "\"Open local file…\" to locate it again.");
             UnlockError.IsOpen = true;
             AppLog.Warn("recent database path is missing");
             return;
@@ -2538,12 +2569,13 @@ public sealed partial class MainWindow : Window
     private void ShowUnlockFailureActions()
     {
         string backupDirectory = CurrentBackupDirectory();
-        UnlockFailureHint.Text = "If the database will not open, export diagnostics (logs and " +
-                                 "settings only, no vault content or passwords) and keep them " +
-                                 "with the issue report. Timestamped backups are created before " +
-                                 "each save; the newest ones can be restored from the backup " +
-                                 "folder below.";
-        UnlockBackupPathText.Text = "Backups: " + backupDirectory;
+        UnlockFailureHint.Text = Loc.TLong("Unlock.FailureHintBody",
+            "If the database will not open, export diagnostics (logs and " +
+            "settings only, no vault content or passwords) and keep them " +
+            "with the issue report. Timestamped backups are created before " +
+            "each save; the newest ones can be restored from the backup " +
+            "folder below.");
+        UnlockBackupPathText.Text = Loc.T("Backups: {0}", backupDirectory);
         ToolTipService.SetToolTip(UnlockBackupFolderButton, backupDirectory);
         UnlockFailureActions.Visibility = Visibility.Visible;
     }
@@ -2559,13 +2591,13 @@ public sealed partial class MainWindow : Window
         {
             string path = await DiagnosticsService.ExportAsync(Settings);
             AppLog.Info("unlock page: diagnostics exported");
-            ShowToast($"Diagnostics exported: {path}", InfoBarSeverity.Success);
+            ShowToast(Loc.T("Diagnostics exported: {0}", path), InfoBarSeverity.Success);
             await TryOpenFolderAsync(Path.GetDirectoryName(path));
         }
         catch (Exception ex)
         {
             AppLog.Error("diagnostics export failed", ex);
-            ShowToast($"Diagnostics export failed: {ex.Message}", InfoBarSeverity.Error);
+            ShowToast(Loc.T("Diagnostics export failed: {0}", ex.Message), InfoBarSeverity.Error);
         }
     }
 
@@ -2582,7 +2614,7 @@ public sealed partial class MainWindow : Window
         }
         if (!await TryOpenFolderAsync(directory))
         {
-            ShowToast($"Backup folder: {directory}", InfoBarSeverity.Informational);
+            ShowToast(Loc.T("Backup folder: {0}", directory), InfoBarSeverity.Informational);
         }
     }
 
@@ -2611,23 +2643,23 @@ public sealed partial class MainWindow : Window
         }
         var nameBox = new TextBox
         {
-            Header = "Database name",
+            Header = Loc.T("Database name"),
             Text = "keepassity",
         };
         var targetChoices = new RadioButtons
         {
-            Header = "Save to",
-            ItemsSource = new[] { "Local file", "WebDAV" },
+            Header = Loc.T("Save to"),
+            ItemsSource = new[] { Loc.T("Local file"), "WebDAV" },
             SelectedIndex = 0,
         };
         var pathBox = new TextBox
         {
-            Header = "Save as",
+            Header = Loc.T("Save as"),
             Text = DefaultNewDatabasePath(),
         };
         var browse = new Button
         {
-            Content = "Browse…",
+            Content = Loc.T("Browse…"),
             VerticalAlignment = VerticalAlignment.Bottom,
             Margin = new Thickness(8, 0, 0, 0),
         };
@@ -2648,24 +2680,24 @@ public sealed partial class MainWindow : Window
         localPanel.Children.Add(pathRow);
         var urlBox = new TextBox
         {
-            Header = "WebDAV file URL",
+            Header = Loc.T("WebDAV file URL"),
             Text = Settings.LastWebDavUrl ?? Settings.WebDavUrl ?? string.Empty,
             PlaceholderText = "https://dav.jianguoyun.com/dav/keepassity/Keywords.kdbx",
         };
         var userBox = new TextBox
         {
-            Header = "WebDAV username",
+            Header = Loc.T("WebDAV username"),
             Text = Settings.LastWebDavUsername ?? Settings.WebDavUsername ?? string.Empty,
         };
         var remotePasswordBox = new PasswordBox
         {
-            Header = "WebDAV password",
+            Header = Loc.T("WebDAV password"),
             PasswordRevealMode = PasswordRevealMode.Peek,
-            PlaceholderText = "Leave blank to use the stored password",
+            PlaceholderText = Loc.T("Leave blank to use the stored password"),
         };
         var rememberBox = new CheckBox
         {
-            Content = "Remember password with Windows DPAPI",
+            Content = Loc.T("Remember password with Windows DPAPI"),
             IsChecked = true,
         };
         var webdavPanel = new StackPanel { Spacing = 12, Visibility = Visibility.Collapsed };
@@ -2675,20 +2707,21 @@ public sealed partial class MainWindow : Window
         webdavPanel.Children.Add(rememberBox);
         webdavPanel.Children.Add(new TextBlock
         {
-            Text = "The new database is uploaded to this URL first. An existing remote " +
-                   "file is never overwritten.",
+            Text = Loc.TLong("Dialog.NewDatabaseWebDavBody",
+                "The new database is uploaded to this URL first. An existing remote " +
+                "file is never overwritten."),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
         });
         var passwordBox = new PasswordBox
         {
-            Header = "Master password",
+            Header = Loc.T("Master password"),
             PasswordRevealMode = PasswordRevealMode.Peek,
         };
         var confirmBox = new PasswordBox
         {
-            Header = "Confirm master password",
+            Header = Loc.T("Confirm master password"),
             PasswordRevealMode = PasswordRevealMode.Peek,
         };
         var errorText = new TextBlock
@@ -2707,18 +2740,19 @@ public sealed partial class MainWindow : Window
         content.Children.Add(errorText);
         content.Children.Add(new TextBlock
         {
-            Text = "Creates an empty KDBX 4.0 database with a General group. " +
-                   "The master password is not stored.",
+            Text = Loc.TLong("Dialog.NewDatabaseBody",
+                "Creates an empty KDBX 4.0 database with a General group. " +
+                "The master password is not stored."),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
         });
         var dialog = new ContentDialog
         {
-            Title = "New database",
+            Title = Loc.T("New database"),
             Content = content,
-            PrimaryButtonText = "Create",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = Loc.T("Create"),
+            CloseButtonText = Loc.T("Cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Root.XamlRoot,
         };
@@ -2759,16 +2793,16 @@ public sealed partial class MainWindow : Window
                 string username = userBox.Text.Trim();
                 if (!IsWebDavUrl(url))
                 {
-                    error = "Enter an absolute http(s) URL for the new database.";
+                    error = Loc.T("Enter an absolute http(s) URL for the new database.");
                 }
                 else if (username.Length == 0)
                 {
-                    error = "Enter the WebDAV username.";
+                    error = Loc.T("Enter the WebDAV username.");
                 }
                 else if (remotePasswordBox.Password.Length == 0 &&
                          _credentials.LoadPassword(url, username) is null)
                 {
-                    error = "Enter the WebDAV password (or use a URL whose credential is stored).";
+                    error = Loc.T("Enter the WebDAV password (or use a URL whose credential is stored).");
                 }
             }
             if (error.Length == 0)
@@ -2833,9 +2867,9 @@ public sealed partial class MainWindow : Window
                     }
                     catch (WebDavException ex) when (ex.Conflict)
                     {
-                        throw new InvalidOperationException(
+                        throw new InvalidOperationException(Loc.T(
                             "The remote file already exists. Choose another URL or open it " +
-                            "from WebDAV.");
+                            "from WebDAV."));
                     }
                 }
                 if (rememberPassword)
@@ -2861,7 +2895,7 @@ public sealed partial class MainWindow : Window
                 ShowMain();
                 MasterPassword.Password = string.Empty;
                 SetSyncStatus("Synced");
-                ShowToast("Database created on WebDAV", InfoBarSeverity.Success);
+                ShowToast(Loc.T("Database created on WebDAV"), InfoBarSeverity.Success);
             }
             else
             {
@@ -2873,7 +2907,7 @@ public sealed partial class MainWindow : Window
                 if (File.Exists(path))
                 {
                     throw new InvalidOperationException(
-                        "That file already exists. Choose another path.");
+                        Loc.T("That file already exists. Choose another path."));
                 }
                 string temp = path + ".keepassity-new-tmp";
                 await File.WriteAllBytesAsync(temp, bytes);
@@ -2899,12 +2933,12 @@ public sealed partial class MainWindow : Window
                 ShowMain();
                 MasterPassword.Password = string.Empty;
                 SetSyncStatus("Local only");
-                ShowToast("Database created", InfoBarSeverity.Success);
+                ShowToast(Loc.T("Database created"), InfoBarSeverity.Success);
             }
         }
         catch (Exception ex)
         {
-            UnlockError.Title = "Cannot create database";
+            UnlockError.Title = Loc.T("Cannot create database");
             UnlockError.Severity = InfoBarSeverity.Error;
             UnlockError.Message = ex.Message;
             UnlockError.IsOpen = true;
@@ -2925,15 +2959,15 @@ public sealed partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(name))
         {
-            return "Enter a database name.";
+            return Loc.T("Enter a database name.");
         }
         if (password.Length == 0)
         {
-            return "Enter a master password.";
+            return Loc.T("Enter a master password.");
         }
         if (password != confirm)
         {
-            return "The master passwords do not match.";
+            return Loc.T("The master passwords do not match.");
         }
         return string.Empty;
     }
@@ -2942,11 +2976,11 @@ public sealed partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(path))
         {
-            return "Choose where to save the database.";
+            return Loc.T("Choose where to save the database.");
         }
         if (!path.EndsWith(".kdbx", StringComparison.OrdinalIgnoreCase))
         {
-            return "The file name must end in .kdbx.";
+            return Loc.T("The file name must end in .kdbx.");
         }
         return string.Empty;
     }
@@ -2985,13 +3019,13 @@ public sealed partial class MainWindow : Window
         }
         if (_dbPath is null)
         {
-            UnlockError.Message = "Choose a .kdbx database first.";
+            UnlockError.Message = Loc.T("Choose a .kdbx database first.");
             UnlockError.IsOpen = true;
             return;
         }
         if (MasterPassword.Password.Length == 0)
         {
-            UnlockError.Message = "Enter the master password.";
+            UnlockError.Message = Loc.T("Enter the master password.");
             UnlockError.IsOpen = true;
             MasterPassword.Focus(FocusState.Programmatic);
             return;
@@ -3015,7 +3049,7 @@ public sealed partial class MainWindow : Window
             UnlockError.IsOpen = false;
             HideUnlockFailureActions();
             AppLog.Info("vault unlocked");
-            Announce("Vault unlocked");
+        Announce(Loc.T("Vault unlocked"));
             _trayIcon?.SetVaultState(true, DisplayVaultName());
             RememberRecentDatabase();
             ShowMain();
@@ -3026,23 +3060,23 @@ public sealed partial class MainWindow : Window
         {
             UnlockError.Title = ex.Code switch
             {
-                "BadPassword" => "Wrong master password",
-                "CorruptDatabase" => "Database is damaged",
-                "UnsupportedFormat" => "Unsupported database",
-                _ => "Cannot open database",
+                "BadPassword" => Loc.T("Wrong master password"),
+                "CorruptDatabase" => Loc.T("Database is damaged"),
+                "UnsupportedFormat" => Loc.T("Unsupported database"),
+                _ => Loc.T("Cannot open database"),
             };
             UnlockError.Message = ex.Message;
             UnlockError.IsOpen = true;
             ShowUnlockFailureActions();
-            Announce($"Unlock failed: {ex.Message}");
+            Announce(Loc.T("Unlock failed: {0}", ex.Message));
         }
         catch (Exception ex)
         {
-            UnlockError.Title = "Cannot open database";
+            UnlockError.Title = Loc.T("Cannot open database");
             UnlockError.Message = ex.Message;
             UnlockError.IsOpen = true;
             ShowUnlockFailureActions();
-            Announce($"Unlock failed: {ex.Message}");
+            Announce(Loc.T("Unlock failed: {0}", ex.Message));
         }
         finally
         {
@@ -3087,7 +3121,7 @@ public sealed partial class MainWindow : Window
         foreach (GroupDto group in groups)
         {
             _groupDtos.Add(group);
-            string name = string.IsNullOrWhiteSpace(group.Name) ? "Vault" : group.Name;
+            string name = string.IsNullOrWhiteSpace(group.Name) ? Loc.T("Vault") : group.Name;
             _groupNames[group.Uuid] = name;
             if (_recycleBinGroupUuid is null && IsRecycleBinGroup(name))
             {
@@ -3106,7 +3140,7 @@ public sealed partial class MainWindow : Window
         Groups.Clear();
         int activeEntryCount = allEntries.Count(entry =>
             _recycleBinGroupUuid is null || entry.GroupUuid != _recycleBinGroupUuid);
-        Groups.Add(new GroupItem(null, "All entries", activeEntryCount, "\uE8FD"));
+        Groups.Add(new GroupItem(null, Loc.T("All entries"), activeEntryCount, "\uE8FD"));
         GroupItem? recycleBin = null;
         GroupItem? templates = null;
         var otherGroups = new List<GroupItem>();
@@ -3148,8 +3182,8 @@ public sealed partial class MainWindow : Window
         PopulateNavigation(_selectedGroupUuid);
 
         string title = _selectedGroupUuid is null
-            ? "All entries"
-            : _groupNames.GetValueOrDefault(_selectedGroupUuid, "Entries");
+            ? Loc.T("All entries")
+            : _groupNames.GetValueOrDefault(_selectedGroupUuid, Loc.T("Entries"));
         List<EntrySummaryDto> visible = _selectedGroupUuid is null
             ? allEntries
                 .Where(entry => _recycleBinGroupUuid is null ||
@@ -3311,11 +3345,11 @@ public sealed partial class MainWindow : Window
             flyout.Items.Add(item);
         }
 
-        Add("New group…", "\uE710", CreateGroupPromptAsync,
+        Add(Loc.T("New group…"), "\uE710", CreateGroupPromptAsync,
             enabled: !string.IsNullOrEmpty(_rootGroupUuid));
         if (group.Uuid is null)
         {
-            Add("New entry", "\uE710", () =>
+            Add(Loc.T("New entry"), "\uE710", () =>
             {
                 NewEntryButton_Click(this, new RoutedEventArgs());
                 return Task.CompletedTask;
@@ -3326,7 +3360,7 @@ public sealed partial class MainWindow : Window
         bool recycleBin = IsRecycleBinGroup(group.Name);
         if (!recycleBin)
         {
-            Add("New entry here", "\uE710",
+            Add(Loc.T("New entry here"), "\uE710",
                 () => NewEntryInGroupAsync(group.Uuid!));
         }
         if (recycleBin)
@@ -3335,8 +3369,8 @@ public sealed partial class MainWindow : Window
         }
 
         flyout.Items.Add(new MenuFlyoutSeparator());
-        Add("Rename group…", "\uE70F", () => RenameGroupPromptAsync(group));
-        Add("Delete group", "\uE74D", () => DeleteGroupAsync(group), danger: true);
+        Add(Loc.T("Rename group…"), "\uE70F", () => RenameGroupPromptAsync(group));
+        Add(Loc.T("Delete group"), "\uE74D", () => DeleteGroupAsync(group), danger: true);
         return flyout;
     }
 
@@ -3346,7 +3380,7 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        string? name = await PromptForNameAsync("New group", "Group name", string.Empty);
+        string? name = await PromptForNameAsync(Loc.T("New group"), Loc.T("Group name"), string.Empty);
         if (string.IsNullOrWhiteSpace(name))
         {
             return;
@@ -3355,7 +3389,7 @@ public sealed partial class MainWindow : Window
         await SaveAsync();
         _selectedGroupUuid = uuid;
         await ReloadVaultAsync(null, preserveScroll: false);
-        ShowToast($"Group \"{name}\" created", InfoBarSeverity.Success);
+        ShowToast(Loc.T("Group \"{0}\" created", name), InfoBarSeverity.Success);
     }
 
     private async Task RenameGroupPromptAsync(GroupItem group)
@@ -3364,7 +3398,7 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        string? name = await PromptForNameAsync("Rename group", "Group name", group.Name);
+        string? name = await PromptForNameAsync(Loc.T("Rename group"), Loc.T("Group name"), group.Name);
         if (string.IsNullOrWhiteSpace(name) ||
             string.Equals(name, group.Name, StringComparison.Ordinal))
         {
@@ -3373,7 +3407,7 @@ public sealed partial class MainWindow : Window
         await _core.RenameGroupAsync(group.Uuid, name);
         await SaveAsync();
         await ReloadVaultAsync(_selectedGroupUuid);
-        ShowToast("Group renamed", InfoBarSeverity.Success);
+        ShowToast(Loc.T("Group renamed"), InfoBarSeverity.Success);
     }
 
     private async Task DeleteGroupAsync(GroupItem group)
@@ -3385,12 +3419,15 @@ public sealed partial class MainWindow : Window
         bool hasEntries = group.CountValue > 0;
         var dialog = new ContentDialog
         {
-            Title = hasEntries ? "Delete group and contents?" : "Delete group?",
+            Title = hasEntries
+                ? Loc.T("Delete group and contents?")
+                : Loc.T("Delete group?"),
             Content = hasEntries
-                ? $"\"{group.Name}\" and everything inside it will be permanently deleted. This cannot be undone."
-                : $"The empty group \"{group.Name}\" will be removed.",
-            PrimaryButtonText = "Delete",
-            CloseButtonText = "Cancel",
+                ? Loc.T("\"{0}\" and everything inside it will be permanently " +
+                        "deleted. This cannot be undone.", group.Name)
+                : Loc.T("The empty group \"{0}\" will be removed.", group.Name),
+            PrimaryButtonText = Loc.T("Delete"),
+            CloseButtonText = Loc.T("Cancel"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Root.XamlRoot,
         };
@@ -3405,7 +3442,7 @@ public sealed partial class MainWindow : Window
         }
         await SaveAsync();
         await ReloadVaultAsync(null, preserveScroll: false);
-        ShowToast("Group deleted", InfoBarSeverity.Success);
+        ShowToast(Loc.T("Group deleted"), InfoBarSeverity.Success);
     }
 
     private async Task<string?> PromptForNameAsync(string title, string label,
@@ -3420,8 +3457,8 @@ public sealed partial class MainWindow : Window
         {
             Title = title,
             Content = box,
-            PrimaryButtonText = initial.Length == 0 ? "Create" : "Rename",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = initial.Length == 0 ? Loc.T("Create") : Loc.T("Rename"),
+            CloseButtonText = Loc.T("Cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Root.XamlRoot,
         };
@@ -3459,17 +3496,18 @@ public sealed partial class MainWindow : Window
             // path removes the row from the current group view and, since the
             // group does not change, never puts it back - the row would be
             // ejected for nothing. A hint explains why the drop is refused.
-            string sameGroupName = item.Content as string ?? "this group";
+            string sameGroupName = item.Content as string ?? Loc.T("this group");
             ClearGroupDragHighlight(item);
             e.AcceptedOperation = DataPackageOperation.None;
-            e.DragUIOverride.Caption = $"Already in {sameGroupName}";
+            e.DragUIOverride.Caption = Loc.T("Already in {0}", sameGroupName);
             e.DragUIOverride.IsCaptionVisible = true;
             e.DragUIOverride.IsGlyphVisible = false;
             if (!_dragSameGroupHintShown)
             {
                 _dragSameGroupHintShown = true;
-                string draggedTitle = _draggedEntryTitle ?? "The entry";
-                ShowToast($"\"{draggedTitle}\" is already in {sameGroupName} — nothing to move.",
+                string draggedTitle = _draggedEntryTitle ?? Loc.T("The entry");
+                ShowToast(Loc.T("\"{0}\" is already in {1} — nothing to move.",
+                        draggedTitle, sameGroupName),
                     InfoBarSeverity.Informational);
             }
             e.Handled = true;
@@ -3481,7 +3519,7 @@ public sealed partial class MainWindow : Window
             (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
         item.BorderThickness = new Thickness(1);
         e.AcceptedOperation = DataPackageOperation.Move;
-        e.DragUIOverride.Caption = $"Move to {item.Content}";
+        e.DragUIOverride.Caption = Loc.T("Move to {0}", item.Content);
         e.DragUIOverride.IsCaptionVisible = true;
         e.DragUIOverride.IsGlyphVisible = false;
         e.Handled = true;
@@ -3525,9 +3563,10 @@ public sealed partial class MainWindow : Window
             // Defensive: DragOver already refuses this drop, but a stale or
             // programmatic drop must not turn into a pointless save + ejection.
             string sameGroupName = item.Content as string ??
-                _groupNames.GetValueOrDefault(targetGroupUuid, "this group");
-            string movedTitle = movedItem?.Title ?? "The entry";
-            ShowToast($"\"{movedTitle}\" is already in {sameGroupName} — nothing to move.",
+                _groupNames.GetValueOrDefault(targetGroupUuid, Loc.T("this group"));
+            string movedTitle = movedItem?.Title ?? Loc.T("The entry");
+            ShowToast(Loc.T("\"{0}\" is already in {1} — nothing to move.",
+                    movedTitle, sameGroupName),
                 InfoBarSeverity.Informational);
             return;
         }
@@ -3539,9 +3578,9 @@ public sealed partial class MainWindow : Window
             // Update only the affected row(s); a full reload would reset the
             // scroll position for a move that usually does not change the view.
             ApplyEntryMovedLocally(entryUuid, sourceGroupUuid, targetGroupUuid,
-                item.Content as string ?? _groupNames.GetValueOrDefault(targetGroupUuid, "the group"));
+                item.Content as string ?? _groupNames.GetValueOrDefault(targetGroupUuid, Loc.T("the group")));
             RestoreEntryScrollOffset(scrollOffset);
-            ShowToast($"Moved to {item.Content}", InfoBarSeverity.Success);
+            ShowToast(Loc.T("Moved to {0}", item.Content), InfoBarSeverity.Success);
         }
         catch (Exception ex)
         {
@@ -3646,15 +3685,15 @@ public sealed partial class MainWindow : Window
         Entries.Clear();
         foreach (EntrySummaryDto entry in visible)
         {
-            string groupName = _groupNames.GetValueOrDefault(entry.GroupUuid, "Vault");
+            string groupName = _groupNames.GetValueOrDefault(entry.GroupUuid, Loc.T("Vault"));
             Entries.Add(new EntryItem(entry, groupName));
         }
         _lastEntryFingerprint = fingerprint;
         CurrentGroupTitle.Text = title;
         UpdateEntryCountText();
         EmptyListHint.Text = _onlyTotp
-            ? "No entries with TOTP in this view. Clear the filter to see all entries."
-            : "Create the first entry with New.";
+            ? Loc.T("No entries with TOTP in this view. Clear the filter to see all entries.")
+            : Loc.T("Create the first entry with New.");
         if (keepUuid is not null)
         {
             SelectEntryRow(keepUuid);
@@ -3677,9 +3716,19 @@ public sealed partial class MainWindow : Window
 
     private void UpdateEntryCountText()
     {
-        EntryCountText.Text = $"{Entries.Count} {(Entries.Count == 1 ? "entry" : "entries")}" +
-                              (_onlyTotp ? " · TOTP only" : string.Empty);
+        string count = Entries.Count == 1
+            ? Loc.T("{0} entry", Entries.Count)
+            : Loc.T("{0} entries", Entries.Count);
+        EntryCountText.Text = count +
+                              (_onlyTotp ? " · " + Loc.T("TOTP only") : string.Empty);
         EmptyListState.Visibility = Entries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void UpdateEmptyListHint()
+    {
+        EmptyListHint.Text = _onlyTotp
+            ? Loc.T("No entries with TOTP in this view. Clear the filter to see all entries.")
+            : Loc.T("Create the first entry with New.");
     }
 
     private void SelectEntryRow(string uuid)
@@ -3822,13 +3871,13 @@ public sealed partial class MainWindow : Window
             };
             flyout.Items.Add(item);
         }
-        AddSort("Sort by title", "title");
-        AddSort("Sort by recently modified", "modified");
-        AddSort("Sort by group", "group");
+        AddSort(Loc.T("Sort by title"), "title");
+        AddSort(Loc.T("Sort by recently modified"), "modified");
+        AddSort(Loc.T("Sort by group"), "group");
         flyout.Items.Add(new MenuFlyoutSeparator());
         var totpOnly = new ToggleMenuFlyoutItem
         {
-            Text = "Only entries with TOTP",
+            Text = Loc.T("Only entries with TOTP"),
             IsChecked = _onlyTotp,
         };
         totpOnly.Click += (_, _) =>
@@ -3905,7 +3954,7 @@ public sealed partial class MainWindow : Window
                     ? results.Where(entry => entry.GroupUuid == _recycleBinGroupUuid)
                     : results.Where(entry => entry.GroupUuid != _recycleBinGroupUuid);
             }
-            PopulateEntries(results, "Search results");
+            PopulateEntries(results, Loc.T("Search results"));
             return;
         }
         List<EntrySummaryDto> entries = await _core.ListEntriesAsync(_selectedGroupUuid);
@@ -3916,8 +3965,8 @@ public sealed partial class MainWindow : Window
                 .ToList();
         }
         string title = _selectedGroupUuid is null
-            ? "All entries"
-            : _groupNames.GetValueOrDefault(_selectedGroupUuid, "Entries");
+            ? Loc.T("All entries")
+            : _groupNames.GetValueOrDefault(_selectedGroupUuid, Loc.T("Entries"));
         PopulateEntries(entries, title);
     }
 
@@ -3956,7 +4005,7 @@ public sealed partial class MainWindow : Window
     {
         if (!IsSyncConfigured)
         {
-            ShowToast("Configure WebDAV in Settings first.", InfoBarSeverity.Informational);
+            ShowToast(Loc.T("Configure WebDAV in Settings first."), InfoBarSeverity.Informational);
             SettingsButton_Click(this, new RoutedEventArgs());
             return;
         }
@@ -4079,32 +4128,32 @@ public sealed partial class MainWindow : Window
 
         if (!string.IsNullOrWhiteSpace(entry.Username))
         {
-            Add("Copy username", "\uE8C8", () =>
+            Add(Loc.T("Copy username"), "\uE8C8", () =>
             {
-                CopyText(entry.Username, "Username copied");
+                CopyText(entry.Username, Loc.T("Username copied"));
                 return Task.CompletedTask;
             });
         }
-        Add("Copy password", "\uE8C8", () => CopyEntryPasswordAsync(entry));
+        Add(Loc.T("Copy password"), "\uE8C8", () => CopyEntryPasswordAsync(entry));
         if (!string.IsNullOrWhiteSpace(entry.Url))
         {
-            Add("Copy website", "\uE8C8", () =>
+            Add(Loc.T("Copy website"), "\uE8C8", () =>
             {
-                CopyText(entry.Url, "Website copied");
+                CopyText(entry.Url, Loc.T("Website copied"));
                 return Task.CompletedTask;
             });
-            Add("Open website", "\uE8A7", () => OpenEntryUrlAsync(entry));
+            Add(Loc.T("Open website"), "\uE8A7", () => OpenEntryUrlAsync(entry));
         }
         if (entry.HasTotp)
         {
-            Add("Copy TOTP", "\uE8C8", () => CopyEntryTotpAsync(entry));
+            Add(Loc.T("Copy TOTP"), "\uE8C8", () => CopyEntryTotpAsync(entry));
         }
         flyout.Items.Add(new MenuFlyoutSeparator());
-        Add("Edit entry", "\uE70F", () => RunEntryActionAsync(entry, () =>
+        Add(Loc.T("Edit entry"), "\uE70F", () => RunEntryActionAsync(entry, () =>
             EditEntryButton_Click(this, new RoutedEventArgs())));
-        Add("Move entry", "\uE8DE", () => RunEntryActionAsync(entry, () =>
+        Add(Loc.T("Move entry"), "\uE8DE", () => RunEntryActionAsync(entry, () =>
             MoveEntryButton_Click(this, new RoutedEventArgs())));
-        Add("Delete entry", "\uE74D", () => RunEntryActionAsync(entry, () =>
+        Add(Loc.T("Delete entry"), "\uE74D", () => RunEntryActionAsync(entry, () =>
             DeleteEntryButton_Click(this, new RoutedEventArgs())), danger: true);
         return flyout;
     }
@@ -4112,7 +4161,7 @@ public sealed partial class MainWindow : Window
     private async Task CopyEntryPasswordAsync(EntryItem entry)
     {
         EntryFullDto full = await _core.GetEntryAsync(entry.Uuid);
-        CopyText(full.PasswordSecret, "Password copied");
+        CopyText(full.PasswordSecret, Loc.T("Password copied"));
     }
 
     private async Task CopyEntryTotpAsync(EntryItem entry)
@@ -4120,10 +4169,10 @@ public sealed partial class MainWindow : Window
         TotpCodeDto? code = await _core.TotpCodeAsync(entry.Uuid);
         if (code is null)
         {
-            ShowToast("No TOTP configured for this entry.", InfoBarSeverity.Warning);
+            ShowToast(Loc.T("No TOTP configured for this entry."), InfoBarSeverity.Warning);
             return;
         }
-        CopyText(code.Code, "One-time code copied");
+        CopyText(code.Code, Loc.T("One-time code copied"));
     }
 
     private async Task OpenEntryUrlAsync(EntryItem entry)
@@ -4165,7 +4214,7 @@ public sealed partial class MainWindow : Window
         }
         _currentFull = full;
         DetailTitle.Text = full.Title;
-        string groupName = _groupNames.GetValueOrDefault(full.GroupUuid, "Vault");
+        string groupName = _groupNames.GetValueOrDefault(full.GroupUuid, Loc.T("Vault"));
         // The website is already a field below; keep the header to a short
         // group label so long URLs do not get awkwardly ellipsized up here.
         DetailSubtitle.Text = groupName;
@@ -4237,7 +4286,7 @@ public sealed partial class MainWindow : Window
         _currentFull = null;
         _currentSummary = null;
         ResetTotpDisplayState();
-        DetailTitle.Text = "Select an entry";
+        DetailTitle.Text = Loc.T("Select an entry");
         DetailSubtitle.Text = string.Empty;
         DetailUsername.Text = string.Empty;
         DetailPassword.Text = string.Empty;
@@ -4387,7 +4436,7 @@ public sealed partial class MainWindow : Window
         int remaining = (int)Math.Clamp(_totpWindowEndUnix - nowUnix, 0, period);
         int digits = code.Digits > 0 ? code.Digits : 6;
         TotpCode.Text = FormatTotp(code.Code, digits);
-        TotpRemainingText.Text = $"Refreshes in {remaining}s";
+        TotpRemainingText.Text = Loc.T("Refreshes in {0}s", remaining);
         TotpProgress.Maximum = period;
         TotpProgress.Value = period - remaining;
     }
@@ -4417,7 +4466,7 @@ public sealed partial class MainWindow : Window
     {
         ResetTotpDisplayState();
         TotpCode.FontSize = 13;
-        TotpCode.Text = "No TOTP configured";
+        TotpCode.Text = Loc.T("No TOTP configured");
         TotpRemainingText.Text = string.Empty;
         TotpRemainingText.Visibility = Visibility.Collapsed;
         TotpProgress.Value = 0;
@@ -4475,7 +4524,7 @@ public sealed partial class MainWindow : Window
     {
         if (_currentFull is not null)
         {
-            CopyText(_currentFull.Username, "Username copied");
+            CopyText(_currentFull.Username, Loc.T("Username copied"));
         }
     }
 
@@ -4483,7 +4532,7 @@ public sealed partial class MainWindow : Window
     {
         if (_currentFull is not null)
         {
-            CopyText(_currentFull.PasswordSecret, "Password copied");
+            CopyText(_currentFull.PasswordSecret, Loc.T("Password copied"));
         }
     }
 
@@ -4491,7 +4540,7 @@ public sealed partial class MainWindow : Window
     {
         if (_currentFull is not null)
         {
-            CopyText(_currentFull.Url, "URL copied");
+            CopyText(_currentFull.Url, Loc.T("URL copied"));
         }
     }
 
@@ -4499,7 +4548,7 @@ public sealed partial class MainWindow : Window
     {
         if (!string.IsNullOrEmpty(_currentTotpCode))
         {
-            CopyText(_currentTotpCode, "One-time code copied");
+            CopyText(_currentTotpCode, Loc.T("One-time code copied"));
         }
     }
 
@@ -4507,7 +4556,7 @@ public sealed partial class MainWindow : Window
     {
         if (!string.IsNullOrEmpty(CustomFieldValue.Text))
         {
-            CopyText(CustomFieldValue.Text, "Custom field copied");
+            CopyText(CustomFieldValue.Text, Loc.T("Custom field copied"));
         }
     }
 
@@ -4536,7 +4585,7 @@ public sealed partial class MainWindow : Window
         if (Settings.ClearClipboardAfter30Seconds)
         {
             _clipboardTimer.Start();
-            ShowToast($"{label} — clears in 30 seconds", InfoBarSeverity.Success);
+            ShowToast(Loc.T("{0} — clears in 30 seconds", label), InfoBarSeverity.Success);
         }
         else
         {
@@ -4566,7 +4615,7 @@ public sealed partial class MainWindow : Window
         }
         var groupChoice = new ComboBox
         {
-            Header = "Group",
+            Header = Loc.T("Group"),
             ItemsSource = _selectableGroups,
             DisplayMemberPath = "Name",
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -4574,13 +4623,13 @@ public sealed partial class MainWindow : Window
         groupChoice.SelectedItem = _selectableGroups.FirstOrDefault(group =>
             group.Uuid == (_selectedGroupUuid ?? _selectableGroups.FirstOrDefault()?.Uuid));
 
-        var title = new TextBox { Header = "Title", PlaceholderText = "Entry name" };
-        var username = new TextBox { Header = "Username", PlaceholderText = "name@example.com" };
-        var password = new PasswordBox { Header = "Password", PasswordRevealMode = PasswordRevealMode.Peek };
-        var url = new TextBox { Header = "Website", PlaceholderText = "https://" };
+        var title = new TextBox { Header = Loc.T("Title"), PlaceholderText = Loc.T("Entry name") };
+        var username = new TextBox { Header = Loc.T("Username"), PlaceholderText = "name@example.com" };
+        var password = new PasswordBox { Header = Loc.T("Password"), PasswordRevealMode = PasswordRevealMode.Peek };
+        var url = new TextBox { Header = Loc.T("Website"), PlaceholderText = "https://" };
         var notes = new TextBox
         {
-            Header = "Notes",
+            Header = Loc.T("Notes"),
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             Height = 84,
@@ -4592,8 +4641,8 @@ public sealed partial class MainWindow : Window
         content.Children.Add(BuildPasswordRow(password));
         content.Children.Add(url);
         content.Children.Add(notes);
-        UIElement form = CreateFormSection("Details", content);
-        if (await ShowDetailPanelAsync("New entry", form, "Create",
+        UIElement form = CreateFormSection(Loc.T("Details"), content);
+        if (await ShowDetailPanelAsync(Loc.T("New entry"), form, Loc.T("Create"),
                 primaryGlyph: "\uE710") !=
                 RightPanelResult.Primary ||
             groupChoice.SelectedItem is not GroupDto group)
@@ -4603,11 +4652,11 @@ public sealed partial class MainWindow : Window
         try
         {
             string uuid = await _core.CreateEntryAsync(group.Uuid,
-                string.IsNullOrWhiteSpace(title.Text) ? "Untitled entry" : title.Text.Trim(),
+                string.IsNullOrWhiteSpace(title.Text) ? Loc.T("Untitled entry") : title.Text.Trim(),
                 username.Text.Trim(), password.Password, url.Text.Trim(), notes.Text);
             await SaveAsync();
             await ReloadVaultAsync(uuid, preserveScroll: false);
-            ShowToast("Entry created and saved", InfoBarSeverity.Success);
+            ShowToast(Loc.T("Entry created and saved"), InfoBarSeverity.Success);
         }
         catch (Exception ex)
         {
@@ -4621,23 +4670,23 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        var title = new TextBox { Header = "Title", Text = _currentFull.Title };
-        var username = new TextBox { Header = "Username", Text = _currentFull.Username };
+        var title = new TextBox { Header = Loc.T("Title"), Text = _currentFull.Title };
+        var username = new TextBox { Header = Loc.T("Username"), Text = _currentFull.Username };
         var password = new PasswordBox
         {
-            Header = "Password",
+            Header = Loc.T("Password"),
             Password = _currentFull.PasswordSecret,
             PasswordRevealMode = PasswordRevealMode.Peek,
         };
-        var url = new TextBox { Header = "Website", Text = _currentFull.Url };
+        var url = new TextBox { Header = Loc.T("Website"), Text = _currentFull.Url };
         var tags = new TextBox
         {
-            Header = "Tags (comma-separated)",
+            Header = Loc.T("Tags (comma-separated)"),
             Text = string.Join(", ", _currentFull.Tags),
         };
         var notes = new TextBox
         {
-            Header = "Notes",
+            Header = Loc.T("Notes"),
             Text = _currentFull.Notes,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
@@ -4646,26 +4695,26 @@ public sealed partial class MainWindow : Window
         TotpConfigDto? existingTotp = _currentFull.Totp;
         var totpSecret = new TextBox
         {
-            Header = "Base32 secret",
+            Header = Loc.T("Base32 secret"),
             Text = existingTotp?.SecretBase32 ?? string.Empty,
             PlaceholderText = "JBSWY3DPEHPK3PXP",
             FontFamily = new FontFamily("Consolas"),
         };
         var totpAlgorithm = new ComboBox
         {
-            Header = "Algorithm",
+            Header = Loc.T("Algorithm"),
             ItemsSource = new[] { "SHA1", "SHA256", "SHA512" },
             SelectedItem = existingTotp?.Algorithm ?? "SHA1",
         };
         var totpDigits = new ComboBox
         {
-            Header = "Digits",
+            Header = Loc.T("Digits"),
             ItemsSource = new[] { "6", "8" },
             SelectedItem = (existingTotp?.Digits ?? 6).ToString(),
         };
         var totpPeriod = new NumberBox
         {
-            Header = "Period (seconds)",
+            Header = Loc.T("Period (seconds)"),
             Value = existingTotp?.Period ?? 30,
             Minimum = 1,
             Maximum = 300,
@@ -4673,8 +4722,8 @@ public sealed partial class MainWindow : Window
         var totpHint = new TextBlock
         {
             Text = existingTotp is null
-                ? "No TOTP yet. Paste or import a Base32 secret to add one."
-                : "Leave the secret empty and save to remove TOTP.",
+                ? Loc.T("No TOTP yet. Paste or import a Base32 secret to add one.")
+                : Loc.T("Leave the secret empty and save to remove TOTP."),
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
@@ -4702,9 +4751,9 @@ public sealed partial class MainWindow : Window
         content.Children.Add(tags);
         content.Children.Add(notes);
         var form = new StackPanel { Spacing = 20 };
-        form.Children.Add(CreateFormSection("Details", content));
-        form.Children.Add(CreateFormSection("One-time password", totpFields));
-        if (await ShowDetailPanelAsync("Edit entry", form, "Save") !=
+        form.Children.Add(CreateFormSection(Loc.T("Details"), content));
+        form.Children.Add(CreateFormSection(Loc.T("One-time password"), totpFields));
+        if (await ShowDetailPanelAsync(Loc.T("Edit entry"), form, Loc.T("Save")) !=
             RightPanelResult.Primary)
         {
             return;
@@ -4742,7 +4791,7 @@ public sealed partial class MainWindow : Window
             }
             await SaveAsync();
             await ReloadVaultAsync(uuid);
-            ShowToast("Entry updated and saved", InfoBarSeverity.Success);
+            ShowToast(Loc.T("Entry updated and saved"), InfoBarSeverity.Success);
         }
         catch (Exception ex)
         {
@@ -4758,14 +4807,14 @@ public sealed partial class MainWindow : Window
         }
         var choices = new ComboBox
         {
-            Header = "Move to group",
+            Header = Loc.T("Move to group"),
             ItemsSource = _selectableGroups,
             DisplayMemberPath = "Name",
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         choices.SelectedItem = _selectableGroups.FirstOrDefault(group =>
             group.Uuid == _currentFull.GroupUuid) ?? _selectableGroups[0];
-        if (await ShowDetailPanelAsync("Move entry", choices, "Move",
+        if (await ShowDetailPanelAsync(Loc.T("Move entry"), choices, Loc.T("Move"),
                 primaryGlyph: "\uE8DE") !=
                 RightPanelResult.Primary ||
             choices.SelectedItem is not GroupDto target ||
@@ -4776,7 +4825,8 @@ public sealed partial class MainWindow : Window
         string uuid = _currentFull.Uuid;
         if (target.Uuid == _currentFull.GroupUuid)
         {
-            ShowToast($"\"{_currentFull.Title}\" is already in {target.Name} — nothing to move.",
+            ShowToast(Loc.T("\"{0}\" is already in {1} — nothing to move.",
+                    _currentFull.Title, target.Name),
                 InfoBarSeverity.Informational);
             return;
         }
@@ -4786,7 +4836,7 @@ public sealed partial class MainWindow : Window
             await SaveAsync();
             _selectedGroupUuid = target.Uuid;
             await ReloadVaultAsync(uuid);
-            ShowToast($"Moved to {target.Name}", InfoBarSeverity.Success);
+            ShowToast(Loc.T("Moved to {0}", target.Name), InfoBarSeverity.Success);
         }
         catch (Exception ex)
         {
@@ -4804,10 +4854,10 @@ public sealed partial class MainWindow : Window
         string uuid = _currentFull.Uuid;
         var dialog = new ContentDialog
         {
-            Title = "Delete entry?",
-            Content = $"\"{title}\" will be moved to the recycle bin.",
-            PrimaryButtonText = "Delete",
-            CloseButtonText = "Cancel",
+            Title = Loc.T("Delete entry?"),
+            Content = Loc.T("\"{0}\" will be moved to the recycle bin.", title),
+            PrimaryButtonText = Loc.T("Delete"),
+            CloseButtonText = Loc.T("Cancel"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Root.XamlRoot,
         };
@@ -4820,7 +4870,7 @@ public sealed partial class MainWindow : Window
             await _core.DeleteEntryAsync(uuid);
             await SaveAsync();
             await ReloadVaultAsync(null);
-            ShowToast("Entry moved to the recycle bin", InfoBarSeverity.Informational);
+            ShowToast(Loc.T("Entry moved to the recycle bin"), InfoBarSeverity.Informational);
         }
         catch (Exception ex)
         {
@@ -4856,18 +4906,18 @@ public sealed partial class MainWindow : Window
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         var importFile = new Button
         {
-            Content = CreateIconLabel("Import QR image…", "\uE8B7"),
+            Content = CreateIconLabel(Loc.T("Import QR image…"), "\uE8B7"),
         };
         var importClipboard = new Button
         {
-            Content = CreateIconLabel("Paste QR / otpauth…", "\uE77F"),
+            Content = CreateIconLabel(Loc.T("Paste QR / otpauth…"), "\uE77F"),
         };
         async Task ApplyImportedUriAsync(string? uri)
         {
             if (string.IsNullOrWhiteSpace(uri) ||
                 !uri.StartsWith("otpauth://", StringComparison.OrdinalIgnoreCase))
             {
-                status.Text = "No otpauth QR code found. Paste a Base32 secret instead.";
+                status.Text = Loc.T("No otpauth QR code found. Paste a Base32 secret instead.");
                 return;
             }
             try
@@ -4881,12 +4931,12 @@ public sealed partial class MainWindow : Window
                     new[] { parsed.Issuer, parsed.Account }.Where(value =>
                         !string.IsNullOrWhiteSpace(value)));
                 status.Text = account.Length == 0
-                    ? "QR imported. Review the parameters and save."
-                    : $"Imported {account}. Review and save.";
+                    ? Loc.T("QR imported. Review the parameters and save.")
+                    : Loc.T("Imported {0}. Review and save.", account);
             }
             catch (Exception ex)
             {
-                status.Text = $"Could not read otpauth URI: {ex.Message}";
+                status.Text = Loc.T("Could not read otpauth URI: {0}", ex.Message);
             }
         }
         importFile.Click += async (_, _) =>
@@ -4914,7 +4964,7 @@ public sealed partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                status.Text = $"QR image failed: {ex.Message}";
+                status.Text = Loc.T("QR image failed: {0}", ex.Message);
             }
         };
         importClipboard.Click += async (_, _) =>
@@ -4925,7 +4975,7 @@ public sealed partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                status.Text = $"Clipboard QR failed: {ex.Message}";
+                status.Text = Loc.T("Clipboard QR failed: {0}", ex.Message);
             }
         };
         row.Children.Add(importFile);
@@ -4945,11 +4995,11 @@ public sealed partial class MainWindow : Window
         row.Children.Add(password);
         var generate = new Button
         {
-            Content = CreateIconLabel("Generate", "\uE945"),
+            Content = CreateIconLabel(Loc.T("Generate"), "\uE945"),
             VerticalAlignment = VerticalAlignment.Bottom,
         };
-        SetButtonAutomation(generate, "Generate password",
-            "Opens the password generator options", "GeneratePasswordButton");
+        SetButtonAutomation(generate, Loc.T("Generate password"),
+            Loc.T("Opens the password generator options"), "GeneratePasswordButton");
         generate.Click += (_, _) => ShowPasswordGeneratorFlyout(generate, password);
         Grid.SetColumn(generate, 1);
         row.Children.Add(generate);
@@ -4962,8 +5012,8 @@ public sealed partial class MainWindow : Window
         {
             Header = header,
             IsOn = isOn,
-            OnContent = "On",
-            OffContent = "Off",
+            OnContent = Loc.T("On"),
+            OffContent = Loc.T("Off"),
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         AutomationProperties.SetName(toggle, header);
@@ -4980,12 +5030,13 @@ public sealed partial class MainWindow : Window
     {
         if (!_core.IsOpen)
         {
-            ShowToast("Unlock the vault before generating a password.", InfoBarSeverity.Warning);
+            ShowToast(Loc.T("Unlock the vault before generating a password."),
+                InfoBarSeverity.Warning);
             return;
         }
         var length = new NumberBox
         {
-            Header = "Length",
+            Header = Loc.T("Length"),
             Value = 20,
             Minimum = 8,
             Maximum = 64,
@@ -4994,14 +5045,14 @@ public sealed partial class MainWindow : Window
             SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
-        AutomationProperties.SetName(length, "Password length");
+        AutomationProperties.SetName(length, Loc.T("Password length"));
         AutomationProperties.SetAutomationId(length, "GeneratorLength");
-        ToggleSwitch lowercase = CreateGeneratorToggle("Lowercase (a-z)", isOn: true);
-        ToggleSwitch uppercase = CreateGeneratorToggle("Uppercase (A-Z)", isOn: true);
-        ToggleSwitch digits = CreateGeneratorToggle("Digits (0-9)", isOn: true);
-        ToggleSwitch symbols = CreateGeneratorToggle("Symbols (!@#$…)", isOn: true);
+        ToggleSwitch lowercase = CreateGeneratorToggle(Loc.T("Lowercase (a-z)"), isOn: true);
+        ToggleSwitch uppercase = CreateGeneratorToggle(Loc.T("Uppercase (A-Z)"), isOn: true);
+        ToggleSwitch digits = CreateGeneratorToggle(Loc.T("Digits (0-9)"), isOn: true);
+        ToggleSwitch symbols = CreateGeneratorToggle(Loc.T("Symbols (!@#$…)"), isOn: true);
         ToggleSwitch excludeAmbiguous =
-            CreateGeneratorToggle("Exclude ambiguous characters (I l 1 O 0 o)", isOn: true);
+            CreateGeneratorToggle(Loc.T("Exclude ambiguous characters (I l 1 O 0 o)"), isOn: true);
         AutomationProperties.SetAutomationId(lowercase, "GeneratorLowercase");
         AutomationProperties.SetAutomationId(uppercase, "GeneratorUppercase");
         AutomationProperties.SetAutomationId(digits, "GeneratorDigits");
@@ -5011,25 +5062,26 @@ public sealed partial class MainWindow : Window
         {
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
-            Text = "Entropy: —",
+            Text = Loc.T("Entropy: —"),
         };
         AutomationProperties.SetAutomationId(entropy, "GeneratorEntropy");
         var status = new TextBlock
         {
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
-            Text = "Options are applied by the core generator; the password is written " +
-                   "into the field and Save stores it with the entry.",
+            Text = Loc.TLong("Generator.OptionsBody",
+                "Options are applied by the core generator; the password is written " +
+                "into the field and Save stores it with the entry."),
             Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
         };
         var regenerate = new Button
         {
-            Content = CreateIconLabel("Regenerate", "\uE72C"),
+            Content = CreateIconLabel(Loc.T("Regenerate"), "\uE72C"),
         };
-        SetButtonAutomation(regenerate, "Regenerate password", null,
+        SetButtonAutomation(regenerate, Loc.T("Regenerate password"), null,
             "GeneratorRegenerateButton");
-        var done = new Button { Content = "Done" };
-        SetButtonAutomation(done, "Close password generator", null, "GeneratorDoneButton");
+        var done = new Button { Content = Loc.T("Done") };
+        SetButtonAutomation(done, Loc.T("Close password generator"), null, "GeneratorDoneButton");
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         buttons.Children.Add(regenerate);
         buttons.Children.Add(done);
@@ -5061,7 +5113,7 @@ public sealed partial class MainWindow : Window
             bool symbolsOn = symbols.IsOn;
             if (!lowerOn && !upperOn && !digitsOn && !symbolsOn)
             {
-                status.Text = "Select at least one character class.";
+                status.Text = Loc.T("Select at least one character class.");
                 return;
             }
             try
@@ -5073,17 +5125,17 @@ public sealed partial class MainWindow : Window
                     return;
                 }
                 target.Password = generated.Password;
-                entropy.Text = $"Entropy: {generated.EntropyBits:F1} bits";
+                entropy.Text = Loc.T("Entropy: {0:F1} bits", generated.EntropyBits);
                 if (announce)
                 {
-                    status.Text = "Password generated. Save the entry to keep it.";
+                    status.Text = Loc.T("Password generated. Save the entry to keep it.");
                 }
             }
             catch (Exception ex)
             {
                 if (ticket == generation)
                 {
-                    status.Text = "Generation failed: " + ex.Message;
+                    status.Text = Loc.T("Generation failed: {0}", ex.Message);
                 }
             }
         }
@@ -5097,7 +5149,7 @@ public sealed partial class MainWindow : Window
             // At least one class must stay enabled: revert the change that would
             // empty the alphabet (the core rejects an empty charset).
             toggled.IsOn = true;
-            status.Text = "At least one character class must stay enabled.";
+            status.Text = Loc.T("At least one character class must stay enabled.");
         }
         length.ValueChanged += (_, _) => _ = RegenerateAsync(false);
         lowercase.Toggled += (_, _) =>
@@ -5138,25 +5190,25 @@ public sealed partial class MainWindow : Window
         TotpConfigDto? existing = current.Totp;
         var secret = new TextBox
         {
-            Header = "Base32 secret",
+            Header = Loc.T("Base32 secret"),
             Text = existing?.SecretBase32 ?? string.Empty,
             FontFamily = new FontFamily("Consolas"),
         };
         var algorithm = new ComboBox
         {
-            Header = "Algorithm",
+            Header = Loc.T("Algorithm"),
             ItemsSource = new[] { "SHA1", "SHA256", "SHA512" },
             SelectedItem = existing?.Algorithm ?? "SHA1",
         };
         var digits = new ComboBox
         {
-            Header = "Digits",
+            Header = Loc.T("Digits"),
             ItemsSource = new[] { "6", "8" },
             SelectedItem = (existing?.Digits ?? 6).ToString(),
         };
         var period = new NumberBox
         {
-            Header = "Period (seconds)",
+            Header = Loc.T("Period (seconds)"),
             Value = existing?.Period ?? 30,
             Minimum = 1,
             Maximum = 300,
@@ -5167,8 +5219,8 @@ public sealed partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
         };
-        var importFile = new Button { Content = "Import QR image…" };
-        var importClipboard = new Button { Content = "Paste QR / otpauth…" };
+        var importFile = new Button { Content = Loc.T("Import QR image…") };
+        var importClipboard = new Button { Content = Loc.T("Paste QR / otpauth…") };
         var importRow = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -5181,7 +5233,7 @@ public sealed partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(uri) ||
                 !uri.StartsWith("otpauth://", StringComparison.OrdinalIgnoreCase))
             {
-                importStatus.Text = "No otpauth QR code found. Paste a Base32 secret instead.";
+                importStatus.Text = Loc.T("No otpauth QR code found. Paste a Base32 secret instead.");
                 return;
             }
             try
@@ -5195,12 +5247,12 @@ public sealed partial class MainWindow : Window
                     new[] { parsed.Issuer, parsed.Account }.Where(value =>
                         !string.IsNullOrWhiteSpace(value)));
                 importStatus.Text = account.Length == 0
-                    ? "QR imported. Review the parameters and save."
-                    : $"Imported {account}. Review and save.";
+                    ? Loc.T("QR imported. Review the parameters and save.")
+                    : Loc.T("Imported {0}. Review and save.", account);
             }
             catch (Exception ex)
             {
-                importStatus.Text = $"Could not read otpauth URI: {ex.Message}";
+                importStatus.Text = Loc.T("Could not read otpauth URI: {0}", ex.Message);
             }
         }
         importFile.Click += async (_, _) =>
@@ -5228,7 +5280,7 @@ public sealed partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                importStatus.Text = $"QR image failed: {ex.Message}";
+                importStatus.Text = Loc.T("QR image failed: {0}", ex.Message);
             }
         };
         importClipboard.Click += async (_, _) =>
@@ -5239,7 +5291,7 @@ public sealed partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                importStatus.Text = $"Clipboard QR failed: {ex.Message}";
+                importStatus.Text = Loc.T("Clipboard QR failed: {0}", ex.Message);
             }
         };
         var content = new StackPanel { Spacing = 10 };
@@ -5250,10 +5302,10 @@ public sealed partial class MainWindow : Window
         content.Children.Add(digits);
         content.Children.Add(period);
         RightPanelResult result = await ShowDetailPanelAsync(
-            existing is null ? "Set up TOTP" : "Edit TOTP",
+            existing is null ? Loc.T("Set up TOTP") : Loc.T("Edit TOTP"),
             content,
-            "Save",
-            existing is null ? null : "Remove");
+            Loc.T("Save"),
+            existing is null ? null : Loc.T("Remove"));
         if (result == RightPanelResult.Secondary)
         {
             try
@@ -5261,7 +5313,7 @@ public sealed partial class MainWindow : Window
                 await _core.TotpDeleteAsync(current.Uuid);
                 await SaveAsync();
                 await ReloadVaultAsync(current.Uuid);
-                ShowToast("TOTP removed", InfoBarSeverity.Informational);
+                ShowToast(Loc.T("TOTP removed"), InfoBarSeverity.Informational);
             }
             catch (Exception ex)
             {
@@ -5287,7 +5339,7 @@ public sealed partial class MainWindow : Window
             });
             await SaveAsync();
             await ReloadVaultAsync(current.Uuid);
-            ShowToast("TOTP saved", InfoBarSeverity.Success);
+            ShowToast(Loc.T("TOTP saved"), InfoBarSeverity.Success);
         }
         catch (Exception ex)
         {
@@ -5309,7 +5361,7 @@ public sealed partial class MainWindow : Window
             MarkLocalDirty();
             if (!silent)
             {
-                ShowToast("Saved", InfoBarSeverity.Success);
+                ShowToast(Loc.T("Saved"), InfoBarSeverity.Success);
             }
             if (syncAfterSave && Settings.SyncOnSave && IsSyncConfigured)
             {
@@ -5318,7 +5370,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ShowToast($"Save failed: {ex.Message}", InfoBarSeverity.Error);
+            ShowToast(Loc.T("Save failed: {0}", ex.Message), InfoBarSeverity.Error);
             throw;
         }
     }
@@ -5347,14 +5399,14 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ShowToast($"Lock failed: {ex.Message}", InfoBarSeverity.Error);
+            ShowToast(Loc.T("Lock failed: {0}", ex.Message), InfoBarSeverity.Error);
             _busy = false;
             return;
         }
         _autoLockTimer.Stop();
         _totpTimer.Stop();
         AppLog.Info("vault locked");
-        Announce("Vault locked");
+        Announce(Loc.T("Vault locked"));
         _currentFull = null;
         _currentSummary = null;
         ResetTotpDisplayState();
@@ -5377,385 +5429,6 @@ public sealed partial class MainWindow : Window
         _trayIcon?.SetVaultState(false, null);
         _busy = false;
         MasterPassword.Focus(FocusState.Programmatic);
-    }
-
-    private async void SettingsButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_rightPanelOpen)
-        {
-            return;
-        }
-        // Clear the group highlight while Settings is open. Selecting the
-        // footer item directly is not supported by NavigationView and can
-        // destabilize its selection loop.
-        SelectNavItem(null);
-        SetSettingsHighlight(true);
-        var theme = new RadioButtons
-        {
-            Header = "Appearance",
-            Items =
-            {
-                "Use system setting",
-                "Light",
-                "Dark",
-            },
-            SelectedIndex = Settings.Theme switch
-            {
-                "Light" => 1,
-                "Dark" => 2,
-                _ => 0,
-            },
-        };
-        var clipboard = new ToggleSwitch
-        {
-            Header = "Clear copied secrets after 30 seconds",
-            OnContent = "On",
-            OffContent = "Off",
-            IsOn = Settings.ClearClipboardAfter30Seconds,
-        };
-        var autoLock = new ToggleSwitch
-        {
-            Header = "Lock the vault after inactivity",
-            OnContent = "On",
-            OffContent = "Off",
-            IsOn = Settings.AutoLockEnabled,
-        };
-        var startMinimized = new ToggleSwitch
-        {
-            Header = "Start minimized to the notification area",
-            OnContent = "On",
-            OffContent = "Off",
-            IsOn = Settings.StartMinimized,
-        };
-        var minutes = new NumberBox
-        {
-            Header = "Inactivity minutes before lock",
-            Value = Settings.AutoLockMinutes,
-            Minimum = 1,
-            Maximum = 240,
-            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
-        };
-        var retention = new NumberBox
-        {
-            Header = "Backup copies to keep",
-            Value = Settings.BackupRetention,
-            Minimum = 1,
-            Maximum = 200,
-            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
-        };
-        var webdavUrl = new TextBox
-        {
-            Header = "WebDAV file URL",
-            Text = Settings.WebDavUrl ?? string.Empty,
-            PlaceholderText = "https://dav.example.com/keepassity.kdbx",
-            IsReadOnly = _webDavSource,
-        };
-        var webdavUser = new TextBox
-        {
-            Header = "WebDAV username",
-            Text = Settings.WebDavUsername ?? string.Empty,
-            IsReadOnly = _webDavSource,
-        };
-        var webdavPassword = new PasswordBox
-        {
-            Header = "WebDAV password (leave blank to keep the stored one)",
-            PasswordRevealMode = PasswordRevealMode.Peek,
-        };
-        var storedPasswordText = new TextBlock
-        {
-            FontSize = 11,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-        };
-        var clearStoredPassword = new Button
-        {
-            Content = "Clear stored password",
-            HorizontalAlignment = HorizontalAlignment.Left,
-            IsEnabled = false,
-        };
-        var storedPasswordRow = new StackPanel { Spacing = 6 };
-        storedPasswordRow.Children.Add(storedPasswordText);
-        storedPasswordRow.Children.Add(clearStoredPassword);
-        void RefreshStoredCredentialState()
-        {
-            string currentUrl = webdavUrl.Text.Trim();
-            string currentUser = webdavUser.Text.Trim();
-            bool stored = currentUrl.Length > 0 && currentUser.Length > 0 &&
-                          _credentials.HasPassword(currentUrl, currentUser);
-            storedPasswordText.Text = stored
-                ? $"Password stored for {currentUser} (Windows DPAPI)."
-                : "No stored password for this WebDAV target.";
-            clearStoredPassword.IsEnabled = stored;
-        }
-        webdavUrl.TextChanged += (_, _) => RefreshStoredCredentialState();
-        webdavUser.TextChanged += (_, _) => RefreshStoredCredentialState();
-        clearStoredPassword.Click += (_, _) =>
-        {
-            string currentUrl = webdavUrl.Text.Trim();
-            string currentUser = webdavUser.Text.Trim();
-            if (currentUrl.Length == 0 || currentUser.Length == 0)
-            {
-                return;
-            }
-            // Deletes the DPAPI entry only; the remote database and settings are
-            // untouched. No secret is ever shown or logged here.
-            if (_credentials.DeletePassword(currentUrl, currentUser))
-            {
-                AppLog.Info("stored WebDAV credential cleared");
-                ShowToast("Stored WebDAV password cleared", InfoBarSeverity.Success);
-            }
-            else
-            {
-                ShowToast("No stored password to clear.", InfoBarSeverity.Informational);
-            }
-            RefreshStoredCredentialState();
-        };
-        RefreshStoredCredentialState();
-        var syncOnSave = new ToggleSwitch
-        {
-            Header = "Sync after saving changes",
-            OnContent = "On",
-            OffContent = "Off",
-            IsOn = Settings.SyncOnSave,
-        };
-        theme.SelectionChanged += (_, _) =>
-        {
-            Settings.Theme = theme.SelectedIndex switch
-            {
-                1 => "Light",
-                2 => "Dark",
-                _ => "System",
-            };
-            ApplyThemePreference(Settings.Theme);
-            _settingsStore.Save();
-        };
-        clipboard.Toggled += (_, _) =>
-        {
-            Settings.ClearClipboardAfter30Seconds = clipboard.IsOn;
-            _settingsStore.Save();
-        };
-        autoLock.Toggled += (_, _) =>
-        {
-            Settings.AutoLockEnabled = autoLock.IsOn;
-            _settingsStore.Save();
-        };
-        startMinimized.Toggled += (_, _) =>
-        {
-            Settings.StartMinimized = startMinimized.IsOn;
-            _settingsStore.Save();
-        };
-        minutes.ValueChanged += (_, _) =>
-        {
-            if (!double.IsNaN(minutes.Value))
-            {
-                Settings.AutoLockMinutes = Math.Clamp((int)minutes.Value, 1, 240);
-                _settingsStore.Save();
-            }
-        };
-        retention.ValueChanged += (_, _) =>
-        {
-            if (!double.IsNaN(retention.Value))
-            {
-                Settings.BackupRetention = Math.Clamp((int)retention.Value, 1, 200);
-                _settingsStore.Save();
-            }
-        };
-        syncOnSave.Toggled += (_, _) =>
-        {
-            Settings.SyncOnSave = syncOnSave.IsOn;
-            _settingsStore.Save();
-        };
-        var content = new StackPanel { Spacing = 14 };
-        content.Children.Add(theme);
-        content.Children.Add(clipboard);
-        content.Children.Add(autoLock);
-        content.Children.Add(startMinimized);
-        content.Children.Add(minutes);
-        content.Children.Add(retention);
-        content.Children.Add(new TextBlock
-        {
-            Text = "WebDAV",
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Margin = new Thickness(0, 8, 0, 0),
-        });
-        content.Children.Add(webdavUrl);
-        content.Children.Add(webdavUser);
-        content.Children.Add(webdavPassword);
-        content.Children.Add(new TextBlock
-        {
-            Text = "Nextcloud/ownCloud with two-factor authentication requires an app " +
-                   "password. Server URL presets are offered when opening a database from " +
-                   "WebDAV.",
-            FontSize = 11,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
-        });
-        content.Children.Add(storedPasswordRow);
-        content.Children.Add(syncOnSave);
-        content.Children.Add(new TextBlock
-        {
-            Text = _webDavSource
-                ? "This database was opened from WebDAV; the source URL is fixed for this " +
-                  "session. To switch sources, lock and use Open from WebDAV… on the unlock " +
-                  "page. The WebDAV password is stored with Windows DPAPI; clearing it does " +
-                  "not touch the remote database."
-                : "The URL must point to the .kdbx file. The WebDAV password is stored " +
-                  "with Windows DPAPI, not in the plain settings file; clearing it does " +
-                  "not touch the remote database.",
-            FontSize = 11,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
-        });
-        string appVersion = typeof(MainWindow).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-            ?? typeof(MainWindow).Assembly.GetName().Version?.ToString(3)
-            ?? "unknown";
-        // Deterministic builds append "+<source revision>" to the informational
-        // version; the About page shows the human-facing version only.
-        int versionMetadata = appVersion.IndexOf('+');
-        if (versionMetadata > 0)
-        {
-            appVersion = appVersion[..versionMetadata];
-        }
-        var aboutIcon = new Image
-        {
-            Width = 72,
-            Height = 72,
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Margin = new Thickness(0, 8, 0, 0),
-            Visibility = Visibility.Collapsed,
-        };
-        // The preview loads asynchronously from the assets copied next to the
-        // executable; the section stays without a logo if the asset is missing.
-        _ = ApplyAboutIconAsync(aboutIcon);
-        content.Children.Add(aboutIcon);
-        content.Children.Add(new TextBlock
-        {
-            Text = "About",
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Margin = new Thickness(0, 8, 0, 0),
-        });
-        content.Children.Add(new TextBlock
-        {
-            Text = $"keepassity {appVersion} · local-first KeePass-compatible client",
-            FontSize = 11,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
-        });
-        // GPL notice (M3-10): version plus the GPL-3.0-or-later short notice and
-        // links to the license text and public source, as the license requires.
-        content.Children.Add(new TextBlock
-        {
-            Text = "License: GNU General Public License, version 3 or later " +
-                   "(GPL-3.0-or-later).",
-            FontSize = 11,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            TextWrapping = TextWrapping.Wrap,
-        });
-        content.Children.Add(new TextBlock
-        {
-            Text = "This program is free software: you can redistribute it and/or modify it " +
-                   "under the terms of the GNU General Public License as published by the Free " +
-                   "Software Foundation, either version 3 of the License, or (at your option) " +
-                   "any later version. This program is distributed in the hope that it will be " +
-                   "useful, but WITHOUT ANY WARRANTY; without even the implied warranty of " +
-                   "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General " +
-                   "Public License for more details; the full license text ships in the " +
-                   "LICENSE file of the source repository.",
-            FontSize = 10,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
-        });
-        var licenseLinks = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 12,
-        };
-        licenseLinks.Children.Add(new HyperlinkButton
-        {
-            Content = "GPL-3.0 license text",
-            NavigateUri = new Uri("https://www.gnu.org/licenses/gpl-3.0.html"),
-            Padding = new Thickness(0),
-            FontSize = 11,
-        });
-        licenseLinks.Children.Add(new HyperlinkButton
-        {
-            Content = "Source code",
-            NavigateUri = new Uri("https://github.com/simplenty/keepassity"),
-            Padding = new Thickness(0),
-            FontSize = 11,
-        });
-        content.Children.Add(licenseLinks);
-        var diagnostics = new Button
-        {
-            Content = "Export diagnostics…",
-            HorizontalAlignment = HorizontalAlignment.Left,
-        };
-        diagnostics.Click += async (_, _) =>
-        {
-            try
-            {
-                string path = await DiagnosticsService.ExportAsync(Settings);
-                ShowToast($"Diagnostics exported: {path}", InfoBarSeverity.Success);
-            }
-            catch (Exception ex)
-            {
-                AppLog.Error("diagnostics export failed", ex);
-                ShowToast($"Diagnostics export failed: {ex.Message}", InfoBarSeverity.Error);
-            }
-        };
-        content.Children.Add(diagnostics);
-        RightPanelResult settingsResult =
-            await ShowRightPanelAsync("Settings", content, "Save", closeText: "Cancel");
-        SetSettingsHighlight(false);
-        if (ReferenceEquals(NavView.SelectedItem, null))
-        {
-            RestoreGroupNavSelection();
-        }
-        if (settingsResult != RightPanelResult.Primary)
-        {
-            return;
-        }
-        string url = webdavUrl.Text.Trim();
-        if (url.Length > 0 &&
-            (!Uri.TryCreate(url, UriKind.Absolute, out Uri? parsed) ||
-             parsed.Scheme != Uri.UriSchemeHttps))
-        {
-            ShowToast("WebDAV URLs must use https:// (the password is sent with " +
-                      "Basic authentication, which requires TLS).",
-                InfoBarSeverity.Error);
-            return;
-        }
-        string username = webdavUser.Text.Trim();
-        Settings.WebDavUrl = url.Length == 0 ? null : url;
-        Settings.WebDavUsername = username.Length == 0 ? null : username;
-        try
-        {
-            if (webdavPassword.Password.Length > 0)
-            {
-                if (string.IsNullOrEmpty(Settings.WebDavUrl) ||
-                    string.IsNullOrEmpty(Settings.WebDavUsername))
-                {
-                    ShowToast("Enter the WebDAV URL and username before the password.",
-                        InfoBarSeverity.Warning);
-                    return;
-                }
-                _credentials.SavePassword(Settings.WebDavUrl, Settings.WebDavUsername,
-                    webdavPassword.Password);
-            }
-            _settingsStore.Save();
-        }
-        catch (Exception ex)
-        {
-            ShowToast($"Cannot store WebDAV credential: {ex.Message}", InfoBarSeverity.Error);
-            return;
-        }
-        SetSyncStatus(IsSyncConfigured ? "Not synced" : "Local only");
-        if (IsSyncConfigured)
-        {
-            ShowToast("WebDAV settings saved. Syncing…", InfoBarSeverity.Informational);
-            _ = SyncAsync(startup: true);
-        }
     }
 
     // ------------------------------------------------------- right-side panel
@@ -5893,18 +5566,19 @@ public sealed partial class MainWindow : Window
     }
 
     private async Task<RightPanelResult> ShowRightPanelAsync(string title, UIElement content,
-        string primaryText, string? secondaryText = null, string? closeText = "Cancel",
+        string primaryText, string? secondaryText = null, string? closeText = null,
         string primaryGlyph = "\uE74E")
     {
         if (_rightPanelOpen)
         {
             return RightPanelResult.Close;
         }
+        closeText ??= Loc.T("Cancel");
         CloseDetailPanel();
         EnsureRightPanel();
         _rightPanelOpen = true;
         _rightPanelTitle!.Text = title;
-        AutomationProperties.SetName(_rightPanel, $"{title} panel");
+        AutomationProperties.SetName(_rightPanel, Loc.T("{0} panel", title));
         _rightPanelContent!.Content = content;
         _rightPanelActions!.Children.Clear();
         var completion = new TaskCompletionSource<RightPanelResult>(
@@ -5970,7 +5644,7 @@ public sealed partial class MainWindow : Window
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(
             new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var back = CreateToolbarButton("Back", "\uE72B");
+        var back = CreateToolbarButton(Loc.T("Back"), "\uE72B");
         back.Click += (_, _) => CloseDetailPanel();
         header.Children.Add(back);
         _detailPanelTitle = new TextBlock
@@ -6015,18 +5689,19 @@ public sealed partial class MainWindow : Window
     }
 
     private async Task<RightPanelResult> ShowDetailPanelAsync(string title, UIElement content,
-        string primaryText, string? secondaryText = null, string? closeText = "Cancel",
+        string primaryText, string? secondaryText = null, string? closeText = null,
         string primaryGlyph = "\uE74E")
     {
         if (_detailPanelOpen)
         {
             return RightPanelResult.Close;
         }
+        closeText ??= Loc.T("Cancel");
         CloseRightPanel();
         EnsureDetailPanel();
         _detailPanelOpen = true;
         _detailPanelTitle!.Text = title;
-        AutomationProperties.SetName(_detailPanel, $"{title} dialog");
+        AutomationProperties.SetName(_detailPanel, Loc.T("{0} dialog", title));
         _detailPanelContent!.Content = content;
         _detailPanelActions!.Children.Clear();
         var completion = new TaskCompletionSource<RightPanelResult>(

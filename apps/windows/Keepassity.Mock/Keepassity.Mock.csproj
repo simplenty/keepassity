@@ -69,10 +69,15 @@
       <FfiPublishNative Include="$(FfiNativeDir)keepassity_ffi.dll" Condition="Exists('$(FfiNativeDir)keepassity_ffi.dll')" />
       <FfiPublishNative Include="$(FfiNativeDir)keepassity_ffi.pdb" Condition="Exists('$(FfiNativeDir)keepassity_ffi.pdb')" />
       <XamlPublishFiles Include="$(OutDir)**\*.xbf" />
+      <PriPublishFiles Include="$(PublishDir)*.pri" />
     </ItemGroup>
     <Copy SourceFiles="@(FfiPublishNative)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(XamlPublishFiles)" DestinationFiles="@(XamlPublishFiles->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
     <Error Condition="!Exists('$(PublishDir)keepassity_ffi.dll')" Text="keepassity_ffi.dll is missing from the publish output ($(PublishDir)). Build it first: cargo build -p keepassity-ffi --release" />
     <Error Condition="'@(XamlPublishFiles)' == ''" Text="XAML resources (*.xbf) were not found under $(OutDir); the published app would fail to start." />
+    <!-- WinUI also needs the compiled resource index next to the executable; a
+         publish without it crashes at startup (unpackaged PRI history, see
+         WindowsAppSDK issues #3718/#4603/#6394). -->
+    <Error Condition="'@(PriPublishFiles)' == ''" Text="No *.pri resource index in $(PublishDir); the published WinUI app would fail to start." />
   </Target>
 </Project>

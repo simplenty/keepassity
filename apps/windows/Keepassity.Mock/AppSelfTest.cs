@@ -77,6 +77,42 @@ internal static class AppSelfTest
                 }
                 Record($"icons: about preview {aboutPreview.Width}x{aboutPreview.Height}");
             }
+            // The UI language catalogs are embedded resources keyed by the English
+            // source text. A build that loses the embedded catalog (or a mistyped
+            // key) must fail the smoke test instead of silently rendering English.
+            Record("checking localization catalogs");
+            LocalizationCatalog englishCatalog = LocalizationCatalog.Load(
+                LocalizationCatalog.EnglishLanguage);
+            LocalizationCatalog chineseCatalog = LocalizationCatalog.Load(
+                LocalizationCatalog.ChineseLanguage);
+            if (englishCatalog.TranslationCount != 0 ||
+                englishCatalog.Get("Settings") != "Settings")
+            {
+                throw new InvalidOperationException(
+                    "The English UI language fallback is broken.");
+            }
+            if (chineseCatalog.TranslationCount < 100 ||
+                !chineseCatalog.HasTranslation("Settings") ||
+                !chineseCatalog.HasTranslation("Unlock") ||
+                string.Equals(chineseCatalog.Get("Settings"), "Settings",
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "The embedded Simplified Chinese UI catalog is missing or broken.");
+            }
+            if (chineseCatalog.DuplicateKeys.Count != 0)
+            {
+                throw new InvalidOperationException(
+                    "The UI language catalogs define duplicate keys.");
+            }
+            if (LocalizationCatalog.NormalizeLanguage("zh-Hans") != "zh-CN" ||
+                LocalizationCatalog.NormalizeLanguage("en-US") != "en")
+            {
+                throw new InvalidOperationException(
+                    "UI language resolution is wrong.");
+            }
+            Record($"localization: {chineseCatalog.TranslationCount} zh-CN entries, " +
+                   "fallback and resolution OK");
             // A bare .kdbx path (file association / Explorer "Open with") must be
             // treated like --db; unrelated switches must be ignored.
             Record("checking launch arguments");

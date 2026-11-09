@@ -8,6 +8,12 @@ public sealed class AppSettings
     /// <summary>Schema version of this settings file; bump when fields change meaning.</summary>
     public int SchemaVersion { get; set; } = 1;
     public string Theme { get; set; } = "Dark";
+    /// <summary>
+    /// UI language: <c>system</c> follows the Windows display language, or an
+    /// explicit tag such as <c>en</c> / <c>zh-CN</c>. The Windows shell applies it
+    /// through <c>Loc</c> at startup and when Settings changes it.
+    /// </summary>
+    public string Language { get; set; } = "system";
     public bool ClearClipboardAfter30Seconds { get; set; } = true;
     public bool AutoLockEnabled { get; set; } = true;
     public int AutoLockMinutes { get; set; } = 15;

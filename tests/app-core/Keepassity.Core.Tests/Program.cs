@@ -31,6 +31,7 @@ try
     var settings = new AppSettingsStore();
     settings.Current.Theme = "Light";
     settings.Current.AutoLockMinutes = 42;
+    settings.Current.Language = "zh-CN";
     settings.Save();
     var reloaded = new AppSettingsStore();
     Check("settings persist theme",
@@ -38,8 +39,13 @@ try
     Check("settings persist auto-lock",
         reloaded.Current.AutoLockMinutes == 42,
         reloaded.Current.AutoLockMinutes.ToString());
+    Check("settings persist UI language",
+        reloaded.Current.Language == "zh-CN", reloaded.Current.Language);
     Check("settings schema version", reloaded.Current.SchemaVersion == 1,
         reloaded.Current.SchemaVersion.ToString());
+
+    // UI language catalog: resolution, fallback, formatting and catalog hygiene.
+    LocalizationTests.Run(Check);
 
     // sync state round trip
     var syncStates = new SyncStateStore();

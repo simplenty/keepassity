@@ -9,4 +9,9 @@
     <RootNamespace>Keepassity.Mock</RootNamespace>
     <AssemblyName>Keepassity.Core</AssemblyName>
   </PropertyGroup>
+  <!-- UI language catalogs: <domain>.<language>.json, embedded so the shell can
+       switch languages at runtime without a PRI/resource-context reload. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Localization\*.zh-CN.json" WithCulture="false" />
+  </ItemGroup>
 </Project>

@@ -4,9 +4,10 @@
   Fail when hard-coded CJK text appears in the Windows shell sources.
 
 .DESCRIPTION
-  The Windows UI is English-only (see docs/testing.md). This check scans
-  apps/windows/**/*.cs and apps/windows/**/*.xaml for CJK characters and fails
-  with "file:line" for every hit.
+  UI text lives in the embedded language catalogs, not in the WinUI sources (see
+  docs/testing.md). This check scans apps/windows/**/*.cs and *.xaml for hard-coded
+  CJK characters and fails with "file:line" for every hit, so a translation can
+  never bypass the catalogs or drift from them.
 
   Two lines in MainWindow.xaml.cs are allowed: they are the data-matching
   predicates for the localized KeePass group names of the recycle-bin and
@@ -105,12 +106,13 @@ foreach ($file in $files) {
 }
 
 if ($violations.Count -gt 0) {
-    Write-Host "FAIL: $($violations.Count) hard-coded CJK line(s) in the English UI sources:"
+    Write-Host "FAIL: $($violations.Count) hard-coded CJK line(s) in the shell sources:"
     foreach ($violation in $violations) {
         Write-Host "  $violation"
     }
-    Write-Host 'Only the documented data-matching literals in MainWindow.xaml.cs are allowed;'
-    Write-Host 'see docs/testing.md (UI strings).'
+    Write-Host 'Add the translation to the language catalog and reference the English key instead;'
+    Write-Host 'only the documented data-matching literals in MainWindow.xaml.cs are allowed.'
+    Write-Host 'See docs/testing.md (UI strings).'
     exit 1
 }
 

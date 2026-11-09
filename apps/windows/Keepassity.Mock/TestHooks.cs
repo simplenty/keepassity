@@ -4,7 +4,8 @@ namespace Keepassity.Mock;
 /// <summary>
 /// Opt-in gate for the diagnostic overrides that exist for automated UI checks:
 /// <c>--allow-multiple</c>, <c>--no-tray</c>, <c>KEEPASSITY_MOCK_PASSWORD</c>,
-/// <c>KEEPASSITY_SETTINGS_DEMO_MS</c> and the tray-menu geometry hooks.
+/// <c>KEEPASSITY_LANGUAGE</c> (forces the UI language at startup without saving
+/// it), <c>KEEPASSITY_SETTINGS_DEMO_MS</c> and the tray-menu geometry hooks.
 ///
 /// They are useful when testing a published build, but a normal user (or a
 /// malicious environment variable) must not be able to skip the single-instance

@@ -34,7 +34,9 @@ public sealed class TrayIcon : IDisposable
 
     private readonly TaskbarIcon _icon;
     private readonly MenuFlyout _menu;
+    private readonly MenuFlyoutItem _showItem;
     private readonly MenuFlyoutItem _lockItem;
+    private readonly MenuFlyoutItem _exitItem;
     private System.Drawing.Icon? _ownedIcon;
     private Window? _anchorWindow;
     private Border? _anchor;
@@ -43,6 +45,8 @@ public sealed class TrayIcon : IDisposable
     private bool _actionInvoked;
     private bool _anchorLoaded;
     private bool _disposed;
+    private bool _unlocked;
+    private string? _databaseName;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativePoint
@@ -102,9 +106,10 @@ public sealed class TrayIcon : IDisposable
 
         var showItem = new MenuFlyoutItem
         {
-            Text = "Show keepassity",
+            Text = Loc.T("Show keepassity"),
             Icon = CreateIcon("\uE8A7"),
         };
+        _showItem = showItem;
         showItem.Click += (_, _) =>
         {
             _actionInvoked = true;
@@ -113,7 +118,7 @@ public sealed class TrayIcon : IDisposable
 
         _lockItem = new MenuFlyoutItem
         {
-            Text = "Lock",
+            Text = Loc.T("Lock"),
             Icon = CreateIcon("\uE72E"),
             IsEnabled = false,
         };
@@ -125,9 +130,10 @@ public sealed class TrayIcon : IDisposable
 
         var exitItem = new MenuFlyoutItem
         {
-            Text = "Exit keepassity",
+            Text = Loc.T("Exit keepassity"),
             Icon = CreateIcon("\uE7E8"),
         };
+        _exitItem = exitItem;
         exitItem.Click += (_, _) =>
         {
             _actionInvoked = true;
@@ -212,6 +218,23 @@ public sealed class TrayIcon : IDisposable
     }
 
     /// <summary>
+    /// Re-renders the menu and tooltip after the shell language changed. The flyout
+    /// items are reused (not recreated) so an open menu and the click handlers stay
+    /// valid; only their text is replaced.
+    /// </summary>
+    public void ApplyLanguage()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        _showItem.Text = Loc.T("Show keepassity");
+        _lockItem.Text = Loc.T("Lock");
+        _exitItem.Text = Loc.T("Exit keepassity");
+        UpdateToolTip();
+    }
+
+    /// <summary>
     /// Reflects the vault state in the menu and the tray tooltip. The Lock command
     /// is only meaningful while a database is open.
     /// </summary>
@@ -222,10 +245,21 @@ public sealed class TrayIcon : IDisposable
             return;
         }
         _lockItem.IsEnabled = unlocked;
-        string state = unlocked ? "unlocked" : "locked";
-        _icon.ToolTipText = string.IsNullOrWhiteSpace(databaseName)
-            ? $"keepassity - {state}"
-            : $"keepassity - {databaseName} ({state})";
+        _unlocked = unlocked;
+        _databaseName = databaseName;
+        UpdateToolTip();
+    }
+
+    private void UpdateToolTip()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        string state = Loc.T(_unlocked ? "unlocked" : "locked");
+        _icon.ToolTipText = string.IsNullOrWhiteSpace(_databaseName)
+            ? Loc.T("keepassity - {0}", state)
+            : Loc.T("keepassity - {0} ({1})", _databaseName, state);
     }
 
     /// <summary>

@@ -85,9 +85,14 @@ non-zero on failure. The report contains counts/status only, never secrets.
   Show / Lock / Exit, and closing the window hides it to the tray with a one-time
   hint. An optional setting starts the app minimized; `--no-tray` is a test-only
   bypass.
-- Settings persisted to `%LOCALAPPDATA%\keepassity\settings.json`: theme, clipboard
-  clearing, auto-lock enable/minutes, backup retention, window bounds, start
+- Settings persisted to `%LOCALAPPDATA%\keepassity\settings.json`: theme, UI language,
+  clipboard clearing, auto-lock enable/minutes, backup retention, window bounds, start
   minimized, and the last opened database path.
+- **UI language**: English and Simplified Chinese, switchable at runtime in Settings or on
+  the unlock page (plus "use the system language"), applied without restarting and persisted
+  in `settings.json`. English source strings are the catalog keys; translations live in
+  `Keepassity.Core/Localization/*.zh-CN.json` (see `docs/testing.md`, UI strings). The tray
+  menu, tooltips, dialogs, toasts and the About/GPL section follow the selected language.
 - Clipboard secrets are cleared after 30 seconds if they are still the current
   clipboard text, and are marked not to enter Win+V history or cloud clipboard
   (`ClipboardContentOptions`).

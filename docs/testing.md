@@ -56,15 +56,32 @@ manifest, Windows build, headless service tests; `-Full` adds the application se
 
 ## UI strings
 
-The Windows shell is English-only. `tools/check-ui-strings.ps1` scans `apps/windows/**/*.cs`
-and `*.xaml` (excluding `bin/`, `obj/` and test/fixture directories) for hard-coded CJK text
-and fails with `file:line`. The only allowed hits are the two documented data-matching
-literals in `MainWindow.xaml.cs` (`回收站` and `模板`, the localized KeePass group names for
-the recycle bin and templates groups — compared against database content, never shown in the
-UI). Run it locally with:
+The Windows shell ships English and Simplified Chinese and can switch at runtime (see
+`apps/windows/Keepassity.Mock/Localization/`). All user-visible shell text lives in the
+embedded catalogs under `apps/windows/Keepassity.Core/Localization/*.zh-CN.json`; the English
+source text is the catalog key, so an untranslated string falls back to English instead of a
+raw key. Code uses `Loc.T(...)` / `Loc.TLong(...)`; XAML uses the `loc:LocMarkup.Text`,
+`ToolTip`, `Name` and `HelpText` attached properties.
+
+Two gates protect this:
+
+- `tools/check-ui-strings.ps1` scans `apps/windows/**/*.cs` and `*.xaml` (excluding `bin/`,
+  `obj/` and test/fixture directories) for hard-coded CJK text and fails with `file:line`, so
+  translations cannot leak into the sources. The only allowed hits are the two documented
+  data-matching literals in `MainWindow.xaml.cs` (`回收站` and `模板`, the localized KeePass
+  group names for the recycle bin and templates groups — compared against database content,
+  never shown in the UI).
+- `tools/check-localization.ps1` cross-checks the sources against the catalogs: every
+  `Loc.T`/`Loc.TLong` call and XAML attached-property key must have a translation, composite
+  format placeholders (`{0}`…) must match between key and translation, catalog files must
+  parse and must not define the same key twice; unused entries, identical (untranslated)
+  values and suspicious unwrapped UI literals are reported as warnings.
+
+Run both locally with:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-ui-strings.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-localization.ps1
 ```
 
 ## Adding a test
@@ -85,7 +102,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-ui-strings.ps1
 - `ffi` — C harness (`kp_smoke.c`) and C# P/Invoke smoke, building the FFI library on Ubuntu;
 - `app` — Windows build of the WinUI shell, headless `tests/app-core` tests, two
   `--selftest` cases, and an informational dependency-vulnerability audit;
-- `ui-strings` — `tools/check-ui-strings.ps1` (English-UI check);
+- `ui-strings` — `tools/check-ui-strings.ps1` (no hard-coded CJK in shell sources) and
+  `tools/check-localization.ps1` (catalog completeness/freshness);
 - `secret-scan` — gitleaks;
 - `supply-chain` — `cargo deny check`;
 - `public-hygiene` — public allowlist check (`scripts/check-public.ps1`).
@@ -109,7 +127,7 @@ locally with `cargo +nightly fuzz run <target>` from `crates/core/fuzz/` (see it
 | Rust | `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`, `cargo test --workspace` | clippy is the Rust static analyzer; CodeQL has no Rust support |
 | Rust dependencies | `cargo deny check` (licenses, advisories, bans) in the `supply-chain` job | config in `deny.toml`, now including a sources policy |
 | C# / WinUI | `dotnet build` of the solution + the project-level publish path, CodeQL `csharp` (`security-extended`, generated files excluded) | CodeQL only analyzes the C# side; there is no C# formatting gate yet (tracked as a v1.x idea) |
-| App text | `tools/check-ui-strings.ps1` (no hard-coded non-English UI strings) | keeps the UI English-only |
+| App text | `tools/check-ui-strings.ps1` (no hard-coded CJK in shell sources) + `tools/check-localization.ps1` (catalog completeness) | UI text lives in the embedded language catalogs, never in the sources |
 | KDBX/parsers | fuzzing (`crates/core/fuzz`, nightly job) | panics inside the guarded upstream reader are classified, see `crates/core/fuzz/README.md` |
 
 CodeQL does not support Rust (checked 2026-11); the Rust side relies on clippy, the

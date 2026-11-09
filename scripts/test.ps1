@@ -36,6 +36,8 @@ Run 'cargo fmt' { cargo fmt --all -- --check }
 Run 'cargo clippy' { cargo clippy --workspace --all-targets -- -D warnings }
 Run 'cargo test' { cargo test --workspace }
 Run 'fixtures' { powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-fixtures.ps1 }
+Run 'ui strings' { powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-ui-strings.ps1 }
+Run 'localization' { powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-localization.ps1 -Strict }
 Run 'app build' { dotnet build apps/windows/Keepassity.sln -c Debug }
 $coreTestsDir = Join-Path $root 'out/tmp/core-tests'
 New-Item -ItemType Directory -Force -Path $coreTestsDir | Out-Null
