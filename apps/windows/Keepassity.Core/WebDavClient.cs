@@ -73,7 +73,8 @@ public sealed class WebDavClient : IDisposable
         {
             Timeout = TimeSpan.FromSeconds(45),
         };
-        _client.DefaultRequestHeaders.UserAgent.ParseAdd("keepassity/0.1");
+        // Update together with Directory.Build.props on a release bump.
+        _client.DefaultRequestHeaders.UserAgent.ParseAdd("keepassity/1.0.0");
         if (!string.IsNullOrEmpty(username))
         {
             string token = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));

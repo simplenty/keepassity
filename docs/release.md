@@ -8,8 +8,8 @@ The public repository ships self-contained Windows packages built from a tag.
   has been published.
 - Publishing is gated by the **30-day real-use acceptance**: the 1.0.0 build is produced for
   the acceptance period first, and the `v1.0.0` tag is created only after it passes.
-- The only GitHub Release that exists is an obsolete `v0.1.0` **draft** from 2026-10-28 (built
-  from an older commit). It is not the v1.0 build and is removed when `v1.0.0` is published.
+- No GitHub Release exists yet: the obsolete `v0.1.0` draft and tag were removed on
+  2026-11-09, and `v1.0.0` is created only after the 30-day acceptance passes.
 - Code signing is not configured. Releases ship with SHA-256 checksums and build-provenance
   attestations only (no Authenticode signature, no MSIX, no auto-update).
 
@@ -18,7 +18,7 @@ The public repository ships self-contained Windows packages built from a tag.
 - `Directory.Build.props` defines `KeepassityVersion` (currently `1.0.0`).
 - `scripts/publish-windows.ps1` reads `KeepassityVersion` when `-Version` is not passed; the
   release workflow passes the tag value as `-Version`, which becomes
-  `/p:KeepassityVersion=...` on `dotnet publish`. The script's `0.1.0-dev` fallback only
+  `/p:KeepassityVersion=...` on `dotnet publish`. The script's `1.0.0-dev` fallback only
   applies if the property is missing from `Directory.Build.props`.
 - The Rust crate versions in `Cargo.toml` follow the same release number.
 - The Inno Setup script (`installer/keepassity.iss`) defaults to `1.0.0`; CI overrides it with
@@ -80,7 +80,6 @@ repository's evidence) until the tag is created.
    GitHub Release **draft** (`draft: true`). Publishing is manual.
 5. Review the draft: install it on a clean Windows machine, check the release body (for
    `v1.0.0` a copy-paste-ready draft is kept in the private process repository), then publish.
-   Delete the obsolete `v0.1.0` draft at the same time; it must not be published.
 
 ## Expected artifacts for 1.0.0
 
