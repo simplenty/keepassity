@@ -390,6 +390,13 @@ fn icon_id(icon: Option<&Icon>) -> u32 {
     }
 }
 
+fn custom_icon_uuid(icon: Option<&Icon>) -> Option<Uuid> {
+    match icon {
+        Some(Icon::Custom(id)) => Some(uuid_from_display(id.uuid())),
+        _ => None,
+    }
+}
+
 fn times_from(times: &KpTimes) -> Times {
     Times {
         creation: times.creation.map(format_time).unwrap_or_default(),
@@ -472,6 +479,7 @@ fn group_from(group: &keepass::db::GroupRef<'_>, db: &KpDatabase) -> Group {
         name: group.name.clone(),
         notes: group.notes.clone().unwrap_or_default(),
         icon_id: icon_id(group.icon()),
+        custom_icon_uuid: custom_icon_uuid(group.icon()),
         times: times_from(&group.times),
         is_expanded: group.is_expanded,
         default_auto_type: group.enable_autotype.unwrap_or(false),
@@ -529,6 +537,7 @@ fn entry_from(entry: &keepass::db::EntryRef<'_>, db: &KpDatabase) -> Entry {
     Entry {
         uuid: uuid_from_display(entry.id()),
         icon_id: icon_id(entry.icon()),
+        custom_icon_uuid: custom_icon_uuid(entry.icon()),
         foreground_color: entry
             .foreground_color
             .as_ref()

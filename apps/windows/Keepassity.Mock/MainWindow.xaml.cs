@@ -36,6 +36,11 @@ public sealed partial class MainWindow : Window
     private readonly SyncStateStore _syncStates = new();
     private readonly CredentialStore _credentials = new();
     private readonly SemaphoreSlim _syncGate = new(1, 1);
+    // Copy files are kept per local/remote pair so a repeated sync attempt for
+    // the same unresolved conflict does not create another pair every time.
+    private string? _conflictSignature;
+    private string? _conflictLocalCopy;
+    private string? _conflictRemoteCopy;
     private readonly DispatcherTimer _totpTimer = new();
     private readonly DispatcherTimer _toastTimer = new();
     private readonly DispatcherTimer _autoLockTimer = new();
@@ -1727,8 +1732,7 @@ public sealed partial class MainWindow : Window
         SyncState state, string url, string username)
     {
         byte[] remote = await dav.DownloadAsync();
-        string? localCopy = CreateConflictCopy();
-        string? remoteCopy = CreateRemoteConflictCopy(remote);
+        (string? localCopy, string? remoteCopy) = await PrepareConflictCopiesAsync(remote);
         SyncMergeResult merged = await ProbeMergeAsync(remote);
         if (merged.Conflicts.Count == 0)
         {
@@ -1951,6 +1955,10 @@ public sealed partial class MainWindow : Window
         state.LocalDirty = false;
         state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         _syncStates.Save(url, username, _dbPath!, state);
+        // The conflict, if there was one, is resolved now.
+        _conflictSignature = null;
+        _conflictLocalCopy = null;
+        _conflictRemoteCopy = null;
         SetSyncStatus(status);
     }
 
@@ -1964,6 +1972,53 @@ public sealed partial class MainWindow : Window
         // Stay in the group the user is looking at; ReloadVaultAsync keeps the
         // selected row and restores the wheel position.
         await ReloadVaultAsync(_currentFull?.Uuid);
+    }
+
+    /// <summary>
+    /// Keep one local/remote copy pair for an unresolved conflict. A sync that
+    /// runs again against the same pair (for example the user cancelled the
+    /// dialog, or every later save retries the merge) reuses the existing copies
+    /// instead of writing another pair into the vault folder.
+    /// </summary>
+    private async Task<(string? LocalCopy, string? RemoteCopy)> PrepareConflictCopiesAsync(
+        byte[] remote)
+    {
+        string? signature = await ConflictSignatureAsync(remote);
+        if (signature is not null && signature == _conflictSignature &&
+            _conflictLocalCopy is not null && File.Exists(_conflictLocalCopy) &&
+            _conflictRemoteCopy is not null && File.Exists(_conflictRemoteCopy))
+        {
+            return (_conflictLocalCopy, _conflictRemoteCopy);
+        }
+        _conflictSignature = signature;
+        _conflictLocalCopy = CreateConflictCopy();
+        _conflictRemoteCopy = CreateRemoteConflictCopy(remote);
+        return (_conflictLocalCopy, _conflictRemoteCopy);
+    }
+
+    private async Task<string?> ConflictSignatureAsync(byte[] remote)
+    {
+        if (_dbPath is null)
+        {
+            return null;
+        }
+        try
+        {
+            byte[] local = await File.ReadAllBytesAsync(_dbPath);
+            string localHash = Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(local));
+            string remoteHash = Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(remote));
+            return localHash + ":" + remoteHash;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     private string? CreateConflictCopy()

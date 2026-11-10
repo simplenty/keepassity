@@ -6,7 +6,7 @@
 //! `History`; deleted UUIDs never resurrect; a newer LocationChanged decides
 //! the parent group. The output is deterministic and does not mutate inputs.
 
-use crate::model::{Database, DeletedObject, Entry, Group, Times, Uuid};
+use crate::model::{AutoType, Database, DeletedObject, Entry, Group, Times, Uuid};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// What kind of object conflicts.
@@ -142,14 +142,31 @@ pub fn merge(local: &Database, remote: &Database) -> (Database, MergeReport) {
                     == timestamp(&right.times.last_modification)
                     && group_fingerprint(left) != group_fingerprint(right)
                 {
-                    report.conflicts += 1;
-                    report.conflict_items.push(MergeConflict {
-                        uuid: *uuid,
-                        kind: ConflictKind::Group,
-                        local_modified: left.times.last_modification.clone(),
-                        remote_modified: right.times.last_modification.clone(),
-                        fields: group_diff_fields(left, right),
-                    });
+                    if group_content_key(left) == group_content_key(right)
+                        && group_metadata_compatible(left, right)
+                    {
+                        // Same content; only optional metadata (notes, icon,
+                        // auto-type flags) exists on one side, e.g. after a
+                        // save by a build that dropped it. Keep the richer copy
+                        // silently instead of asking about a non-edit.
+                        let richer = if group_metadata_score(right) > group_metadata_score(left) {
+                            right
+                        } else {
+                            left
+                        };
+                        group = richer.clone();
+                        group.groups.clear();
+                        group.entries.clear();
+                    } else {
+                        report.conflicts += 1;
+                        report.conflict_items.push(MergeConflict {
+                            uuid: *uuid,
+                            kind: ConflictKind::Group,
+                            local_modified: left.times.last_modification.clone(),
+                            remote_modified: right.times.last_modification.clone(),
+                            fields: group_diff_fields(left, right),
+                        });
+                    }
                 }
             }
         }
@@ -188,6 +205,19 @@ pub fn merge(local: &Database, remote: &Database) -> (Database, MergeReport) {
                     (right, left)
                 } else if left_fp == right_fp {
                     (left, right)
+                } else if entry_content_fingerprint(left) == entry_content_fingerprint(right)
+                    && entry_metadata_compatible(left, right)
+                {
+                    // Same content; only optional metadata (icon, colors,
+                    // auto-type, custom data) exists on one side. This is what a
+                    // save by an older build, or a client that omits those
+                    // fields, looks like: keep the richer copy instead of asking
+                    // about a change the user never made.
+                    if entry_metadata_score(right) > entry_metadata_score(left) {
+                        (right, left)
+                    } else {
+                        (left, right)
+                    }
                 } else {
                     report.conflicts += 1;
                     report.conflict_items.push(MergeConflict {
@@ -479,11 +509,26 @@ fn timestamp(value: &str) -> i64 {
     crate::model::xml_datetime_to_unix(value).unwrap_or(i64::MIN)
 }
 
+/// Semantic content of an entry, used for conflict detection.
+///
+/// Serialization details that different KeePass clients and our own writer
+/// normalise differently must not turn into conflicts: field order, tags order,
+/// empty placeholder fields, the `Protected` attribute, and unknown XML. What
+/// stays in the fingerprint is the actual content the user can change.
 fn fingerprint(entry: &Entry) -> String {
     let mut clean = entry.clone();
     clean.history.clear();
     clean.times = Times::default();
     clean.previous_parent_group = None;
+    clean.strings.sort_by(|left, right| left.key.cmp(&right.key));
+    clean.strings.retain(|field| !field.value.is_empty());
+    for field in &mut clean.strings {
+        field.protected = false;
+    }
+    clean.binaries.sort_by(|left, right| left.key.cmp(&right.key));
+    clean.tags.sort();
+    clean.tags.dedup();
+    clean.unknown.clear();
     serde_json::to_string(&clean).unwrap_or_default()
 }
 
@@ -493,7 +538,137 @@ fn group_fingerprint(group: &Group) -> String {
     clean.entries.clear();
     clean.times = Times::default();
     clean.previous_parent_group = None;
+    clean.tags.sort();
+    clean.tags.dedup();
+    clean.unknown.clear();
+    // Expanding a group is a view setting, not content.
+    clean.is_expanded = false;
     serde_json::to_string(&clean).unwrap_or_default()
+}
+
+/// Fields that describe the entry content, ignoring optional metadata that a
+/// writer may drop (icons, colors, auto-type, custom data).
+fn entry_content_fingerprint(entry: &Entry) -> String {
+    let mut clean = entry.clone();
+    clean.icon_id = 0;
+    clean.custom_icon_uuid = None;
+    clean.foreground_color.clear();
+    clean.background_color.clear();
+    clean.override_url.clear();
+    clean.auto_type = None;
+    clean.custom_data = crate::model::CustomData::default();
+    fingerprint(&clean)
+}
+
+fn entry_metadata_score(entry: &Entry) -> usize {
+    usize::from(entry.icon_id != 0)
+        + usize::from(entry.custom_icon_uuid.is_some())
+        + usize::from(!entry.foreground_color.is_empty())
+        + usize::from(!entry.background_color.is_empty())
+        + usize::from(!entry.override_url.is_empty())
+        + usize::from(entry.auto_type.is_some())
+        + entry.custom_data.items.len()
+}
+
+/// True when the metadata present on both sides agrees, so a difference can
+/// only mean one side lost optional data. A real metadata edit (both sides have
+/// different icons or different auto-type settings) is not compatible.
+fn entry_metadata_compatible(left: &Entry, right: &Entry) -> bool {
+    let optional_equal = |a: &str, b: &str| a.is_empty() || b.is_empty() || a == b;
+    if !optional_equal(&left.foreground_color, &right.foreground_color)
+        || !optional_equal(&left.background_color, &right.background_color)
+        || !optional_equal(&left.override_url, &right.override_url)
+    {
+        return false;
+    }
+    if left.icon_id != 0 && right.icon_id != 0 && left.icon_id != right.icon_id {
+        return false;
+    }
+    if let (Some(left_icon), Some(right_icon)) = (left.custom_icon_uuid, right.custom_icon_uuid) {
+        if left_icon != right_icon {
+            return false;
+        }
+    }
+    if let (Some(left_auto), Some(right_auto)) = (&left.auto_type, &right.auto_type) {
+        if auto_type_key(left_auto) != auto_type_key(right_auto) {
+            return false;
+        }
+    }
+    for (key, item) in &left.custom_data.items {
+        if let Some(other) = right.custom_data.items.get(key) {
+            if item != other {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn auto_type_key(auto_type: &AutoType) -> String {
+    let mut clean = auto_type.clone();
+    clean.unknown.clear();
+    serde_json::to_string(&clean).unwrap_or_default()
+}
+
+/// Group fields that a writer may drop without touching the content.
+fn group_content_key(group: &Group) -> String {
+    let mut clean = group.clone();
+    clean.groups.clear();
+    clean.entries.clear();
+    clean.notes.clear();
+    clean.icon_id = 0;
+    clean.custom_icon_uuid = None;
+    clean.is_expanded = false;
+    clean.default_autotype_sequence.clear();
+    clean.enable_auto_type = false;
+    clean.enable_searching = false;
+    clean.last_top_visible_entry = None;
+    clean.custom_data = crate::model::CustomData::default();
+    clean.times = Times::default();
+    clean.previous_parent_group = None;
+    clean.unknown.clear();
+    clean.tags.sort();
+    clean.tags.dedup();
+    serde_json::to_string(&clean).unwrap_or_default()
+}
+
+fn group_metadata_score(group: &Group) -> usize {
+    usize::from(!group.notes.is_empty())
+        + usize::from(group.icon_id != 0)
+        + usize::from(group.custom_icon_uuid.is_some())
+        + usize::from(group.is_expanded)
+        + usize::from(!group.default_autotype_sequence.is_empty())
+        + usize::from(group.enable_auto_type)
+        + usize::from(group.enable_searching)
+        + group.custom_data.items.len()
+}
+
+fn group_metadata_compatible(left: &Group, right: &Group) -> bool {
+    if !left.notes.is_empty() && !right.notes.is_empty() && left.notes != right.notes {
+        return false;
+    }
+    if left.icon_id != 0 && right.icon_id != 0 && left.icon_id != right.icon_id {
+        return false;
+    }
+    if let (Some(left_icon), Some(right_icon)) = (left.custom_icon_uuid, right.custom_icon_uuid) {
+        if left_icon != right_icon {
+            return false;
+        }
+    }
+    if !left.default_autotype_sequence.is_empty()
+        && !right.default_autotype_sequence.is_empty()
+        && left.default_autotype_sequence != right.default_autotype_sequence
+    {
+        return false;
+    }
+    for (key, item) in &left.custom_data.items {
+        if let Some(other) = right.custom_data.items.get(key) {
+            if item != other {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 fn entry_diff_fields(left: &Entry, right: &Entry) -> Vec<String> {

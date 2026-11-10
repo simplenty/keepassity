@@ -278,6 +278,27 @@ internal static class AppSelfTest
                 Record($"reopened: {reopened.Count} entr(ies)");
             }
 
+            // A save must not change what a merge sees: merging the saved copy
+            // with the untouched original has to be a no-op, with no conflicts.
+            // When the writer drops optional data (icons, auto-type, colors,
+            // custom data, group notes) every entry looks edited on both sides
+            // at the same timestamp, and the user gets a conflict dialog for a
+            // change they never made.
+            Record("checking save/merge fidelity");
+            using (var merge = new CoreClient())
+            {
+                OpenAsync(merge, temp, password).GetAwaiter().GetResult();
+                byte[] original = File.ReadAllBytes(databasePath);
+                SyncMergeResult result = merge.SyncMergeAsync(original).GetAwaiter().GetResult();
+                if (result.Conflicts.Count != 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Saving introduced {result.Conflicts.Count} merge conflict(s) " +
+                        "for data that did not change.");
+                }
+                Record($"merge: 0 conflicts, {result.Bytes.Length} bytes");
+            }
+
             Record("PASS");
             code = 0;
         }

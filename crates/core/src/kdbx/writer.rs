@@ -10,12 +10,14 @@
 //! this task establishes the byte-level write path and its verification.
 
 use crate::kdbx::detect_version;
-use crate::model::{Database, Entry, Group, Times, Uuid};
+use crate::model::{
+    AutoType, CustomData, CustomDataValue, CustomIcon, Database, Entry, Group, Meta, Times, Uuid,
+};
 use keepassxcr::format::{read_kdbx_bytes, write_kdbx_bytes};
 use keepassxcr::model::{
     Attachment as BackendAttachment, Database as BackendDatabase,
     DeletedObject as BackendDeletedObject, Entry as BackendEntry, Group as BackendGroup,
-    HistoryLimits as BackendHistoryLimits, Times as BackendTimes, Timestamp,
+    HistoryLimits as BackendHistoryLimits, RawElement, Times as BackendTimes, Timestamp,
 };
 use keepassxcr::Credentials;
 use std::fmt;
@@ -73,13 +75,15 @@ pub fn reseal(bytes: &[u8], password: &str) -> Result<Vec<u8>, KdbxWriteError> {
         .map_err(|error| KdbxWriteError::Write(format!("{error:?}")))
 }
 
-/// Serialise the core model to a new KDBX 4.0 file.
+/// Serialise the core model to a KDBX 4.0 file.
 ///
-/// This is the write bridge used after merge/edit operations. The current
-/// mapping is intentionally limited to the data needed by the merge path
-/// (UUID/name/fields/tags/times/history/attachments/DeletedObjects); unknown
-/// raw XML, auto-type, icons and custom icons are not yet mapped, so callers
-/// must not treat this as a full-fidelity rewrite of arbitrary databases.
+/// This is the write bridge used after merge/edit operations. It maps every
+/// field the reader produces: UUIDs, standard and custom fields (including
+/// their protection flags), tags, times, history, attachments, DeletedObjects,
+/// built-in and custom icons, AutoType settings, colors, override URLs, custom
+/// data, and the meta fields (description, default user name, memory
+/// protection, custom data, custom icons, recycle bin, history limits). Unknown
+/// raw XML outside the model is not carried over.
 pub fn write_model(db: &Database, password: &str) -> Result<Vec<u8>, KdbxWriteError> {
     if password.is_empty() {
         return Err(KdbxWriteError::Write(
@@ -136,6 +140,219 @@ fn backend_times(times: &Times) -> BackendTimes {
     }
 }
 
+/// XML text escaping for the raw elements the backend copies verbatim.
+fn escape_xml(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+fn bool_text(value: bool) -> &'static str {
+    if value { "True" } else { "False" }
+}
+
+fn raw_element(name: &str, body: &str) -> RawElement {
+    RawElement::new(name.to_string(), format!("<{name}>{body}</{name}>"))
+}
+
+fn simple_element(name: &str, value: &str) -> RawElement {
+    raw_element(name, &escape_xml(value))
+}
+
+/// Standard base64 (no line breaks), used for KDBX UUIDs and custom icon data.
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let first = chunk[0];
+        let second = chunk.get(1).copied().unwrap_or(0);
+        let third = chunk.get(2).copied().unwrap_or(0);
+        let triple = (u32::from(first) << 16) | (u32::from(second) << 8) | u32::from(third);
+        out.push(ALPHABET[(triple >> 18) as usize & 0x3F] as char);
+        out.push(ALPHABET[(triple >> 12) as usize & 0x3F] as char);
+        if chunk.len() > 1 {
+            out.push(ALPHABET[(triple >> 6) as usize & 0x3F] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(ALPHABET[triple as usize & 0x3F] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+fn uuid_base64(uuid: Uuid) -> String {
+    base64_encode(uuid.as_bytes())
+}
+
+/// `<CustomData>` element with every item, or `None` when there is no data.
+fn custom_data_element(data: &CustomData) -> Option<RawElement> {
+    if data.items.is_empty() {
+        return None;
+    }
+    let mut body = String::new();
+    for (key, item) in &data.items {
+        body.push_str("<Item>");
+        body.push_str("<Key>");
+        body.push_str(&escape_xml(key));
+        body.push_str("</Key><Value>");
+        match item.value.as_ref() {
+            Some(CustomDataValue::String(value)) => body.push_str(&escape_xml(value)),
+            Some(CustomDataValue::Binary(value)) => body.push_str(&base64_encode(value)),
+            None => {}
+        }
+        body.push_str("</Value>");
+        if let Some(time) = item.last_modification.as_deref().filter(|time| !time.is_empty()) {
+            body.push_str("<LastModificationTime>");
+            body.push_str(&escape_xml(time));
+            body.push_str("</LastModificationTime>");
+        }
+        body.push_str("</Item>");
+    }
+    Some(raw_element("CustomData", &body))
+}
+
+fn auto_type_element(auto_type: &AutoType) -> RawElement {
+    let mut body = String::new();
+    body.push_str("<Enabled>");
+    body.push_str(bool_text(auto_type.enabled));
+    body.push_str("</Enabled><DataTransferObfuscation>");
+    body.push_str(if auto_type.data_transfer_obfuscation { "1" } else { "0" });
+    body.push_str("</DataTransferObfuscation>");
+    if !auto_type.default_sequence.is_empty() {
+        body.push_str("<DefaultSequence>");
+        body.push_str(&escape_xml(&auto_type.default_sequence));
+        body.push_str("</DefaultSequence>");
+    }
+    for association in &auto_type.associations {
+        body.push_str("<Association><Window>");
+        body.push_str(&escape_xml(&association.window));
+        body.push_str("</Window><KeystrokeSequence>");
+        body.push_str(&escape_xml(&association.keystroke_sequence));
+        body.push_str("</KeystrokeSequence></Association>");
+    }
+    raw_element("AutoType", &body)
+}
+
+/// Raw XML children of an entry that the backend has no typed API for.
+fn entry_extra(entry: &Entry) -> Vec<RawElement> {
+    let mut extra = Vec::new();
+    if entry.icon_id != 0 {
+        extra.push(simple_element("IconID", &entry.icon_id.to_string()));
+    }
+    if let Some(uuid) = entry.custom_icon_uuid {
+        extra.push(simple_element("CustomIconUUID", &uuid_base64(uuid)));
+    }
+    if !entry.foreground_color.is_empty() {
+        extra.push(simple_element("ForegroundColor", &entry.foreground_color));
+    }
+    if !entry.background_color.is_empty() {
+        extra.push(simple_element("BackgroundColor", &entry.background_color));
+    }
+    if !entry.override_url.is_empty() {
+        extra.push(simple_element("OverrideURL", &entry.override_url));
+    }
+    if let Some(auto_type) = &entry.auto_type {
+        extra.push(auto_type_element(auto_type));
+    }
+    if let Some(custom_data) = custom_data_element(&entry.custom_data) {
+        extra.push(custom_data);
+    }
+    extra
+}
+
+/// Raw XML children of a group that the backend has no typed API for.
+fn group_extra(group: &Group) -> Vec<RawElement> {
+    let mut extra = Vec::new();
+    if !group.notes.is_empty() {
+        extra.push(simple_element("Notes", &group.notes));
+    }
+    if group.icon_id != 0 {
+        extra.push(simple_element("IconID", &group.icon_id.to_string()));
+    }
+    if let Some(uuid) = group.custom_icon_uuid {
+        extra.push(simple_element("CustomIconUUID", &uuid_base64(uuid)));
+    }
+    if group.is_expanded {
+        extra.push(simple_element("IsExpanded", "True"));
+    }
+    if !group.default_autotype_sequence.is_empty() {
+        extra.push(simple_element(
+            "DefaultAutoTypeSequence",
+            &group.default_autotype_sequence,
+        ));
+    }
+    if group.enable_auto_type {
+        extra.push(simple_element("EnableAutoType", "True"));
+    }
+    if group.enable_searching {
+        extra.push(simple_element("EnableSearching", "True"));
+    }
+    if let Some(custom_data) = custom_data_element(&group.custom_data) {
+        extra.push(custom_data);
+    }
+    extra
+}
+
+fn custom_icon_element(icon: &CustomIcon) -> RawElement {
+    let mut body = String::new();
+    body.push_str("<UUID>");
+    body.push_str(&uuid_base64(icon.uuid));
+    body.push_str("</UUID>");
+    if let Some(name) = icon.name.as_deref().filter(|name| !name.is_empty()) {
+        body.push_str("<Name>");
+        body.push_str(&escape_xml(name));
+        body.push_str("</Name>");
+    }
+    if let Some(time) = icon.last_modification.as_deref().filter(|time| !time.is_empty()) {
+        body.push_str("<LastModificationTime>");
+        body.push_str(&escape_xml(time));
+        body.push_str("</LastModificationTime>");
+    }
+    body.push_str("<Data>");
+    body.push_str(&base64_encode(&icon.data));
+    body.push_str("</Data>");
+    raw_element("Icon", &body)
+}
+
+/// Meta fields that keepassxcr only has a typed API for partially; the rest
+/// (memory protection, default user name, custom data) go through raw XML.
+fn meta_extra(meta: &Meta) -> Vec<RawElement> {
+    let mut extra = Vec::new();
+    if !meta.default_username.is_empty() {
+        extra.push(simple_element("DefaultUserName", &meta.default_username));
+    }
+    let protection = &meta.memory_protection;
+    let body = format!(
+        "<ProtectTitle>{}</ProtectTitle><ProtectUserName>{}</ProtectUserName>\
+         <ProtectPassword>{}</ProtectPassword><ProtectURL>{}</ProtectURL>\
+         <ProtectNotes>{}</ProtectNotes>",
+        bool_text(protection.protect_title),
+        bool_text(protection.protect_username),
+        bool_text(protection.protect_password),
+        bool_text(protection.protect_url),
+        bool_text(protection.protect_notes),
+    );
+    extra.push(raw_element("MemoryProtection", &body));
+    if let Some(custom_data) = custom_data_element(&meta.custom_data) {
+        extra.push(custom_data);
+    }
+    extra
+}
+
 fn to_backend(db: &Database) -> BackendDatabase {
     let name = if db.meta.database_name.is_empty() {
         "keepassity".to_string()
@@ -156,10 +373,26 @@ fn to_backend(db: &Database) -> BackendDatabase {
             .clamp(i32::MIN as i64, i32::MAX as i64) as i32,
         max_size: db.meta.history_max_size,
     });
-    if let Some(uuid) = db.meta.recycle_bin_uuid {
+    for extra in meta_extra(&db.meta) {
+        backend.meta_mut().extra_mut().push(extra);
+    }
+    for icon in &db.meta.custom_icons {
         backend
             .meta_mut()
-            .load_recycle_bin(Some(backend_uuid(uuid)), Timestamp::now());
+            .custom_icons_mut()
+            .push(custom_icon_element(icon));
+    }
+    if let Some(uuid) = db.meta.recycle_bin_uuid {
+        let changed = db
+            .meta
+            .recycle_bin_changed
+            .as_deref()
+            .filter(|text| !text.is_empty())
+            .map(backend_timestamp)
+            .unwrap_or_else(Timestamp::now);
+        backend
+            .meta_mut()
+            .load_recycle_bin(Some(backend_uuid(uuid)), changed);
     }
     for item in &db.deleted_objects {
         backend.deleted_objects_mut().push(BackendDeletedObject {
@@ -178,6 +411,9 @@ fn fill_backend_group(backend: &mut BackendGroup, group: &Group) {
     backend.set_tags(group.tags.join(";"));
     *backend.times_mut() = backend_times(&group.times);
     backend.set_previous_parent_group(group.previous_parent_group.map(backend_uuid));
+    for extra in group_extra(group) {
+        backend.extra_mut().push(extra);
+    }
     for entry in &group.entries {
         backend.entries_mut().push(to_backend_entry(entry));
     }
@@ -200,11 +436,17 @@ fn to_backend_entry(entry: &Entry) -> BackendEntry {
     backend.set_tags(&entry.tags.join(";"));
     *backend.times_mut() = backend_times(&entry.times);
     backend.set_previous_parent_group(entry.previous_parent_group.map(backend_uuid));
+    for extra in entry_extra(entry) {
+        backend.extra_mut().push(extra);
+    }
     for field in &entry.strings {
         if matches!(
             field.key.as_str(),
             "Title" | "UserName" | "Password" | "URL" | "Notes"
         ) {
+            if field.protected {
+                backend.set_protected(&field.key, true);
+            }
             continue;
         }
         backend.set_custom_field(field.key.clone(), field.value.clone(), field.protected);

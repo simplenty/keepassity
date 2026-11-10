@@ -417,6 +417,10 @@ pub struct Entry {
     pub uuid: Uuid,
     /// Numeric icon id.
     pub icon_id: u32,
+    /// Custom icon UUID (KDBX 4.x); set when the entry uses one of the
+    /// database's custom icons instead of a built-in one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_icon_uuid: Option<Uuid>,
     /// Foreground color text (KDBX 4.1).
     pub foreground_color: String,
     /// Background color text (KDBX 4.1).
@@ -481,6 +485,10 @@ pub struct Group {
     pub notes: String,
     /// Numeric icon id.
     pub icon_id: u32,
+    /// Custom icon UUID (KDBX 4.x); set when the group uses one of the
+    /// database's custom icons instead of a built-in one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_icon_uuid: Option<Uuid>,
     /// Times.
     pub times: Times,
     /// UI expand flag.
