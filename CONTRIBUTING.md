@@ -43,13 +43,19 @@ contain secrets.
    -D warnings`, `cargo test --workspace`, the fixture manifest check, the Windows build and
    the headless service tests. You can also run the individual commands from the README
    ("Build from source" / "Testing").
-4. The UI is English-only: run `powershell -NoProfile -ExecutionPolicy Bypass -File
-   tools\check-ui-strings.ps1` if you touch `apps/windows/` (it rejects hard-coded CJK text;
-   see `docs/testing.md`).
-5. Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check-public.ps1` before
+4. UI text lives in the language catalogs: run `powershell -NoProfile -ExecutionPolicy Bypass
+   -File tools\check-ui-strings.ps1` and `... -File tools\check-localization.ps1 -Strict` if
+   you touch `apps/windows/` (no hard-coded CJK; every `Loc.T`/XAML key has a translation; see
+   `docs/testing.md`).
+5. Product-name casing: UI text (window title, About, tray menu, notifications, installer and
+   file-association labels) spells the product **Keepassity**. The lowercase `keepassity`
+   spelling is reserved for file/folder names, environment variables, identifiers (AUMID,
+   ProgID) and URLs. `tools/check-localization.ps1` fails on a lowercase product name in a UI
+   catalog key or translation.
+6. Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check-public.ps1` before
    pushing. It enforces `public.allowlist`; real vaults and credentials never enter this
    repository.
-6. AI-generated code is fine, but the human submitting the PR is responsible for verifying
+7. AI-generated code is fine, but the human submitting the PR is responsible for verifying
    behavior — say in the PR what you verified manually.
 
 ## Public repository boundary

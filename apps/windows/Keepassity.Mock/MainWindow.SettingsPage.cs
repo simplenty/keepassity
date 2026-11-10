@@ -311,7 +311,7 @@ public sealed partial class MainWindow
         });
         content.Children.Add(new TextBlock
         {
-            Text = Loc.T("keepassity {0} · local-first KeePass-compatible client", appVersion),
+            Text = Loc.T("Keepassity {0} · local-first KeePass-compatible client", appVersion),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],

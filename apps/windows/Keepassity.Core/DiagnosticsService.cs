@@ -69,7 +69,7 @@ public static class DiagnosticsService
         string credentials = CountFiles(
             Path.Combine(AppDataPaths.Root, "credentials"), "*.bin");
         var summary = new StringBuilder()
-            .AppendLine("keepassity diagnostics")
+            .AppendLine("Keepassity diagnostics")
             .AppendLine($"app version: {version}")
             .AppendLine($"os: {Environment.OSVersion.VersionString}")
             .AppendLine($"process architecture: {System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}")

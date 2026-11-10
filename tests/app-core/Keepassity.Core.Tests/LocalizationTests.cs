@@ -73,6 +73,14 @@ internal static class LocalizationTests
         Check("language catalog: no unintended untranslated entries",
             untranslated.Count == 0, string.Join("; ", untranslated.Take(5)));
 
+        var lowercaseBrand = chinese.Translations
+            .Where(entry => entry.Key.Contains("keepassity", StringComparison.Ordinal) ||
+                            entry.Value.Contains("keepassity", StringComparison.Ordinal))
+            .Select(entry => entry.Key)
+            .ToList();
+        check("language catalog: UI text spells the product Keepassity",
+            lowercaseBrand.Count == 0, string.Join("; ", lowercaseBrand.Take(5)));
+
         const string systemLanguageCheck = "language resolution: known tags";
         string systemResolved = LocalizationCatalog.NormalizeLanguage("system");
         bool systemMatchesOs = systemResolved ==
@@ -124,6 +132,6 @@ internal static class LocalizationTests
 
     /// <summary>Terms that are deliberately identical in both languages.</summary>
     private static bool AllowedIdentical(string key)
-        => key is "English" or "TOTP" or "WebDAV" or "KDBX" or "keepassity" ||
-           key.StartsWith("keepassity ", StringComparison.Ordinal);
+        => key is "English" or "TOTP" or "WebDAV" or "KDBX" or "Keepassity" ||
+           key.StartsWith("Keepassity ", StringComparison.Ordinal);
 }

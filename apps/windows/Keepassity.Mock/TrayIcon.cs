@@ -106,7 +106,7 @@ public sealed class TrayIcon : IDisposable
 
         var showItem = new MenuFlyoutItem
         {
-            Text = Loc.T("Show keepassity"),
+            Text = Loc.T("Show Keepassity"),
             Icon = CreateIcon("\uE8A7"),
         };
         _showItem = showItem;
@@ -130,7 +130,7 @@ public sealed class TrayIcon : IDisposable
 
         var exitItem = new MenuFlyoutItem
         {
-            Text = Loc.T("Exit keepassity"),
+            Text = Loc.T("Exit Keepassity"),
             Icon = CreateIcon("\uE7E8"),
         };
         _exitItem = exitItem;
@@ -228,9 +228,9 @@ public sealed class TrayIcon : IDisposable
         {
             return;
         }
-        _showItem.Text = Loc.T("Show keepassity");
+        _showItem.Text = Loc.T("Show Keepassity");
         _lockItem.Text = Loc.T("Lock");
-        _exitItem.Text = Loc.T("Exit keepassity");
+        _exitItem.Text = Loc.T("Exit Keepassity");
         UpdateToolTip();
     }
 
@@ -258,8 +258,8 @@ public sealed class TrayIcon : IDisposable
         }
         string state = Loc.T(_unlocked ? "unlocked" : "locked");
         _icon.ToolTipText = string.IsNullOrWhiteSpace(_databaseName)
-            ? Loc.T("keepassity - {0}", state)
-            : Loc.T("keepassity - {0} ({1})", _databaseName, state);
+            ? Loc.T("Keepassity - {0}", state)
+            : Loc.T("Keepassity - {0} ({1})", _databaseName, state);
     }
 
     /// <summary>

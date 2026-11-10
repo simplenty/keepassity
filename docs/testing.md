@@ -75,7 +75,10 @@ Two gates protect this:
   `Loc.T`/`Loc.TLong` call and XAML attached-property key must have a translation, composite
   format placeholders (`{0}`…) must match between key and translation, catalog files must
   parse and must not define the same key twice; unused entries, identical (untranslated)
-  values and suspicious unwrapped UI literals are reported as warnings.
+  values and suspicious unwrapped UI literals are reported as warnings. It also fails when a
+  catalog key or translation contains the lowercase product name: UI text spells the product
+  **Keepassity**, while `keepassity` is reserved for file/folder names, environment variables,
+  identifiers and URLs.
 
 Run both locally with:
 

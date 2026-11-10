@@ -95,8 +95,8 @@ $script:CatalogSuffix = '.zh-cn.json'
 # names, acronyms and the tray tooltip state prefix (the brand is not translated;
 # the state word after the dash is).
 $script:UntranslatedAllowlist = @(
-    'English', 'TOTP', 'WebDAV', 'KDBX', 'keepassity',
-    'keepassity - {0}', 'keepassity - {0} ({1})'
+    'English', 'TOTP', 'WebDAV', 'KDBX', 'Keepassity',
+    'Keepassity - {0}', 'Keepassity - {0} ({1})'
 )
 
 # UI-literal review candidates that are deliberately not localized: example URLs
@@ -107,8 +107,8 @@ $script:UntranslatedAllowlist = @(
 # which turn an intended exact match into "anything" and silently hide candidates.
 $script:UnwrappedAllowlist = @(
     @{ Pattern = 'PlaceholderText\s*=\s*"https://'; Reason = 'example URL in a placeholder' },
-    @{ Pattern = 'Text = "keepassity"'; Reason = 'product name' },
-    @{ Pattern = 'Title = "keepassity"'; Reason = 'product name' },
+    @{ Pattern = 'Text = "Keepassity"'; Reason = 'product name' },
+    @{ Pattern = 'Title = "Keepassity"'; Reason = 'product name' },
     @{ Pattern = 'Text = "WebDAV"'; Reason = 'protocol name heading' },
     @{ Pattern = 'Text = "K"'; Reason = 'tray icon fallback glyph' },
     @{ Pattern = 'Text = "JBSWY3DPEHPK3PXP"'; Reason = 'example Base32 secret' },
@@ -1513,6 +1513,19 @@ foreach ($key in $catalogKeys) {
             New-Warning 'untranslated' ('[{0}] "{1}" ({2}): translation is identical to the English key' -f
                 'untranslated', (Format-KeyText -Text $key -MaxLength 140), $entry.File)
         }
+    }
+    # Product-name convention: UI text spells the product "Keepassity"; the
+    # lowercase form is reserved for file/folder names, environment variables,
+    # identifiers and URLs. Catalog keys and values are UI text.
+    if ($key -cmatch 'keepassity') {
+        $errorsStructural.Add((
+            '[naming] "{0}" ({1}): lowercase product name in a UI catalog key; use "Keepassity"' -f
+            (Format-KeyText -Text $key -MaxLength 160), $entry.File))
+    }
+    if ($entry.Value -cmatch 'keepassity') {
+        $errorsStructural.Add((
+            '[naming] translation of "{0}" ({1}): lowercase product name in UI text; use "Keepassity"' -f
+            (Format-KeyText -Text $key -MaxLength 160), $entry.File))
     }
 }
 

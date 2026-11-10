@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -119,7 +119,7 @@ public sealed partial class MainWindow : Window
         Loc.Initialize(Settings.Language);
         InitializeComponent();
         ApplyThemePreference(Settings.Theme);
-        Title = "keepassity";
+        Title = "Keepassity";
         // The shell/taskbar icon is not inherited from the executable by WinUI 3;
         // the window icon must be set explicitly (AppWindow.SetIcon needs a real
         // .ico path for unpackaged apps).
@@ -205,7 +205,7 @@ public sealed partial class MainWindow : Window
         }
         try
         {
-            _trayIcon = new TrayIcon("keepassity", Root.ActualTheme, AppAssets.AppIconPath,
+            _trayIcon = new TrayIcon("Keepassity", Root.ActualTheme, AppAssets.AppIconPath,
                 ShowFromTray, LockFromTray, ExitFromTray);
             _trayIcon.SetVaultState(_core.IsOpen, DisplayVaultName());
             if (_trayIcon.Element is UIElement trayElement &&
@@ -238,7 +238,7 @@ public sealed partial class MainWindow : Window
         }
         if (_busy)
         {
-            _trayIcon?.ShowInfo("keepassity",
+            _trayIcon?.ShowInfo("Keepassity",
                 Loc.T("Busy saving or syncing; the vault was not locked. Try again in a moment."));
             return;
         }
@@ -265,7 +265,7 @@ public sealed partial class MainWindow : Window
         if (!_trayHintShown)
         {
             _trayHintShown = true;
-            _trayIcon.ShowInfo("keepassity",
+            _trayIcon.ShowInfo("Keepassity",
                 Loc.T("Still running in the notification area. Use its menu to exit."));
         }
     }
@@ -672,7 +672,7 @@ public sealed partial class MainWindow : Window
     {
         RefreshRecentDatabaseList();
         bool hasDatabase = _dbPath is not null;
-        UnlockTitle.Text = hasDatabase ? Loc.T("Unlock keepassity") : "keepassity";
+        UnlockTitle.Text = hasDatabase ? Loc.T("Unlock Keepassity") : "Keepassity";
         UnlockStartHint.Visibility = hasDatabase ? Visibility.Collapsed : Visibility.Visible;
         DatabasePathText.Visibility = hasDatabase ? Visibility.Visible : Visibility.Collapsed;
         UnlockFormSection.Visibility = hasDatabase ? Visibility.Visible : Visibility.Collapsed;
@@ -3110,6 +3110,8 @@ public sealed partial class MainWindow : Window
         double entryScrollOffset = preserveScroll
             ? FindDescendant<ScrollViewer>(EntryList)?.VerticalOffset ?? 0
             : 0;
+        AppLog.Info($"ui-scroll: reload capture {entryScrollOffset:0.0} " +
+                    $"(preserve={preserveScroll}, select={selectEntryUuid})");
         List<GroupDto> groups = await _core.ListGroupsAsync();
         List<EntrySummaryDto> allEntries = await _core.ListEntriesAsync();
 
@@ -3610,6 +3612,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         double scrollOffset = CaptureEntryScrollOffset();
+        AppLog.Info($"ui-scroll: drop capture {scrollOffset:0.0} ({movedItem?.Title})");
         try
         {
             await _core.MoveEntryAsync(entryUuid, targetGroupUuid);
@@ -3621,6 +3624,14 @@ public sealed partial class MainWindow : Window
                 _groupNames.GetValueOrDefault(targetGroupUuid, Loc.T("the group")));
             RestoreEntryScrollOffset(scrollOffset);
             ShowToast(Loc.T("Moved to {0}", targetLabel), InfoBarSeverity.Success);
+            // Test-only: reproduce the delayed WebDAV merge reopen that lands a
+            // moment after a move, to check that it does not steal the scroll.
+            if (int.TryParse(TestHooks.EnvironmentValue("KEEPASSITY_RELOAD_AFTER_DRAG_MS"),
+                    out int reloadDelayMs) && reloadDelayMs > 0)
+            {
+                _ = Task.Delay(reloadDelayMs).ContinueWith(_ => DispatcherQueue.TryEnqueue(
+                    () => _ = ReopenFromLocalAsync()));
+            }
         }
         catch (Exception ex)
         {
@@ -3663,6 +3674,8 @@ public sealed partial class MainWindow : Window
             {
                 return;
             }
+            AppLog.Info($"ui-scroll: restore apply target {offset:0.0} " +
+                        $"current {scrollViewer.VerticalOffset:0.0}");
             if (Math.Abs(scrollViewer.VerticalOffset - offset) > 0.5)
             {
                 scrollViewer.ChangeView(null, offset, null, true);
@@ -3712,6 +3725,7 @@ public sealed partial class MainWindow : Window
         if (fingerprint == _lastEntryFingerprint && Entries.Count == visible.Count)
         {
             // Same rows in the same order: keep the items (and the scroll offset).
+            AppLog.Info($"ui-scroll: list kept ({visible.Count} rows)");
             CurrentGroupTitle.Text = title;
             UpdateEntryCountText();
             if (selectUuid is not null)
@@ -3722,6 +3736,7 @@ public sealed partial class MainWindow : Window
         }
 
         string? keepUuid = selectUuid ?? (EntryList.SelectedItem as EntryItem)?.Uuid;
+        AppLog.Info($"ui-scroll: list rebuild ({visible.Count} rows, keep={keepUuid})");
         Entries.Clear();
         foreach (EntrySummaryDto entry in visible)
         {

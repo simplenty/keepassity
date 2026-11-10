@@ -5,6 +5,11 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Product-name casing:** product text in the app UI, the installer/Apps & Features display
+  name and the `.kdbx` file-association label now read **Keepassity**. File and folder names,
+  environment variables, the AUMID/ProgID and URLs keep the lowercase `keepassity` spelling.
+  The localization gate rejects a lowercase product name in a UI catalog key or translation, so
+  the convention cannot silently regress.
 - **UI language switch (English / Simplified Chinese):** the Windows shell is now localized.
   Settings (and the unlock page) offer "use the system language", English and 简体中文; the
   choice is persisted in `settings.json` and applies immediately without restarting or

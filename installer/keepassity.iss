@@ -1,4 +1,4 @@
-#define AppName "keepassity"
+#define AppName "Keepassity"
 #ifndef AppVersion
   #define AppVersion "1.0.0"
 #endif
@@ -47,8 +47,8 @@ AppMutex=Local\keepassity-windows-app
 ; GPL-3.0-or-later license page in the wizard.
 LicenseFile=..\LICENSE
 VersionInfoVersion={#AppVersion}
-VersionInfoProductName=keepassity
-VersionInfoDescription=keepassity Setup
+VersionInfoProductName=Keepassity
+VersionInfoDescription=Keepassity Setup
 VersionInfoCompany=simplenty
 VersionInfoCopyright=Copyright (C) 2026 the keepassity contributors
 
@@ -70,16 +70,16 @@ Name: "{autodesktop}\keepassity"; Filename: "{app}\{#AppExe}"
 ;   * Applications\<exe>\SupportedTypes advertises the file type to the shell.
 ; The .kdbx default value is deliberately NOT written: silently taking over the
 ; default handler is an anti-pattern (and ignored by Windows 10+ anyway).
-Root: HKCU; Subkey: "Software\Classes\keepassity.kdbx"; ValueType: string; ValueName: ""; ValueData: "keepassity database"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\keepassity.kdbx"; ValueType: string; ValueName: ""; ValueData: "Keepassity database"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\keepassity.kdbx\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExe},0"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\keepassity.kdbx\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""; Flags: uninsdeletekey
 ; A value under a shared key belongs to us, not the key: delete only the value.
 Root: HKCU; Subkey: "Software\Classes\.kdbx\OpenWithProgids"; ValueType: string; ValueName: "keepassity.kdbx"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".kdbx"; ValueData: ""; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\Applications\{#AppExe}"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "keepassity"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\Applications\{#AppExe}"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "Keepassity"; Flags: uninsdeletekey
 
 [Run]
-Filename: "{app}\{#AppExe}"; Description: "Launch keepassity"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; Description: "Launch Keepassity"; Flags: nowait postinstall skipifsilent
 
 [InstallDelete]
 ; Remove the pre-1.0 binary name so an upgrade does not leave a stale executable

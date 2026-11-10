@@ -8,8 +8,8 @@
          Keepassity.exe: process name, taskbar, Start Menu and "Open with" all
          show the product name, not the internal project name. -->
     <AssemblyName>Keepassity</AssemblyName>
-    <Product>keepassity</Product>
-    <Description>keepassity - local-first KeePass KDBX client</Description>
+    <Product>Keepassity</Product>
+    <Description>Keepassity - local-first KeePass KDBX client</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
