@@ -157,7 +157,11 @@ fn escape_xml(text: &str) -> String {
 }
 
 fn bool_text(value: bool) -> &'static str {
-    if value { "True" } else { "False" }
+    if value {
+        "True"
+    } else {
+        "False"
+    }
 }
 
 fn raw_element(name: &str, body: &str) -> RawElement {
@@ -170,8 +174,7 @@ fn simple_element(name: &str, value: &str) -> RawElement {
 
 /// Standard base64 (no line breaks), used for KDBX UUIDs and custom icon data.
 fn base64_encode(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let first = chunk[0];
@@ -215,7 +218,11 @@ fn custom_data_element(data: &CustomData) -> Option<RawElement> {
             None => {}
         }
         body.push_str("</Value>");
-        if let Some(time) = item.last_modification.as_deref().filter(|time| !time.is_empty()) {
+        if let Some(time) = item
+            .last_modification
+            .as_deref()
+            .filter(|time| !time.is_empty())
+        {
             body.push_str("<LastModificationTime>");
             body.push_str(&escape_xml(time));
             body.push_str("</LastModificationTime>");
@@ -230,7 +237,11 @@ fn auto_type_element(auto_type: &AutoType) -> RawElement {
     body.push_str("<Enabled>");
     body.push_str(bool_text(auto_type.enabled));
     body.push_str("</Enabled><DataTransferObfuscation>");
-    body.push_str(if auto_type.data_transfer_obfuscation { "1" } else { "0" });
+    body.push_str(if auto_type.data_transfer_obfuscation {
+        "1"
+    } else {
+        "0"
+    });
     body.push_str("</DataTransferObfuscation>");
     if !auto_type.default_sequence.is_empty() {
         body.push_str("<DefaultSequence>");
@@ -317,7 +328,11 @@ fn custom_icon_element(icon: &CustomIcon) -> RawElement {
         body.push_str(&escape_xml(name));
         body.push_str("</Name>");
     }
-    if let Some(time) = icon.last_modification.as_deref().filter(|time| !time.is_empty()) {
+    if let Some(time) = icon
+        .last_modification
+        .as_deref()
+        .filter(|time| !time.is_empty())
+    {
         body.push_str("<LastModificationTime>");
         body.push_str(&escape_xml(time));
         body.push_str("</LastModificationTime>");

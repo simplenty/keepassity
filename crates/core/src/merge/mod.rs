@@ -520,12 +520,16 @@ fn fingerprint(entry: &Entry) -> String {
     clean.history.clear();
     clean.times = Times::default();
     clean.previous_parent_group = None;
-    clean.strings.sort_by(|left, right| left.key.cmp(&right.key));
+    clean
+        .strings
+        .sort_by(|left, right| left.key.cmp(&right.key));
     clean.strings.retain(|field| !field.value.is_empty());
     for field in &mut clean.strings {
         field.protected = false;
     }
-    clean.binaries.sort_by(|left, right| left.key.cmp(&right.key));
+    clean
+        .binaries
+        .sort_by(|left, right| left.key.cmp(&right.key));
     clean.tags.sort();
     clean.tags.dedup();
     clean.unknown.clear();

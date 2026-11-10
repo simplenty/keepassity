@@ -115,7 +115,8 @@ fn write_model_keeps_every_field_the_reader_parsed() {
     for path in fixtures() {
         let original = parse_fixture(&path);
         let again = rewrite(&original);
-        let differences = describe_differences(&comparable(again.clone()), &comparable(original.clone()));
+        let differences =
+            describe_differences(&comparable(again.clone()), &comparable(original.clone()));
         assert!(
             differences.is_empty(),
             "rewriting {} lost data: {:?}",
@@ -276,7 +277,11 @@ fn a_move_to_the_top_level_survives_a_rewrite_and_merge() {
     let (merged, report) = merge(&rewritten, &local);
     assert_eq!(report.conflicts, 0, "the move must not conflict");
     assert!(
-        merged.root.entries.iter().any(|entry| entry.uuid == entry_uuid),
+        merged
+            .root
+            .entries
+            .iter()
+            .any(|entry| entry.uuid == entry_uuid),
         "the moved entry must stay at the top level"
     );
 }
