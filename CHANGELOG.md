@@ -5,6 +5,17 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Saving keeps the vault metadata:** a save now writes back the fields the reader parses but the
+  writer used to drop — entry and group icons (built-in and custom icon references), entry colors,
+  override URLs, Auto-Type settings, custom data, group notes and auto-type/search flags, the meta
+  memory-protection, default-user-name, custom-data and custom-icon elements, per-field protection
+  and the recycle-bin timestamp. The merge compares semantic content (ignoring field order, tag
+  order, empty fields, protection flags and unknown XML) and treats a side that lost optional
+  metadata as the same content, so a vault saved by an earlier build no longer produces conflict
+  dialogs for entries that were never edited, and an unresolved conflict keeps its single local /
+  remote copy pair instead of writing another one on every sync attempt. Compatibility: the saved
+  file stays KDBX 4.0, upgraded to 4.1 only when a custom icon carries a name or modification time;
+  files written by other KeePass clients remain readable and mergeable.
 - **Product-name casing:** product text in the app UI, the installer/Apps & Features display
   name and the `.kdbx` file-association label now read **Keepassity**. File and folder names,
   environment variables, the AUMID/ProgID and URLs keep the lowercase `keepassity` spelling.
