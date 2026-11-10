@@ -3107,13 +3107,17 @@ public sealed partial class MainWindow : Window
 
     private async Task ReloadVaultAsync(string? selectEntryUuid, bool preserveScroll = true)
     {
+        List<GroupDto> groups = await _core.ListGroupsAsync();
+        List<EntrySummaryDto> allEntries = await _core.ListEntriesAsync();
+
+        // Capture the wheel position after the awaits, right before the list is
+        // rebuilt: the core IPC calls can take long enough that a position
+        // captured earlier would drag the user back to where they were before the
+        // reload (a merge reopen lands about a second after a save, so this window
+        // is exactly where the list used to jump back to the drag-time position).
         double entryScrollOffset = preserveScroll
             ? FindDescendant<ScrollViewer>(EntryList)?.VerticalOffset ?? 0
             : 0;
-        AppLog.Info($"ui-scroll: reload capture {entryScrollOffset:0.0} " +
-                    $"(preserve={preserveScroll}, select={selectEntryUuid})");
-        List<GroupDto> groups = await _core.ListGroupsAsync();
-        List<EntrySummaryDto> allEntries = await _core.ListEntriesAsync();
 
         _groupDtos.Clear();
         _selectableGroups.Clear();
@@ -3196,8 +3200,10 @@ public sealed partial class MainWindow : Window
         PopulateEntries(visible, title, selectEntryUuid ?? previousSelection);
 
         // Restoring the wheel position after a reload is what keeps a merge or a
-        // metadata change from jumping the list back to the top.
-        if (preserveScroll && entryScrollOffset > 0)
+        // metadata change from jumping the list back to the top. A zero offset is
+        // restored too: a rebuild that selects a row can scroll the list away from
+        // the top, and the position the user actually had must win.
+        if (preserveScroll)
         {
             RestoreEntryScrollOffset(entryScrollOffset);
         }
@@ -3611,12 +3617,15 @@ public sealed partial class MainWindow : Window
                 InfoBarSeverity.Informational);
             return;
         }
-        double scrollOffset = CaptureEntryScrollOffset();
-        AppLog.Info($"ui-scroll: drop capture {scrollOffset:0.0} ({movedItem?.Title})");
         try
         {
             await _core.MoveEntryAsync(entryUuid, targetGroupUuid);
             await SaveAsync();
+            // Capture the wheel position right before the list changes. The move
+            // and the save (including its sync/merge tail) take long enough that
+            // a position captured before them is stale: restoring it afterwards
+            // drags the user back to where they were when they dropped.
+            double scrollOffset = CaptureEntryScrollOffset();
             // Update only the affected row(s); a full reload would reset the
             // scroll position for a move that usually does not change the view.
             ApplyEntryMovedLocally(entryUuid, sourceGroupUuid, targetGroupUuid,
@@ -3663,10 +3672,6 @@ public sealed partial class MainWindow : Window
 
     private void RestoreEntryScrollOffset(double offset)
     {
-        if (offset <= 0)
-        {
-            return;
-        }
         void Apply()
         {
             ScrollViewer? scrollViewer = FindEntryScrollViewer(EntryList);
@@ -3674,8 +3679,6 @@ public sealed partial class MainWindow : Window
             {
                 return;
             }
-            AppLog.Info($"ui-scroll: restore apply target {offset:0.0} " +
-                        $"current {scrollViewer.VerticalOffset:0.0}");
             if (Math.Abs(scrollViewer.VerticalOffset - offset) > 0.5)
             {
                 scrollViewer.ChangeView(null, offset, null, true);
@@ -3725,7 +3728,6 @@ public sealed partial class MainWindow : Window
         if (fingerprint == _lastEntryFingerprint && Entries.Count == visible.Count)
         {
             // Same rows in the same order: keep the items (and the scroll offset).
-            AppLog.Info($"ui-scroll: list kept ({visible.Count} rows)");
             CurrentGroupTitle.Text = title;
             UpdateEntryCountText();
             if (selectUuid is not null)
@@ -3736,7 +3738,6 @@ public sealed partial class MainWindow : Window
         }
 
         string? keepUuid = selectUuid ?? (EntryList.SelectedItem as EntryItem)?.Uuid;
-        AppLog.Info($"ui-scroll: list rebuild ({visible.Count} rows, keep={keepUuid})");
         Entries.Clear();
         foreach (EntrySummaryDto entry in visible)
         {
