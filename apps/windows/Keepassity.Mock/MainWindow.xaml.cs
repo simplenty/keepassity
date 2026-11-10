@@ -23,6 +23,7 @@ using Windows.Storage.Pickers;
 using Windows.Storage.Streams;
 using Windows.System;
 using Windows.UI;
+using Windows.UI.ViewManagement;
 
 namespace Keepassity.Mock;
 
@@ -33,6 +34,7 @@ public sealed partial class MainWindow : Window
 
     private readonly CoreClient _core = new();
     private readonly AppSettingsStore _settingsStore = new();
+    private readonly UISettings _uiSettings = new();
     private readonly SyncStateStore _syncStates = new();
     private readonly CredentialStore _credentials = new();
     private readonly SemaphoreSlim _syncGate = new(1, 1);
@@ -107,6 +109,16 @@ public sealed partial class MainWindow : Window
     private string? _draggedEntryGroupUuid;
     private string? _draggedEntryTitle;
     private bool _dragSameGroupHintShown;
+    // Navigation pane width animation: the pane is resized in layout so the
+    // workspace columns reflow on every frame instead of jumping.
+    private double _paneOpenLength;
+    private bool _paneOpen = true;
+    private bool _paneAnimating;
+    private bool _paneAnimationFrameHooked;
+    private double _paneAnimationFrom;
+    private double _paneAnimationTo;
+    private int _paneAnimationMilliseconds;
+    private TimeSpan? _paneAnimationStartedAt;
 
     private enum RightPanelResult
     {
@@ -4041,7 +4053,135 @@ public sealed partial class MainWindow : Window
 
     private void HamburgerButton_Click(object sender, RoutedEventArgs e)
     {
-        NavView.IsPaneOpen = !NavView.IsPaneOpen;
+        ToggleNavigationPane();
+    }
+
+    // The built-in NavigationView pane transition only slides the content with a
+    // render transform: the SplitView puts the content at its final width on the
+    // first frame, so the workspace columns jump while the pane still looks
+    // animated. Resizing the pane length in layout instead makes the SplitView
+    // re-measure on every frame, so the entry list and detail pane follow the
+    // pane width.
+    private const int PaneOpenMilliseconds = 200;
+    private const int PaneCloseMilliseconds = 180;
+
+    /// <summary>
+    /// Opens or closes the navigation pane, resizing it in layout so the
+    /// workspace columns follow the pane continuously.
+    /// </summary>
+    private void ToggleNavigationPane()
+    {
+        _paneOpen = !_paneOpen;
+        if (!_uiSettings.AnimationsEnabled)
+        {
+            // Respect the system "show animations" preference and use the plain
+            // pane toggle instead.
+            StopPaneAnimation();
+            NavView.OpenPaneLength = GetPaneOpenLength();
+            NavView.IsPaneOpen = _paneOpen;
+            return;
+        }
+
+        bool opening = _paneOpen;
+        double compactLength = Math.Max(0, NavView.CompactPaneLength);
+        double openLength = GetPaneOpenLength();
+
+        if (opening && !NavView.IsPaneOpen)
+        {
+            // The pane is fully closed (icon rail). Open it while its length
+            // still equals the rail width, so the SplitView's own transition has
+            // nothing to move; the width animation below provides the motion.
+            NavView.OpenPaneLength = compactLength;
+            NavView.IsPaneOpen = true;
+        }
+
+        double from = Math.Min(NavView.OpenPaneLength, NavView.ActualWidth);
+        if (from <= 0)
+        {
+            from = compactLength;
+        }
+        double to = opening ? openLength : compactLength;
+        StartPaneAnimation(from, to,
+            opening ? PaneOpenMilliseconds : PaneCloseMilliseconds);
+    }
+
+    private double GetPaneOpenLength()
+    {
+        if (_paneOpenLength <= 0)
+        {
+            // OpenPaneLength is overwritten while the pane is animated, so keep
+            // the configured length to reopen to.
+            _paneOpenLength = NavView.OpenPaneLength > 0 ? NavView.OpenPaneLength : 232;
+        }
+        return _paneOpenLength;
+    }
+
+    private void StartPaneAnimation(double from, double to, int milliseconds)
+    {
+        if (Math.Abs(to - from) < 0.5)
+        {
+            CompletePaneAnimation(to);
+            return;
+        }
+
+        _paneAnimationFrom = from;
+        _paneAnimationTo = to;
+        _paneAnimationMilliseconds = Math.Max(1, milliseconds);
+        _paneAnimationStartedAt = null;
+        _paneAnimating = true;
+        if (!_paneAnimationFrameHooked)
+        {
+            CompositionTarget.Rendering += OnPaneAnimationFrame;
+            _paneAnimationFrameHooked = true;
+        }
+    }
+
+    private void OnPaneAnimationFrame(object? sender, object args)
+    {
+        if (!_paneAnimating)
+        {
+            return;
+        }
+
+        TimeSpan now = (args as RenderingEventArgs)?.RenderingTime ?? TimeSpan.Zero;
+        _paneAnimationStartedAt ??= now;
+        double progress = Math.Clamp(
+            (now - _paneAnimationStartedAt.Value).TotalMilliseconds /
+                _paneAnimationMilliseconds,
+            0,
+            1);
+        // Ease out so the pane settles instead of stopping abruptly, matching the
+        // shape of the built-in pane transition.
+        double eased = 1 - Math.Pow(1 - progress, 3);
+        NavView.OpenPaneLength = _paneAnimationFrom +
+            (_paneAnimationTo - _paneAnimationFrom) * eased;
+        if (progress >= 1)
+        {
+            CompletePaneAnimation(_paneAnimationTo);
+        }
+    }
+
+    private void CompletePaneAnimation(double width)
+    {
+        NavView.OpenPaneLength = width;
+        if (!_paneOpen)
+        {
+            // The pane is already at the compact rail width, so closing it here
+            // does not change the layout and cannot jump.
+            NavView.IsPaneOpen = false;
+        }
+        StopPaneAnimation();
+    }
+
+    private void StopPaneAnimation()
+    {
+        _paneAnimating = false;
+        _paneAnimationStartedAt = null;
+        if (_paneAnimationFrameHooked)
+        {
+            CompositionTarget.Rendering -= OnPaneAnimationFrame;
+            _paneAnimationFrameHooked = false;
+        }
     }
 
     private void TitleBarButton_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)

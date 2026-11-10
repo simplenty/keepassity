@@ -10,6 +10,12 @@ KDBX write-path changes must state the compatibility impact.
   environment variables, the AUMID/ProgID and URLs keep the lowercase `keepassity` spelling.
   The localization gate rejects a lowercase product name in a UI catalog key or translation, so
   the convention cannot silently regress.
+- **Smooth navigation pane toggle:** collapsing or expanding the navigation pane resizes the
+  workspace columns frame by frame instead of snapping them to their final width while only
+  the pane slides. The pane length is animated in layout (200 ms opening, 180 ms closing,
+  eased out), the compact icon rail is unchanged, and the system "show animations" setting
+  falls back to the plain toggle. This removes the visible jump between the pane and the
+  entry list / detail columns.
 - **UI language switch (English / Simplified Chinese):** the Windows shell is now localized.
   Settings (and the unlock page) offer "use the system language", English and 简体中文; the
   choice is persisted in `settings.json` and applies immediately without restarting or
