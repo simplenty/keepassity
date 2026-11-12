@@ -5,6 +5,11 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Clearer password generator:** the flyout now shows the generated password in a read-only preview
+  with a Copy button, keeps the entropy and the "changes regenerate automatically, Save stores it"
+  hint right next to it, lays the character classes out in two columns, and ends with Regenerate and
+  Done. The previous single-column layout grew wide and tall enough to flip above the field and clip
+  the actions; the compact one stays in place and makes the result the first thing you see.
 - **Detail pane refreshes after a password-only edit:** saving an entry whose visible list fields did
   not change (for example right after using the password generator) used to leave the detail pane on
   the previous entry content, so revealing or copying the password returned the old secret until

@@ -5341,6 +5341,37 @@ public sealed partial class MainWindow : Window
         AutomationProperties.SetAutomationId(digits, "GeneratorDigits");
         AutomationProperties.SetAutomationId(symbols, "GeneratorSymbols");
         AutomationProperties.SetAutomationId(excludeAmbiguous, "GeneratorExcludeAmbiguous");
+        var result = new TextBox
+        {
+            IsReadOnly = true,
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 16,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            TextWrapping = TextWrapping.NoWrap,
+        };
+        AutomationProperties.SetName(result, Loc.T("Password"));
+        AutomationProperties.SetAutomationId(result, "GeneratorResult");
+        var copy = new Button { Content = CreateIconLabel(Loc.T("Copy"), "\uE8C8") };
+        SetButtonAutomation(copy, Loc.T("Copy password"), null, "GeneratorCopyButton");
+        copy.Click += (_, _) =>
+        {
+            if (result.Text.Length > 0)
+            {
+                CopyText(result.Text, Loc.T("Password copied"));
+            }
+        };
+        var resultRow = new Grid { ColumnSpacing = 8 };
+        resultRow.ColumnDefinitions.Add(
+            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        resultRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        resultRow.Children.Add(result);
+        Grid.SetColumn(copy, 1);
+        resultRow.Children.Add(copy);
+        var resultLabel = new TextBlock
+        {
+            Text = Loc.T("Password"),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        };
         var entropy = new TextBlock
         {
             FontSize = 12,
@@ -5348,15 +5379,23 @@ public sealed partial class MainWindow : Window
             Text = Loc.T("Entropy: —"),
         };
         AutomationProperties.SetAutomationId(entropy, "GeneratorEntropy");
-        var status = new TextBlock
+        var hint = new TextBlock
         {
             FontSize = 11,
+            MaxWidth = 340,
             TextWrapping = TextWrapping.Wrap,
             Text = Loc.TLong("Generator.OptionsBody",
                 "Options are applied by the core generator; the password is written " +
                 "into the field and Save stores it with the entry."),
             Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
         };
+        var status = new TextBlock
+        {
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+        };
+        AutomationProperties.SetAutomationId(status, "GeneratorStatus");
         var regenerate = new Button
         {
             Content = CreateIconLabel(Loc.T("Regenerate"), "\uE72C"),
@@ -5365,26 +5404,52 @@ public sealed partial class MainWindow : Window
             "GeneratorRegenerateButton");
         var done = new Button { Content = Loc.T("Done") };
         SetButtonAutomation(done, Loc.T("Close password generator"), null, "GeneratorDoneButton");
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        buttons.Children.Add(regenerate);
-        buttons.Children.Add(done);
-        var content = new StackPanel { Spacing = 10, MinWidth = 300 };
-        content.Children.Add(length);
-        content.Children.Add(lowercase);
-        content.Children.Add(uppercase);
-        content.Children.Add(digits);
-        content.Children.Add(symbols);
-        content.Children.Add(excludeAmbiguous);
+        var actions = new Grid();
+        actions.ColumnDefinitions.Add(
+            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        actions.Children.Add(regenerate);
+        Grid.SetColumn(done, 1);
+        actions.Children.Add(done);
+        var toggles = new Grid { ColumnSpacing = 12, RowSpacing = 2 };
+        toggles.ColumnDefinitions.Add(
+            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        toggles.ColumnDefinitions.Add(
+            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        toggles.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        toggles.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        toggles.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        ToggleSwitch[] classToggles = { lowercase, uppercase, digits, symbols };
+        for (int index = 0; index < classToggles.Length; index++)
+        {
+            Grid.SetRow(classToggles[index], index / 2);
+            Grid.SetColumn(classToggles[index], index % 2);
+            toggles.Children.Add(classToggles[index]);
+        }
+        Grid.SetRow(excludeAmbiguous, 2);
+        Grid.SetColumnSpan(excludeAmbiguous, 2);
+        toggles.Children.Add(excludeAmbiguous);
+        var content = new StackPanel { Spacing = 8, MinWidth = 320, MaxWidth = 380 };
+        content.Children.Add(resultLabel);
+        content.Children.Add(resultRow);
         content.Children.Add(entropy);
+        content.Children.Add(hint);
+        content.Children.Add(new Border
+        {
+            Height = 1,
+            Background = (Brush)Application.Current.Resources["DividerStrokeColorDefaultBrush"],
+        });
+        content.Children.Add(length);
+        content.Children.Add(toggles);
         content.Children.Add(status);
-        content.Children.Add(buttons);
+        content.Children.Add(actions);
         var flyout = new Flyout
         {
             Content = content,
             Placement = FlyoutPlacementMode.Bottom,
         };
         int generation = 0;
-        async Task RegenerateAsync(bool announce)
+        async Task RegenerateAsync()
         {
             int ticket = ++generation;
             int lengthValue = double.IsNaN(length.Value)
@@ -5408,11 +5473,10 @@ public sealed partial class MainWindow : Window
                     return;
                 }
                 target.Password = generated.Password;
+                result.Text = generated.Password;
+                result.SelectionStart = result.Text.Length;
                 entropy.Text = Loc.T("Entropy: {0:F1} bits", generated.EntropyBits);
-                if (announce)
-                {
-                    status.Text = Loc.T("Password generated. Save the entry to keep it.");
-                }
+                status.Text = Loc.T("Password generated. Save the entry to keep it.");
             }
             catch (Exception ex)
             {
@@ -5434,30 +5498,30 @@ public sealed partial class MainWindow : Window
             toggled.IsOn = true;
             status.Text = Loc.T("At least one character class must stay enabled.");
         }
-        length.ValueChanged += (_, _) => _ = RegenerateAsync(false);
+        length.ValueChanged += (_, _) => _ = RegenerateAsync();
         lowercase.Toggled += (_, _) =>
         {
             EnsureClassSelected(lowercase);
-            _ = RegenerateAsync(false);
+            _ = RegenerateAsync();
         };
         uppercase.Toggled += (_, _) =>
         {
             EnsureClassSelected(uppercase);
-            _ = RegenerateAsync(false);
+            _ = RegenerateAsync();
         };
         digits.Toggled += (_, _) =>
         {
             EnsureClassSelected(digits);
-            _ = RegenerateAsync(false);
+            _ = RegenerateAsync();
         };
         symbols.Toggled += (_, _) =>
         {
             EnsureClassSelected(symbols);
-            _ = RegenerateAsync(false);
+            _ = RegenerateAsync();
         };
-        excludeAmbiguous.Toggled += (_, _) => _ = RegenerateAsync(false);
-        regenerate.Click += (_, _) => _ = RegenerateAsync(true);
-        flyout.Opened += (_, _) => _ = RegenerateAsync(false);
+        excludeAmbiguous.Toggled += (_, _) => _ = RegenerateAsync();
+        regenerate.Click += (_, _) => _ = RegenerateAsync();
+        flyout.Opened += (_, _) => _ = RegenerateAsync();
         done.Click += (_, _) => flyout.Hide();
         flyout.Closed += (_, _) => target.Focus(FocusState.Programmatic);
         flyout.ShowAt(anchor);
