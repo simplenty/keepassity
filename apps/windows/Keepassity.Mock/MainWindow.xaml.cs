@@ -88,6 +88,7 @@ public sealed partial class MainWindow : Window
     private StackPanel? _detailPanelActions;
     private TaskCompletionSource<RightPanelResult>? _detailPanelCompletion;
     private bool _detailPanelOpen;
+    private Action? _generatorReturn;
     private readonly RecentDatabaseStore _recentDatabases = new();
     private readonly List<Microsoft.UI.Dispatching.DispatcherQueueTimer> _trayMenuDemoTimers =
         new();
@@ -4899,14 +4900,22 @@ public sealed partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Height = 84,
         };
+        UIElement? formSlot = null;
         var content = new StackPanel { Spacing = 14 };
         content.Children.Add(groupChoice);
         content.Children.Add(title);
         content.Children.Add(username);
-        content.Children.Add(BuildPasswordRow(password));
+        content.Children.Add(BuildPasswordRow(password, () =>
+        {
+            if (formSlot is not null)
+            {
+                ShowPasswordGeneratorPage(password, formSlot, Loc.T("New entry"));
+            }
+        }));
         content.Children.Add(url);
         content.Children.Add(notes);
         UIElement form = CreateFormSection(Loc.T("Details"), content);
+        formSlot = form;
         if (await ShowDetailPanelAsync(Loc.T("New entry"), form, Loc.T("Create"),
                 primaryGlyph: "\uE710") !=
                 RightPanelResult.Primary ||
@@ -5008,14 +5017,15 @@ public sealed partial class MainWindow : Window
         totpFields.Children.Add(totpDigits);
         totpFields.Children.Add(totpPeriod);
 
+        var form = new StackPanel { Spacing = 20 };
         var content = new StackPanel { Spacing = 14 };
         content.Children.Add(title);
         content.Children.Add(username);
-        content.Children.Add(BuildPasswordRow(password));
+        content.Children.Add(BuildPasswordRow(password,
+            () => ShowPasswordGeneratorPage(password, form, Loc.T("Edit entry"))));
         content.Children.Add(url);
         content.Children.Add(tags);
         content.Children.Add(notes);
-        var form = new StackPanel { Spacing = 20 };
         form.Children.Add(CreateFormSection(Loc.T("Details"), content));
         form.Children.Add(CreateFormSection(Loc.T("One-time password"), totpFields));
         if (await ShowDetailPanelAsync(Loc.T("Edit entry"), form, Loc.T("Save")) !=
@@ -5269,7 +5279,7 @@ public sealed partial class MainWindow : Window
         return wrapper;
     }
 
-    private Grid BuildPasswordRow(PasswordBox password)
+    private Grid BuildPasswordRow(PasswordBox password, Action openGenerator)
     {
         var row = new Grid { ColumnSpacing = 8 };
         row.ColumnDefinitions.Add(
@@ -5283,7 +5293,7 @@ public sealed partial class MainWindow : Window
         };
         SetButtonAutomation(generate, Loc.T("Generate password"),
             Loc.T("Opens the password generator options"), "GeneratePasswordButton");
-        generate.Click += (_, _) => ShowPasswordGeneratorFlyout(generate, password);
+        generate.Click += (_, _) => openGenerator();
         Grid.SetColumn(generate, 1);
         row.Children.Add(generate);
         return row;
@@ -5304,17 +5314,22 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Password generator options: length, character classes, ambiguous-character
-    /// exclusion and the resulting entropy. Every change regenerates through the
-    /// core and writes the result into the surrounding password box; the flyout
-    /// stays open so options can be tweaked before saving the entry.
+    /// Password generator page. It replaces the entry form inside the right pane
+    /// while open; Back and Done return to the form. Every option change
+    /// regenerates through the core and writes the result into the surrounding
+    /// password box, so Done only restores the form and Save stores the entry.
     /// </summary>
-    private void ShowPasswordGeneratorFlyout(Button anchor, PasswordBox target)
+    private void ShowPasswordGeneratorPage(PasswordBox target, UIElement form, string formTitle)
     {
         if (!_core.IsOpen)
         {
             ShowToast(Loc.T("Unlock the vault before generating a password."),
                 InfoBarSeverity.Warning);
+            return;
+        }
+        if (_detailPanelContent is null || _detailPanelTitle is null ||
+            _detailPanelActions is null)
+        {
             return;
         }
         var length = new NumberBox
@@ -5382,7 +5397,8 @@ public sealed partial class MainWindow : Window
         var hint = new TextBlock
         {
             FontSize = 11,
-            MaxWidth = 340,
+            MaxWidth = 460,
+            HorizontalAlignment = HorizontalAlignment.Left,
             TextWrapping = TextWrapping.Wrap,
             Text = Loc.TLong("Generator.OptionsBody",
                 "Options are applied by the core generator; the password is written " +
@@ -5429,7 +5445,7 @@ public sealed partial class MainWindow : Window
         Grid.SetRow(excludeAmbiguous, 2);
         Grid.SetColumnSpan(excludeAmbiguous, 2);
         toggles.Children.Add(excludeAmbiguous);
-        var content = new StackPanel { Spacing = 8, MinWidth = 320, MaxWidth = 380 };
+        var content = new StackPanel { Spacing = 10, MaxWidth = 520 };
         content.Children.Add(resultLabel);
         content.Children.Add(resultRow);
         content.Children.Add(entropy);
@@ -5443,11 +5459,6 @@ public sealed partial class MainWindow : Window
         content.Children.Add(toggles);
         content.Children.Add(status);
         content.Children.Add(actions);
-        var flyout = new Flyout
-        {
-            Content = content,
-            Placement = FlyoutPlacementMode.Bottom,
-        };
         int generation = 0;
         async Task RegenerateAsync()
         {
@@ -5521,10 +5532,27 @@ public sealed partial class MainWindow : Window
         };
         excludeAmbiguous.Toggled += (_, _) => _ = RegenerateAsync();
         regenerate.Click += (_, _) => _ = RegenerateAsync();
-        flyout.Opened += (_, _) => _ = RegenerateAsync();
-        done.Click += (_, _) => flyout.Hide();
-        flyout.Closed += (_, _) => target.Focus(FocusState.Programmatic);
-        flyout.ShowAt(anchor);
+        done.Click += (_, _) => RestoreForm();
+        _ = RegenerateAsync();
+
+        void RestoreForm()
+        {
+            if (_detailPanelContent is null || _detailPanelTitle is null ||
+                _detailPanelActions is null)
+            {
+                return;
+            }
+            _detailPanelContent.Content = form;
+            _detailPanelTitle.Text = formTitle;
+            _detailPanelActions.Visibility = Visibility.Visible;
+            _generatorReturn = null;
+            target.Focus(FocusState.Programmatic);
+        }
+
+        _generatorReturn = RestoreForm;
+        _detailPanelTitle!.Text = Loc.T("Generate password");
+        _detailPanelActions!.Visibility = Visibility.Collapsed;
+        _detailPanelContent!.Content = content;
     }
 
     private async void TotpSetupButton_Click(object sender, RoutedEventArgs e)
@@ -5992,7 +6020,19 @@ public sealed partial class MainWindow : Window
         header.ColumnDefinitions.Add(
             new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var back = CreateToolbarButton(Loc.T("Back"), "\uE72B");
-        back.Click += (_, _) => CloseDetailPanel();
+        back.Click += (_, _) =>
+        {
+            // While the generator page is open, Back returns to the entry form
+            // instead of closing the whole dialog.
+            if (_generatorReturn is not null)
+            {
+                Action restore = _generatorReturn;
+                _generatorReturn = null;
+                restore();
+                return;
+            }
+            CloseDetailPanel();
+        };
         header.Children.Add(back);
         _detailPanelTitle = new TextBlock
         {
@@ -6051,6 +6091,8 @@ public sealed partial class MainWindow : Window
         AutomationProperties.SetName(_detailPanel, Loc.T("{0} dialog", title));
         _detailPanelContent!.Content = content;
         _detailPanelActions!.Children.Clear();
+        _detailPanelActions.Visibility = Visibility.Visible;
+        _generatorReturn = null;
         var completion = new TaskCompletionSource<RightPanelResult>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         _detailPanelCompletion = completion;
