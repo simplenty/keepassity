@@ -3264,7 +3264,18 @@ public sealed partial class MainWindow : Window
                 .ToList()
             : allEntries.Where(entry => entry.GroupUuid == _selectedGroupUuid).ToList();
         string? previousSelection = (EntryList.SelectedItem as EntryItem)?.Uuid;
-        PopulateEntries(visible, title, selectEntryUuid ?? previousSelection);
+        bool listRebuilt = PopulateEntries(visible, title, selectEntryUuid ?? previousSelection);
+        if (!listRebuilt && EntryList.SelectedItem is EntryItem stillSelected &&
+            string.Equals(stillSelected.Uuid, previousSelection, StringComparison.Ordinal))
+        {
+            // Saving a password-only edit changes nothing the middle column shows,
+            // so the list keeps its rows, no selection event fires and the detail
+            // pane would keep the old entry (copy/reveal returned the old secret
+            // until the user re-selected a row). A remote merge can do the same to
+            // a selected entry. Refresh the detail explicitly, without replaying
+            // the entry animation.
+            await ShowEntryAsync(stillSelected, animate: false);
+        }
 
         // Restoring the wheel position after a reload is what keeps a merge or a
         // metadata change from jumping the list back to the top. A zero offset is
@@ -4453,7 +4464,7 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
-    private async Task ShowEntryAsync(EntryItem summary)
+    private async Task ShowEntryAsync(EntryItem summary, bool animate = true)
     {
         int generation = ++_showGeneration;
         _currentSummary = summary;
@@ -4529,7 +4540,10 @@ public sealed partial class MainWindow : Window
             TotpProgress.Visibility = Visibility.Collapsed;
             ResetTotpDisplayState();
         }
-        AnimateDetailContent();
+        if (animate)
+        {
+            AnimateDetailContent();
+        }
     }
 
     private void ClearDetail()

@@ -5,6 +5,11 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Detail pane refreshes after a password-only edit:** saving an entry whose visible list fields did
+  not change (for example right after using the password generator) used to leave the detail pane on
+  the previous entry content, so revealing or copying the password returned the old secret until
+  another entry was selected and reselected. The save now refreshes the selected entry's detail even
+  when the middle column keeps its rows, and that refresh does not replay the entry animation.
 - **Saving keeps the vault metadata:** a save now writes back the fields the reader parses but the
   writer used to drop — entry and group icons (built-in and custom icon references), entry colors,
   override URLs, Auto-Type settings, custom data, group notes and auto-type/search flags, the meta
