@@ -8,11 +8,11 @@ KDBX write-path changes must state the compatibility impact.
 - **Sync and restore fail closed:** a WebDAV upload that receives a redirect (for example a 303)
   is rejected instead of being replayed as a body-less GET whose 200 response looked like a
   successful database upload; non-loopback plain HTTP is refused because Basic authentication
-  would expose the WebDAV password. Downloaded bytes are decrypted with the current master
-  password before the local database is replaced, a corrupt sync sidecar is treated as dirty
-  instead of clean, and a sync baseline without a content hash is rejected. Backups are ordered
-  by their creation name rather than the copied file's timestamp, are flushed before use, and an
-  empty restore payload is rejected.
+  would expose the WebDAV password. Remote bytes applied to an unlocked vault are decrypted
+  with the current master password before the local database is replaced, a corrupt sync
+  sidecar is treated as dirty instead of clean, and a sync baseline without a content hash is
+  rejected. Backups are ordered by their creation name rather than the copied file's timestamp,
+  are flushed before use, and an empty restore payload is rejected.
 - **Password generator page:** Generate in the entry form now opens the generator in the right pane
   instead of a flyout, so the result, entropy, hint, options and actions use the full column. Back
   returns to the form with everything already typed; Done returns to the form with the generated
