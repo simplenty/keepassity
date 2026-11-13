@@ -7,7 +7,7 @@ using System.Security.Authentication;
 using System.Text;
 using System.Xml.Linq;
 
-namespace Keepassity.Mock;
+namespace Keepassity.Core;
 
 public class WebDavException : Exception
 {

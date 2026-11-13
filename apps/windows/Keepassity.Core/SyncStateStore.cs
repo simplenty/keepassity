@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace Keepassity.Mock;
+namespace Keepassity.Core;
 
 public sealed class SyncState
 {
@@ -27,7 +27,7 @@ public sealed class SyncStateStore
 
     public SyncStateStore()
     {
-        _directory = Path.Combine(AppDataPaths.Root, "state");
+        _directory = Path.Combine(ApplicationPaths.Root, "state");
         try
         {
             Directory.CreateDirectory(_directory);

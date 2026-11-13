@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System.Text;
-using Keepassity.Mock;
+using Keepassity.Core;
 
 namespace Keepassity.CoreTests;
 
@@ -31,7 +31,7 @@ internal static class SettingsAndCredentialTests
         settings.Current.LastWebDavUsername = WebDavUser;
         settings.Save();
 
-        string settingsPath = Path.Combine(AppDataPaths.Root, "settings.json");
+        string settingsPath = Path.Combine(ApplicationPaths.Root, "settings.json");
         check("settings: file written", File.Exists(settingsPath), settingsPath);
         string json = File.ReadAllText(settingsPath);
         check("settings: WebDAV password is not present",
@@ -75,7 +75,7 @@ internal static class SettingsAndCredentialTests
             !credentials.HasPassword(WebDavUrl, "other-user"));
 
         // The on-disk credential blob must be DPAPI-protected, not plaintext.
-        string credentialDirectory = Path.Combine(AppDataPaths.Root, "credentials");
+        string credentialDirectory = Path.Combine(ApplicationPaths.Root, "credentials");
         string[] blobs = Directory.Exists(credentialDirectory)
             ? Directory.GetFiles(credentialDirectory, "*.bin")
             : Array.Empty<string>();
@@ -88,7 +88,7 @@ internal static class SettingsAndCredentialTests
         // Nothing else under the data root may contain the WebDAV password:
         // the settings/config proof is a real grep, not just a field check.
         byte[] passwordBytes = Encoding.UTF8.GetBytes(WebDavPassword);
-        string[] configFiles = Directory.GetFiles(AppDataPaths.Root, "*",
+        string[] configFiles = Directory.GetFiles(ApplicationPaths.Root, "*",
                 SearchOption.AllDirectories)
             .Where(path => !path.StartsWith(credentialDirectory + Path.DirectorySeparatorChar,
                 StringComparison.OrdinalIgnoreCase))

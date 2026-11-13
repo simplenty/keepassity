@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\apps\windows\Keepassity.Core\Keepassity.Core.csproj" />
+    <ProjectReference Include="..\..\..\apps\windows\Keepassity.ViewModels\Keepassity.ViewModels.csproj" />
   </ItemGroup>
 </Project>

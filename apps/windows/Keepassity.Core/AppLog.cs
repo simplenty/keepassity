@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System.Text;
 
-namespace Keepassity.Mock;
+namespace Keepassity.Core;
 
 /// <summary>
 /// Minimal local file logger. Logs stay on the machine, never leave it, and never
@@ -22,7 +22,7 @@ public static class AppLog
             {
                 return _directory;
             }
-            return Path.Combine(AppDataPaths.Root, "logs");
+            return Path.Combine(ApplicationPaths.Root, "logs");
         }
     }
 
@@ -33,7 +33,7 @@ public static class AppLog
             return;
         }
         _initialized = true;
-        string directory = Path.Combine(AppDataPaths.Root, "logs");
+        string directory = Path.Combine(ApplicationPaths.Root, "logs");
         try
         {
             Directory.CreateDirectory(directory);

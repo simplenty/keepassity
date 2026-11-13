@@ -149,8 +149,8 @@ $script:UiLiteralPattern = 'Text\s*=\s*"' +
     '|AutomationProperties\.SetHelpText\s*\(' +
     '|new\s+MenuFlyoutItem'
 
-$script:RegexLocT = [regex]'(?<![A-Za-z0-9_.])Loc\.T\s*\('
-$script:RegexLocTLong = [regex]'(?<![A-Za-z0-9_.])Loc\.TLong\s*\('
+$script:RegexLocT = [regex]'(?<![A-Za-z0-9_.])(?:Loc\.T|_text\.T)\s*\('
+$script:RegexLocTLong = [regex]'(?<![A-Za-z0-9_.])(?:Loc\.TLong|_text\.TLong)\s*\('
 $script:RegexSetSyncStatus = [regex]'(?<![A-Za-z0-9_.])SetSyncStatus\s*\('
 # Status strings handed to the sync commit helper end up in SetSyncStatus(status)
 # through a variable, so their literals are catalog keys too.
@@ -1302,6 +1302,12 @@ foreach ($file in $csFiles) {
             }
             Add-UsedKey -Key $key -File $relative -Line $line -Origin 'Loc.TLong'
             $countLocTLong++
+            continue
+        }
+        # Loc.cs/LocMarkup.cs/LocText.cs intentionally forward a variable key
+        # (the shell's view-model text adapter and the XAML attached properties
+        # pass a key that was registered by the caller); that is not a missing key.
+        if ($inLocalizationFolder) {
             continue
         }
         New-Warning 'dynamic' (Format-DynamicWarning -Relative $relative -Line $line `

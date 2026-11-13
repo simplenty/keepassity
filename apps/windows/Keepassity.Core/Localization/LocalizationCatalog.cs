@@ -2,7 +2,7 @@
 using System.Globalization;
 using System.Text.Json;
 
-namespace Keepassity.Mock;
+namespace Keepassity.Core;
 
 /// <summary>
 /// Platform-neutral UI language catalog.

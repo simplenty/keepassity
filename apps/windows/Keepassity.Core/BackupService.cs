@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System.Globalization;
 
-namespace Keepassity.Mock;
+namespace Keepassity.Core;
 
 public sealed class BackupEntry
 {

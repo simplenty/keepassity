@@ -7,7 +7,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
-using Keepassity.Mock;
+using Keepassity.Core;
 
 namespace Keepassity.CoreTests;
 

@@ -42,7 +42,7 @@ public sealed class RecentDatabaseStore
 
     public RecentDatabaseStore()
     {
-        _filePath = Path.Combine(AppDataPaths.Root, "recent-databases.json");
+        _filePath = Path.Combine(ApplicationPaths.Root, "recent-databases.json");
         Load();
     }
 

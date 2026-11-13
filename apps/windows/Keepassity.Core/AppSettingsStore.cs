@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System.Text.Json;
 
-namespace Keepassity.Mock;
+namespace Keepassity.Core;
 
 public sealed class AppSettings
 {
@@ -51,7 +51,7 @@ public sealed class AppSettingsStore
 
     public AppSettingsStore()
     {
-        string directory = AppDataPaths.Root;
+        string directory = ApplicationPaths.Root;
         try
         {
             Directory.CreateDirectory(directory);

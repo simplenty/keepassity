@@ -22,11 +22,11 @@ internal static class AppSelfTest
             }
         }
         string reportDirectory = Path.GetDirectoryName(Path.GetFullPath(reportPath))
-            ?? AppDataPaths.Root;
+            ?? ApplicationPaths.Root;
         Directory.CreateDirectory(reportDirectory);
         // The app may run at low integrity (portable folder in a hardened workspace),
         // so keep the temporary copy inside the application data root.
-        string tempDirectory = Path.Combine(AppDataPaths.Root, "selftest");
+        string tempDirectory = Path.Combine(ApplicationPaths.Root, "selftest");
         Directory.CreateDirectory(tempDirectory);
         string temp = Path.Combine(tempDirectory,
             $"keepassity-selftest-{Guid.NewGuid():N}.kdbx");

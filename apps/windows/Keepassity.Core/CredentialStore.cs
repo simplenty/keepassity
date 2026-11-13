@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Keepassity.Mock;
+namespace Keepassity.Core;
 
 /// <summary>Stores WebDAV passwords encrypted with DPAPI for the current user.</summary>
 public sealed class CredentialStore
@@ -12,7 +12,7 @@ public sealed class CredentialStore
 
     public CredentialStore()
     {
-        _directory = Path.Combine(AppDataPaths.Root, "credentials");
+        _directory = Path.Combine(ApplicationPaths.Root, "credentials");
         try
         {
             Directory.CreateDirectory(_directory);

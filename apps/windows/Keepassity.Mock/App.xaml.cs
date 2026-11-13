@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 using Microsoft.UI.Xaml;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -69,7 +69,7 @@ public partial class App : Application
                 ? commandLine[selfTestIndex + 1]
                 : string.Empty;
             string report = Environment.GetEnvironmentVariable("KEEPASSITY_SELFTEST_REPORT")
-                ?? Path.Combine(AppDataPaths.Root, "selftest", "selftest.log");
+                ?? Path.Combine(ApplicationPaths.Root, "selftest", "selftest.log");
             AppLog.Info($"selftest start: {database}");
             int exitCode = Task.Run(() => AppSelfTest.Run(database, report))
                 .GetAwaiter().GetResult();

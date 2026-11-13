@@ -32,6 +32,9 @@ public sealed partial class MainWindow : Window
     public ObservableCollection<GroupItem> Groups { get; } = new();
     public ObservableCollection<EntryItem> Entries { get; } = new();
 
+    /// <summary>State and commands for the unlock surface (MVVM boundary).</summary>
+    public UnlockViewModel Unlock { get; }
+
     private readonly CoreClient _core = new();
     private readonly AppSettingsStore _settingsStore = new();
     private readonly UISettings _uiSettings = new();
@@ -135,6 +138,7 @@ public sealed partial class MainWindow : Window
         // Resolve the saved UI language before InitializeComponent so the XAML
         // attached localization properties apply the right strings on first load.
         Loc.Initialize(Settings.Language);
+        Unlock = new UnlockViewModel(_core, LocText.Instance);
         InitializeComponent();
         ApplyThemePreference(Settings.Theme);
         Title = "Keepassity";
@@ -688,6 +692,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdateDatabasePath()
     {
+        Unlock.SetDatabasePath(_dbPath);
         RefreshRecentDatabaseList();
         bool hasDatabase = _dbPath is not null;
         UnlockTitle.Text = hasDatabase ? Loc.T("Unlock Keepassity") : "Keepassity";
@@ -698,8 +703,7 @@ public sealed partial class MainWindow : Window
         DatabaseActionsLabel.Visibility = hasDatabase ? Visibility.Visible : Visibility.Collapsed;
         if (!hasDatabase)
         {
-            UnlockError.IsOpen = false;
-            HideUnlockFailureActions();
+            Unlock.ClearStatus();
             DatabasePathText.Text = Loc.T("No database selected");
             ToolTipService.SetToolTip(DatabasePathText,
                 Loc.T("Open a local .kdbx file or open from WebDAV"));
@@ -1056,11 +1060,9 @@ public sealed partial class MainWindow : Window
             AppLog.Info($"open request ({origin}): unlock page shown for the selected database");
         }
         UpdateDatabasePath();
-        UnlockError.Severity = InfoBarSeverity.Informational;
-        UnlockError.Title = Loc.T("Database ready to unlock");
-        UnlockError.Message = Loc.T("Enter the master password to unlock this database.");
-        UnlockError.IsOpen = true;
-        HideUnlockFailureActions();
+        Unlock.ShowStatus(Loc.T("Database ready to unlock"),
+            Loc.T("Enter the master password to unlock this database."),
+            UnlockStatusSeverity.Informational);
         MasterPassword.Focus(FocusState.Programmatic);
     }
 
@@ -2213,8 +2215,7 @@ public sealed partial class MainWindow : Window
         Settings.LastWebDavUsername = null;
         _settingsStore.Save();
         UpdateDatabasePath();
-        UnlockError.IsOpen = false;
-        HideUnlockFailureActions();
+        Unlock.ClearStatus();
     }
 
     private async void OpenFromWebDavButton_Click(object sender, RoutedEventArgs e)
@@ -2354,8 +2355,7 @@ public sealed partial class MainWindow : Window
 
         _busy = true;
         SetUnlockControlsEnabled(false);
-        UnlockError.IsOpen = false;
-        UnlockProgress.IsActive = true;
+        Unlock.ClearStatus();
         try
         {
             // Never overwrite a working copy that still holds unsynced edits:
@@ -2376,14 +2376,12 @@ public sealed partial class MainWindow : Window
                     }
                 }
                 ApplyWebDavSource(remoteUrl, remoteUsername, pendingPath);
-                UnlockError.Severity = InfoBarSeverity.Warning;
-                UnlockError.Title = Loc.T("Unsynced local changes");
-                UnlockError.Message = Loc.TLong("Unlock.UnsyncedChangesBody",
-                    "The local working copy has changes that were not " +
-                    "uploaded yet. Opening it; conflicts will be handled " +
-                    "after unlock.");
-                UnlockError.IsOpen = true;
-                HideUnlockFailureActions();
+                Unlock.ShowStatus(Loc.T("Unsynced local changes"),
+                    Loc.TLong("Unlock.UnsyncedChangesBody",
+                        "The local working copy has changes that were not " +
+                        "uploaded yet. Opening it; conflicts will be handled " +
+                        "after unlock."),
+                    UnlockStatusSeverity.Warning);
                 MasterPassword.Focus(FocusState.Programmatic);
                 return;
             }
@@ -2414,11 +2412,9 @@ public sealed partial class MainWindow : Window
             state.LocalDirty = false;
             state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             _syncStates.Save(remoteUrl, remoteUsername, workingPath, state);
-            UnlockError.Severity = InfoBarSeverity.Success;
-            UnlockError.Title = Loc.T("Downloaded from WebDAV");
-            UnlockError.Message = Loc.T("Enter the master password to unlock. Saves will sync back to this file.");
-            UnlockError.IsOpen = true;
-            HideUnlockFailureActions();
+            Unlock.ShowStatus(Loc.T("Downloaded from WebDAV"),
+                Loc.T("Enter the master password to unlock. Saves will sync back to this file."),
+                UnlockStatusSeverity.Success);
             MasterPassword.Focus(FocusState.Programmatic);
         }
         catch (WebDavException ex)
@@ -2442,11 +2438,9 @@ public sealed partial class MainWindow : Window
                     }
                 }
                 ApplyWebDavSource(remoteUrl, remoteUsername, workingPath);
-                UnlockError.Severity = InfoBarSeverity.Warning;
-                UnlockError.Title = Loc.T("WebDAV unreachable");
-                UnlockError.Message = Loc.T("Opening the local working copy. Changes will sync when the network is back.");
-                UnlockError.IsOpen = true;
-                HideUnlockFailureActions();
+                Unlock.ShowStatus(Loc.T("WebDAV unreachable"),
+                    Loc.T("Opening the local working copy. Changes will sync when the network is back."),
+                    UnlockStatusSeverity.Warning);
                 MasterPassword.Focus(FocusState.Programmatic);
             }
             else
@@ -2462,7 +2456,6 @@ public sealed partial class MainWindow : Window
         {
             _busy = false;
             SetUnlockControlsEnabled(true);
-            UnlockProgress.IsActive = false;
         }
     }
 
@@ -2492,21 +2485,32 @@ public sealed partial class MainWindow : Window
 
     private void ShowUnlockError(string title, string message)
     {
-        UnlockError.Severity = InfoBarSeverity.Error;
-        UnlockError.Title = title;
-        UnlockError.Message = message;
-        UnlockError.IsOpen = true;
+        Unlock.ShowStatus(title, message, UnlockStatusSeverity.Error, recovery: true);
         ShowUnlockFailureActions();
         Announce(Loc.T("{0}: {1}", title, message));
     }
 
     private void SetUnlockControlsEnabled(bool enabled)
     {
-        UnlockButton.IsEnabled = enabled;
+        Unlock.SetBusy(!enabled);
         ChooseDatabaseButton.IsEnabled = enabled;
         OpenFromWebDavButton.IsEnabled = enabled;
         NewDatabaseButton.IsEnabled = enabled;
     }
+
+    // x:Bind functions keep view-only conversions (bool -> Visibility, view
+    // model severity -> WinUI enum) in the view instead of leaking UI types
+    // into the view model.
+    private Visibility ToVisibility(bool visible)
+        => visible ? Visibility.Visible : Visibility.Collapsed;
+
+    private InfoBarSeverity ToInfoBarSeverity(UnlockStatusSeverity severity) => severity switch
+    {
+        UnlockStatusSeverity.Success => InfoBarSeverity.Success,
+        UnlockStatusSeverity.Warning => InfoBarSeverity.Warning,
+        UnlockStatusSeverity.Error => InfoBarSeverity.Error,
+        _ => InfoBarSeverity.Informational,
+    };
 
     // ------------------------------------------------- recent databases
 
@@ -2593,13 +2597,12 @@ public sealed partial class MainWindow : Window
         }
         if (!File.Exists(entry.Path))
         {
-            UnlockError.Severity = InfoBarSeverity.Warning;
-            UnlockError.Title = Loc.T("Database file not found");
-            UnlockError.Message = Loc.TLong("Unlock.DatabaseMissingBody",
-                "The database file is no longer at this path. It may have " +
-                "moved or be on a drive that is not connected. Use " +
-                "\"Open local file…\" to locate it again.");
-            UnlockError.IsOpen = true;
+            Unlock.ShowStatus(Loc.T("Database file not found"),
+                Loc.TLong("Unlock.DatabaseMissingBody",
+                    "The database file is no longer at this path. It may have " +
+                    "moved or be on a drive that is not connected. Use " +
+                    "\"Open local file…\" to locate it again."),
+                UnlockStatusSeverity.Warning);
             AppLog.Warn("recent database path is missing");
             return;
         }
@@ -2617,8 +2620,7 @@ public sealed partial class MainWindow : Window
         Settings.WebDavUrl = webDav ? entry.WebDavUrl : null;
         Settings.WebDavUsername = webDav ? entry.WebDavUsername : null;
         _settingsStore.Save();
-        UnlockError.IsOpen = false;
-        HideUnlockFailureActions();
+        Unlock.ClearStatus();
         UpdateDatabasePath();
         MasterPassword.Focus(FocusState.Programmatic);
     }
@@ -2629,7 +2631,7 @@ public sealed partial class MainWindow : Window
     {
         if (_dbPath is null)
         {
-            return AppDataPaths.Root;
+            return ApplicationPaths.Root;
         }
         return BackupService.BackupDirectory(_dbPath);
     }
@@ -2645,12 +2647,12 @@ public sealed partial class MainWindow : Window
             "folder below.");
         UnlockBackupPathText.Text = Loc.T("Backups: {0}", backupDirectory);
         ToolTipService.SetToolTip(UnlockBackupFolderButton, backupDirectory);
-        UnlockFailureActions.Visibility = Visibility.Visible;
+        Unlock.ShowRecovery();
     }
 
     private void HideUnlockFailureActions()
     {
-        UnlockFailureActions.Visibility = Visibility.Collapsed;
+        Unlock.HideRecovery();
     }
 
     private async void UnlockDiagnosticsButton_Click(object sender, RoutedEventArgs e)
@@ -2917,9 +2919,8 @@ public sealed partial class MainWindow : Window
         bool rememberPassword = rememberBox.IsChecked == true;
 
         _busy = true;
-        UnlockError.IsOpen = false;
         SetUnlockControlsEnabled(false);
-        UnlockProgress.IsActive = true;
+        Unlock.ClearStatus();
         try
         {
             byte[] bytes = await _core.CreateDatabaseAsync(databaseName, password);
@@ -3006,16 +3007,13 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            UnlockError.Title = Loc.T("Cannot create database");
-            UnlockError.Severity = InfoBarSeverity.Error;
-            UnlockError.Message = ex.Message;
-            UnlockError.IsOpen = true;
+            Unlock.ShowStatus(Loc.T("Cannot create database"), ex.Message,
+                UnlockStatusSeverity.Error, recovery: true);
         }
         finally
         {
             _busy = false;
             SetUnlockControlsEnabled(true);
-            UnlockProgress.IsActive = false;
             passwordBox.Password = string.Empty;
             confirmBox.Password = string.Empty;
             remotePasswordBox.Password = string.Empty;
@@ -3085,73 +3083,45 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        if (_dbPath is null)
+        Unlock.SetDatabasePath(_dbPath);
+        if (_dbPath is not null && MasterPassword.Password.Length == 0)
         {
-            UnlockError.Message = Loc.T("Choose a .kdbx database first.");
-            UnlockError.IsOpen = true;
-            return;
-        }
-        if (MasterPassword.Password.Length == 0)
-        {
-            UnlockError.Message = Loc.T("Enter the master password.");
-            UnlockError.IsOpen = true;
             MasterPassword.Focus(FocusState.Programmatic);
-            return;
         }
 
         _busy = true;
-        UnlockError.IsOpen = false;
-        SetUnlockControlsEnabled(false);
-        UnlockProgress.IsActive = true;
+        bool unlocked;
         try
         {
-            await _core.OpenAsync(_dbPath, MasterPassword.Password);
-            _masterPassword = MasterPassword.Password;
-            _selectedGroupUuid = null;
-            if (_dbPath is not null)
-            {
-                Settings.LastDatabasePath = _dbPath;
-                _settingsStore.Save();
-            }
-            await ReloadVaultAsync(null);
-            UnlockError.IsOpen = false;
-            HideUnlockFailureActions();
-            AppLog.Info("vault unlocked");
-        Announce(Loc.T("Vault unlocked"));
-            _trayIcon?.SetVaultState(true, DisplayVaultName());
-            RememberRecentDatabase();
-            ShowMain();
-            MasterPassword.Password = string.Empty;
-            _ = SyncAsync(startup: true);
-        }
-        catch (CoreException ex)
-        {
-            UnlockError.Title = ex.Code switch
-            {
-                "BadPassword" => Loc.T("Wrong master password"),
-                "CorruptDatabase" => Loc.T("Database is damaged"),
-                "UnsupportedFormat" => Loc.T("Unsupported database"),
-                _ => Loc.T("Cannot open database"),
-            };
-            UnlockError.Message = ex.Message;
-            UnlockError.IsOpen = true;
-            ShowUnlockFailureActions();
-            Announce(Loc.T("Unlock failed: {0}", ex.Message));
-        }
-        catch (Exception ex)
-        {
-            UnlockError.Title = Loc.T("Cannot open database");
-            UnlockError.Message = ex.Message;
-            UnlockError.IsOpen = true;
-            ShowUnlockFailureActions();
-            Announce(Loc.T("Unlock failed: {0}", ex.Message));
+            unlocked = await Unlock.UnlockAsync(MasterPassword.Password);
         }
         finally
         {
             _busy = false;
-            SetUnlockControlsEnabled(true);
-            UnlockProgress.IsActive = false;
         }
+        if (!unlocked)
+        {
+            Announce(Loc.T("Unlock failed: {0}", Unlock.StatusMessage));
+            return;
+        }
+
+        string password = MasterPassword.Password;
+        _masterPassword = password;
+        _selectedGroupUuid = null;
+        if (_dbPath is not null)
+        {
+            Settings.LastDatabasePath = _dbPath;
+            _settingsStore.Save();
+        }
+        await ReloadVaultAsync(null);
+        Unlock.ClearStatus();
+        AppLog.Info("vault unlocked");
+        Announce(Loc.T("Vault unlocked"));
+        _trayIcon?.SetVaultState(true, DisplayVaultName());
+        RememberRecentDatabase();
+        ShowMain();
+        MasterPassword.Password = string.Empty;
+        _ = SyncAsync(startup: true);
     }
 
     private void ShowMain()
@@ -5797,9 +5767,7 @@ public sealed partial class MainWindow : Window
         MasterPassword.Password = string.Empty;
         _masterPassword = null;
         SetSyncStatus(IsSyncConfigured ? "Not synced" : "Local only");
-        UnlockError.IsOpen = false;
-        UnlockError.Severity = InfoBarSeverity.Error;
-        HideUnlockFailureActions();
+        Unlock.ClearStatus();
         UpdateDatabasePath();
         _trayIcon?.SetVaultState(false, null);
         _busy = false;

@@ -5,7 +5,7 @@ using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
-namespace Keepassity.Mock;
+namespace Keepassity.Core;
 
 /// <summary>
 /// Facts about the TLS certificate a WebDAV server presents, shown to the user

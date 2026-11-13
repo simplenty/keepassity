@@ -8,13 +8,16 @@ planned for v1.x and is expected to consume the same core directly.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ shell (apps/windows)                                       │
-│   UI, dialogs, platform adapters: DPAPI, tray, clipboard,  │
-│   idle/lock detection, file pickers                        │
+│ shell (apps/windows/Keepassity.Mock)                       │
+│   views/XAML, platform adapters: DPAPI, tray, clipboard,   │
+│   idle/lock detection, file pickers, window lifetime       │
+├─────────────────────────────────────────────────────────────┤
+│ view models (apps/windows/Keepassity.ViewModels)           │
+│   presentation state and commands; no WinUI types; tested  │
+│   headless with fake core/text ports (ADR-0032)            │
 ├─────────────────────────────────────────────────────────────┤
 │ application services (apps/windows/Keepassity.Core)        │
-│   settings, sync state, WebDAV client, backups, sync       │
-│   orchestration/conflict flow                              │
+│   settings, sync state, WebDAV client, backups, app paths  │
 ├─────────────────────────────────────────────────────────────┤
 │ FFI contract (crates/ffi)                                  │
 │   C ABI + JSON commands; the only cross-language boundary  │
@@ -34,15 +37,20 @@ planned for v1.x and is expected to consume the same core directly.
 - **The WinUI project owns platform integration.** It creates windows and dialogs, hosts the
   tray icon, clears the clipboard and stores credentials with DPAPI. File and WebDAV IO goes
   through the application-services layer; `crates/core` stays pure.
+- **The presentation layer is MVVM.** `Keepassity.ViewModels` holds observable state and
+  commands and depends on `ICoreClient` plus injected platform ports; it must not reference
+  WinUI. Views bind with `x:Bind` and keep only view mechanics (focus, pickers, window
+  lifetime). `CommunityToolkit.Mvvm` is the source-generator baseline (ADR-0032).
 - **Application services live in `apps/windows/Keepassity.Core`.** Settings, sync state, the
-  WebDAV client, backups and sync orchestration are already platform-neutral C# and covered
+  WebDAV client, backups, paths and the `ICoreClient` port are platform-neutral C# and covered
   by the headless `tests/app-core` suite, so the future Linux shell can reuse them instead of
-  duplicating the logic.
+  duplicating the logic. The WinUI shell also carries the FFI adapter (`CoreClient`).
 
 ## Data safety
 
-- Saves use a temp file, a timestamped backup and a verified atomic replace; the save
-  protocol is exercised by the core save/sync tests.
+- Saves create a timestamped backup before replacing the live database. The core also
+  implements a verified temp-file, fsync and replace protocol; the Windows save path is being
+  migrated onto it (see the compatibility notes and ADR-0032 follow-up work).
 - The real database, credentials and WebDAV working copies never enter a git repository.
 - Test fixtures are synthetic or public samples; see `tests/fixtures/README.md`.
 

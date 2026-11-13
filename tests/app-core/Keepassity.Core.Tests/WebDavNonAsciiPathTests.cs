@@ -4,7 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Xml.Linq;
-using Keepassity.Mock;
+using Keepassity.Core;
 
 namespace Keepassity.CoreTests;
 

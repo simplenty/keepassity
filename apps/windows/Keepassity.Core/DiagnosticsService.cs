@@ -4,7 +4,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 
-namespace Keepassity.Mock;
+namespace Keepassity.Core;
 
 /// <summary>
 /// Builds a small diagnostics archive the user can inspect before sharing it.
@@ -22,7 +22,7 @@ public static class DiagnosticsService
 
     private static string ExportCore(AppSettings settings)
     {
-        string directory = Path.Combine(AppDataPaths.Root, "diagnostics");
+        string directory = Path.Combine(ApplicationPaths.Root, "diagnostics");
         Directory.CreateDirectory(directory);
         string path = Path.Combine(
             directory, $"keepassity-diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.zip");
@@ -65,9 +65,9 @@ public static class DiagnosticsService
         var assembly = typeof(DiagnosticsService).Assembly;
         string version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion ?? assembly.GetName().Version?.ToString() ?? "unknown";
-        string syncStates = CountFiles(Path.Combine(AppDataPaths.Root, "state"), "*.json");
+        string syncStates = CountFiles(Path.Combine(ApplicationPaths.Root, "state"), "*.json");
         string credentials = CountFiles(
-            Path.Combine(AppDataPaths.Root, "credentials"), "*.bin");
+            Path.Combine(ApplicationPaths.Root, "credentials"), "*.bin");
         var summary = new StringBuilder()
             .AppendLine("Keepassity diagnostics")
             .AppendLine($"app version: {version}")

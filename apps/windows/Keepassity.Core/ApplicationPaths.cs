@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-namespace Keepassity.Mock;
+namespace Keepassity.Core;
 
 /// <summary>
 /// Local data root. Defaults to %LOCALAPPDATA%\keepassity; KEEPASSITY_DATA_DIR
 /// allows a portable/test data directory without touching the real profile.
 /// </summary>
-public static class AppDataPaths
+public static class ApplicationPaths
 {
     public static string Root
     {

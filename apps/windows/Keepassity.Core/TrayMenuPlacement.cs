@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-namespace Keepassity.Mock;
+namespace Keepassity.Core;
 
 /// <summary>
 /// Pure placement decisions for the tray menu flyout. Kept out of the WinUI

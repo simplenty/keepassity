@@ -3,7 +3,7 @@
 // console harness instead of xUnit so it runs without adding test-framework
 // dependencies; extend it when a real test project is introduced.
 using Keepassity.CoreTests;
-using Keepassity.Mock;
+using Keepassity.Core;
 
 int failures = 0;
 void Check(string name, bool ok, string detail = "")
@@ -46,6 +46,9 @@ try
 
     // UI language catalog: resolution, fallback, formatting and catalog hygiene.
     LocalizationTests.Run(Check);
+
+    // MVVM: the unlock decision path is headless and has its own fakes.
+    UnlockViewModelTests.Run(Check);
 
     // sync state round trip
     var syncStates = new SyncStateStore();

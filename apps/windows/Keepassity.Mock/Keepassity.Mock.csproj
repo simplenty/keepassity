@@ -34,6 +34,13 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Keepassity.Core\Keepassity.Core.csproj" />
+    <ProjectReference Include="..\Keepassity.ViewModels\Keepassity.ViewModels.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The shell and the application services used to share one namespace.
+         This makes the new boundary explicit without touching every call site. -->
+    <Using Include="Keepassity.Core" />
+    <Using Include="Keepassity.ViewModels" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" />

@@ -7,17 +7,7 @@ using System.Text.Json.Serialization;
 
 namespace Keepassity.Mock;
 
-public sealed class CoreException : Exception
-{
-    public CoreException(string code, string message) : base($"{code}: {message}")
-    {
-        Code = code;
-    }
-
-    public string Code { get; }
-}
-
-public sealed class CoreClient : IDisposable
+public sealed class CoreClient : ICoreClient
 {
     private const string Library = "keepassity_ffi";
     private static readonly JsonSerializerOptions JsonOptions = new()
