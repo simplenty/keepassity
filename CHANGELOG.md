@@ -5,6 +5,10 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Settings can no longer be silently downgraded:** a settings file from a newer schema is
+  loaded but treated as read-only, so an older build cannot overwrite fields it does not
+  understand. An unreadable settings file is copied to `settings.json.corrupt-<timestamp>`
+  before defaults are used, preserving the evidence instead of destroying it.
 - **TOTP countdown rules moved into a view model:** `TotpTiming` owns the remaining-second
   clamp, 6/8-digit grouping, the "request a new code" decision, the three-second pre-fetch
   window and the near-boundary timer interval. The shell keeps the timer and core calls; the

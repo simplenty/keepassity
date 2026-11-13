@@ -42,33 +42,62 @@ public sealed class AppSettings
 
 public sealed class AppSettingsStore
 {
+    private const int CurrentSchema = 1;
+
     private static readonly JsonSerializerOptions Options = new()
     {
         WriteIndented = true,
     };
 
     private readonly string _path;
+    private readonly bool _readOnly;
+    private bool _warnedReadOnly;
 
-    public AppSettingsStore()
+    /// <summary>
+    /// <paramref name="path"/> is for tests and diagnostics; the app uses the
+    /// application data root.
+    /// </summary>
+    public AppSettingsStore(string? path = null)
     {
-        string directory = ApplicationPaths.Root;
-        try
+        if (string.IsNullOrWhiteSpace(path))
         {
-            Directory.CreateDirectory(directory);
+            string directory = ApplicationPaths.Root;
+            try
+            {
+                Directory.CreateDirectory(directory);
+            }
+            catch
+            {
+                // Read-only fallback: settings still load if the file exists, and
+                // Save() below is best-effort.
+            }
+            _path = Path.Combine(directory, "settings.json");
         }
-        catch
+        else
         {
-            // Read-only fallback: settings still load if the file exists, and
-            // Save() below is best-effort.
+            _path = Path.GetFullPath(path);
+            string? directory = Path.GetDirectoryName(_path);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
         }
-        _path = Path.Combine(directory, "settings.json");
-        Current = Load();
+        Current = Load(out bool readOnly);
+        _readOnly = readOnly;
     }
 
     public AppSettings Current { get; }
 
-    private AppSettings Load()
+    /// <summary>
+    /// True when the file was written by a newer schema. Saving in that state
+    /// would silently discard fields this build does not understand, so Save()
+    /// leaves the file untouched.
+    /// </summary>
+    public bool IsReadOnly => _readOnly;
+
+    private AppSettings Load(out bool readOnly)
     {
+        readOnly = false;
         try
         {
             if (File.Exists(_path))
@@ -79,11 +108,13 @@ public sealed class AppSettingsStore
                 {
                     if (loaded.SchemaVersion <= 0)
                     {
-                        loaded.SchemaVersion = 1;
+                        loaded.SchemaVersion = CurrentSchema;
                     }
-                    else if (loaded.SchemaVersion > 1)
+                    else if (loaded.SchemaVersion > CurrentSchema)
                     {
-                        AppLog.Warn($"settings schema {loaded.SchemaVersion} is newer than supported");
+                        readOnly = true;
+                        AppLog.Warn($"settings schema {loaded.SchemaVersion} is newer than " +
+                                    $"supported ({CurrentSchema}); not overwriting it");
                     }
                     return loaded;
                 }
@@ -91,14 +122,26 @@ public sealed class AppSettingsStore
         }
         catch
         {
-            // Corrupt or unreadable settings fall back to defaults; no vault data
-            // is stored in this file.
+            // Corrupt or unreadable settings fall back to defaults, but keep the
+            // original bytes for diagnosis; vault data is never stored here.
+            PreserveCorruptFile();
+            return new AppSettings();
         }
+        PreserveCorruptFile();
         return new AppSettings();
     }
 
     public void Save()
     {
+        if (_readOnly)
+        {
+            if (!_warnedReadOnly)
+            {
+                _warnedReadOnly = true;
+                AppLog.Warn("settings save skipped: the on-disk settings have a newer schema");
+            }
+            return;
+        }
         try
         {
             AtomicFile.Write(_path, JsonSerializer.SerializeToUtf8Bytes(Current, Options));
@@ -106,6 +149,24 @@ public sealed class AppSettingsStore
         catch
         {
             // Preferences are best-effort; never block vault operations on them.
+        }
+    }
+
+    private void PreserveCorruptFile()
+    {
+        try
+        {
+            if (!File.Exists(_path))
+            {
+                return;
+            }
+            string backup = _path + ".corrupt-" + DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            File.Copy(_path, backup, overwrite: false);
+            AppLog.Warn($"preserved unreadable settings as {Path.GetFileName(backup)}");
+        }
+        catch
+        {
+            // Diagnostics must not prevent the app from starting.
         }
     }
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System.Text;
+using System.Text.Json;
 using Keepassity.Core;
 
 namespace Keepassity.CoreTests;
@@ -19,7 +20,41 @@ internal static class SettingsAndCredentialTests
     public static void Run(TestCheck check)
     {
         RunSettingsProof(check);
+        RunSettingsRecovery(check);
         RunCredentialLifecycle(check);
+    }
+
+    private static void RunSettingsRecovery(TestCheck check)
+    {
+        string directory = Path.Combine(ApplicationPaths.Root,
+            "settings-recovery-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+
+        string corruptPath = Path.Combine(directory, "settings.json");
+        File.WriteAllText(corruptPath, "{ this is not json");
+        var corrupt = new AppSettingsStore(corruptPath);
+        check("settings: corrupt file falls back to defaults",
+            corrupt.Current.Theme == "Dark" && !corrupt.IsReadOnly, corrupt.Current.Theme);
+        check("settings: corrupt file is preserved for diagnosis",
+            Directory.GetFiles(directory, "settings.json.corrupt-*").Length == 1);
+
+        string newerPath = Path.Combine(directory, "newer", "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(newerPath)!);
+        File.WriteAllText(newerPath,
+            "{\"SchemaVersion\":2,\"Theme\":\"Light\",\"FutureField\":\"keep-me\"}");
+        var newer = new AppSettingsStore(newerPath);
+        check("settings: newer schema is readable", newer.Current.Theme == "Light",
+            newer.Current.Theme);
+        check("settings: newer schema is read-only", newer.IsReadOnly);
+        newer.Current.Theme = "Dark";
+        newer.Save();
+        using JsonDocument after = JsonDocument.Parse(File.ReadAllText(newerPath));
+        JsonElement root = after.RootElement;
+        check("settings: saving a newer schema does not downgrade it",
+            root.GetProperty("SchemaVersion").GetInt32() == 2 &&
+            root.GetProperty("Theme").GetString() == "Light" &&
+            root.GetProperty("FutureField").GetString() == "keep-me",
+            root.ToString());
     }
 
     private static void RunSettingsProof(TestCheck check)
