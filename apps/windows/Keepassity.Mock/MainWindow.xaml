@@ -473,7 +473,7 @@
                                         </TransitionCollection>
                                     </ListView.ItemContainerTransitions>
                                     <ListView.ItemTemplate>
-                                        <DataTemplate x:DataType="local:EntryItem">
+                                        <DataTemplate x:DataType="local:EntryRowPresenter">
                                             <Grid ColumnSpacing="12">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="36" />

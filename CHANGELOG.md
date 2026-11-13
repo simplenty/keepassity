@@ -5,6 +5,11 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Entry list presentation moved out of the shell:** row display logic (title/initial/avatar color,
+  username/URL/group fallback, TOTP badge), sorting, the TOTP filter and the row fingerprint now
+  live in `Keepassity.ViewModels` and run under the headless test harness. The shell keeps only a
+  thin `EntryRowPresenter` that turns the view model's color string and boolean into WinUI types;
+  the group navigation item is also a pure ViewModel type.
 - **Uninstall no longer deletes user files:** the uninstaller used to remove the whole
   installation directory (`filesandordirs {app}`), which would also delete a vault, backup or
   note a user put next to the executable. Inno Setup now removes only the files it installed;

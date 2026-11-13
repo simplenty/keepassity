@@ -24,13 +24,14 @@ using Windows.Storage.Streams;
 using Windows.System;
 using Windows.UI;
 using Windows.UI.ViewManagement;
+using Keepassity.ViewModels;
 
 namespace Keepassity.Mock;
 
 public sealed partial class MainWindow : Window
 {
-    public ObservableCollection<GroupItem> Groups { get; } = new();
-    public ObservableCollection<EntryItem> Entries { get; } = new();
+    public ObservableCollection<GroupNavItem> Groups { get; } = new();
+    public ObservableCollection<EntryRowPresenter> Entries { get; } = new();
 
     /// <summary>State and commands for the unlock surface (MVVM boundary).</summary>
     public UnlockViewModel Unlock { get; }
@@ -64,7 +65,7 @@ public sealed partial class MainWindow : Window
     private string? _recycleBinGroupUuid;
     private string? _rootGroupUuid;
     private EntryFullDto? _currentFull;
-    private EntryItem? _currentSummary;
+    private EntryRowPresenter? _currentSummary;
     private string? _currentTotpCode;
     private string? _lastClipboardText;
     private string? _masterPassword;
@@ -79,7 +80,7 @@ public sealed partial class MainWindow : Window
     private bool _busy;
     private bool _suppressNav;
     private int _showGeneration;
-    private string _entrySort = "title";
+    private EntrySort _entrySort = EntrySort.Title;
     private bool _onlyTotp;
     private string _lastEntryFingerprint = string.Empty;
     private Grid? _rightPanel;
@@ -3265,10 +3266,10 @@ public sealed partial class MainWindow : Window
         Groups.Clear();
         int activeEntryCount = allEntries.Count(entry =>
             _recycleBinGroupUuid is null || entry.GroupUuid != _recycleBinGroupUuid);
-        Groups.Add(new GroupItem(null, Loc.T("All entries"), activeEntryCount, "\uE8FD"));
-        GroupItem? recycleBin = null;
-        GroupItem? templates = null;
-        var otherGroups = new List<GroupItem>();
+        Groups.Add(new GroupNavItem(null, Loc.T("All entries"), activeEntryCount, "\uE8FD"));
+        GroupNavItem? recycleBin = null;
+        GroupNavItem? templates = null;
+        var otherGroups = new List<GroupNavItem>();
         foreach (GroupDto group in _groupDtos)
         {
             if (group.Uuid == _rootGroupUuid || string.IsNullOrWhiteSpace(group.Name))
@@ -3276,7 +3277,7 @@ public sealed partial class MainWindow : Window
                 continue;
             }
             int count = allEntries.Count(entry => entry.GroupUuid == group.Uuid);
-            var item = new GroupItem(group.Uuid, group.Name, count, "\uE8B7");
+            var item = new GroupNavItem(group.Uuid, group.Name, count, "\uE8B7");
             if (IsRecycleBinGroup(group.Name) && recycleBin is null)
             {
                 recycleBin = item;
@@ -3292,7 +3293,7 @@ public sealed partial class MainWindow : Window
         }
         // Normal groups keep the vault order; template groups are pinned above
         // the recycle bin, which is always the last navigation item.
-        foreach (GroupItem item in otherGroups)
+        foreach (GroupNavItem item in otherGroups)
         {
             Groups.Add(item);
         }
@@ -3315,9 +3316,9 @@ public sealed partial class MainWindow : Window
                                 entry.GroupUuid != _recycleBinGroupUuid)
                 .ToList()
             : allEntries.Where(entry => entry.GroupUuid == _selectedGroupUuid).ToList();
-        string? previousSelection = (EntryList.SelectedItem as EntryItem)?.Uuid;
+        string? previousSelection = (EntryList.SelectedItem as EntryRowPresenter)?.Uuid;
         bool listRebuilt = PopulateEntries(visible, title, selectEntryUuid ?? previousSelection);
-        if (!listRebuilt && EntryList.SelectedItem is EntryItem stillSelected &&
+        if (!listRebuilt && EntryList.SelectedItem is EntryRowPresenter stillSelected &&
             string.Equals(stillSelected.Uuid, previousSelection, StringComparison.Ordinal))
         {
             // Saving a password-only edit changes nothing the middle column shows,
@@ -3368,7 +3369,7 @@ public sealed partial class MainWindow : Window
         NavView.MenuItems.Clear();
         NavigationViewItem? selectedItem = null;
         NavigationViewItem? first = null;
-        foreach (GroupItem group in Groups)
+        foreach (GroupNavItem group in Groups)
         {
             var item = new NavigationViewItem
             {
@@ -3455,7 +3456,7 @@ public sealed partial class MainWindow : Window
                value.Equals("Template", StringComparison.OrdinalIgnoreCase);
     }
 
-    private MenuFlyout BuildGroupContextMenu(GroupItem group)
+    private MenuFlyout BuildGroupContextMenu(GroupNavItem group)
     {
         var flyout = new MenuFlyout();
         void Add(string text, string glyph, Func<Task> action,
@@ -3533,7 +3534,7 @@ public sealed partial class MainWindow : Window
         ShowToast(Loc.T("Group \"{0}\" created", name), InfoBarSeverity.Success);
     }
 
-    private async Task RenameGroupPromptAsync(GroupItem group)
+    private async Task RenameGroupPromptAsync(GroupNavItem group)
     {
         if (group.Uuid is null)
         {
@@ -3551,7 +3552,7 @@ public sealed partial class MainWindow : Window
         ShowToast(Loc.T("Group renamed"), InfoBarSeverity.Success);
     }
 
-    private async Task DeleteGroupAsync(GroupItem group)
+    private async Task DeleteGroupAsync(GroupNavItem group)
     {
         if (group.Uuid is null)
         {
@@ -3736,7 +3737,7 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        EntryItem? movedItem = Entries.FirstOrDefault(entry => entry.Uuid == entryUuid);
+        EntryRowPresenter? movedItem = Entries.FirstOrDefault(entry => entry.Uuid == entryUuid);
         string? sourceGroupUuid = movedItem?.GroupUuid;
         if (sourceGroupUuid is not null && sourceGroupUuid == targetGroupUuid)
         {
@@ -3840,25 +3841,21 @@ public sealed partial class MainWindow : Window
     /// <returns><see langword="true"/> when the list was rebuilt.</returns>
     private bool PopulateEntries(IEnumerable<EntrySummaryDto> entries, string title, string? selectUuid = null)
     {
-        List<EntrySummaryDto> visible = entries.ToList();
-        if (_onlyTotp)
-        {
-            visible = visible.Where(entry => entry.HasTotp).ToList();
-        }
-        visible = _entrySort switch
-        {
-            "modified" => visible.OrderByDescending(entry => entry.ModifiedUnix).ToList(),
-            "group" => visible
-                .OrderBy(entry => _groupNames.GetValueOrDefault(entry.GroupUuid, string.Empty),
-                    StringComparer.CurrentCultureIgnoreCase)
-                .ThenBy(entry => entry.Title, StringComparer.CurrentCultureIgnoreCase)
-                .ToList(),
-            _ => visible
-                .OrderBy(entry => entry.Title, StringComparer.CurrentCultureIgnoreCase)
-                .ToList(),
-        };
+        List<EntryRowInput> rows = entries
+            .Select(entry => new EntryRowInput(
+                entry.Uuid,
+                entry.GroupUuid,
+                _groupNames.GetValueOrDefault(entry.GroupUuid, Loc.T("Vault")),
+                entry.Title,
+                entry.Username,
+                entry.Url,
+                entry.HasTotp,
+                entry.ModifiedUnix))
+            .ToList();
+        List<EntryRowInput> visible =
+            EntryListProjection.Visible(rows, _entrySort, _onlyTotp);
 
-        string fingerprint = EntryListFingerprint(visible, title);
+        string fingerprint = EntryListProjection.Fingerprint(visible, title);
         if (fingerprint == _lastEntryFingerprint && Entries.Count == visible.Count)
         {
             // Same rows in the same order: keep the items (and the scroll offset).
@@ -3871,12 +3868,11 @@ public sealed partial class MainWindow : Window
             return false;
         }
 
-        string? keepUuid = selectUuid ?? (EntryList.SelectedItem as EntryItem)?.Uuid;
+        string? keepUuid = selectUuid ?? (EntryList.SelectedItem as EntryRowPresenter)?.Uuid;
         Entries.Clear();
-        foreach (EntrySummaryDto entry in visible)
+        foreach (EntryRowInput row in visible)
         {
-            string groupName = _groupNames.GetValueOrDefault(entry.GroupUuid, Loc.T("Vault"));
-            Entries.Add(new EntryItem(entry, groupName));
+            Entries.Add(new EntryRowPresenter(row));
         }
         _lastEntryFingerprint = fingerprint;
         CurrentGroupTitle.Text = title;
@@ -3923,32 +3919,11 @@ public sealed partial class MainWindow : Window
 
     private void SelectEntryRow(string uuid)
     {
-        EntryItem? item = Entries.FirstOrDefault(entry => entry.Uuid == uuid);
+        EntryRowPresenter? item = Entries.FirstOrDefault(entry => entry.Uuid == uuid);
         if (item is not null && !ReferenceEquals(EntryList.SelectedItem, item))
         {
             EntryList.SelectedItem = item;
         }
-    }
-
-    /// <summary>
-    /// Cheap identity of the rendered rows; rebuilt lists with the same identity
-    /// are not re-rendered, so scroll position and selection survive merges and
-    /// moves that do not change what the user sees in the middle column.
-    /// </summary>
-    private static string EntryListFingerprint(List<EntrySummaryDto> visible, string title)
-    {
-        var builder = new System.Text.StringBuilder(title);
-        foreach (EntrySummaryDto entry in visible)
-        {
-            builder.Append('\n')
-                .Append(entry.Uuid).Append('|')
-                .Append(entry.GroupUuid).Append('|')
-                .Append(entry.Title).Append('|')
-                .Append(entry.Username).Append('|')
-                .Append(entry.Url).Append('|')
-                .Append(entry.HasTotp ? '1' : '0');
-        }
-        return builder.ToString();
     }
 
     /// <summary>
@@ -3967,7 +3942,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         string targetName = _groupNames.GetValueOrDefault(targetGroupUuid, targetGroupName);
-        EntryItem? item = Entries.FirstOrDefault(entry => entry.Uuid == entryUuid);
+        EntryRowPresenter? item = Entries.FirstOrDefault(entry => entry.Uuid == entryUuid);
         if (item is not null)
         {
             bool searchActive = SearchBox.Text.Trim().Length > 0;
@@ -4011,18 +3986,18 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void RefreshEntryListFingerprint(string title)
     {
-        var builder = new System.Text.StringBuilder(title);
-        foreach (EntryItem item in Entries)
-        {
-            builder.Append('\n')
-                .Append(item.Uuid).Append('|')
-                .Append(item.GroupUuid).Append('|')
-                .Append(item.Title).Append('|')
-                .Append(item.Username).Append('|')
-                .Append(item.Url).Append('|')
-                .Append(item.HasTotp ? '1' : '0');
-        }
-        _lastEntryFingerprint = builder.ToString();
+        List<EntryRowInput> rows = Entries
+            .Select(item => new EntryRowInput(
+                item.Uuid,
+                item.GroupUuid,
+                item.GroupName,
+                item.Title,
+                item.Username,
+                item.Url,
+                item.HasTotp,
+                0))
+            .ToList();
+        _lastEntryFingerprint = EntryListProjection.Fingerprint(rows, title);
     }
 
     private void AdjustGroupCount(string? groupUuid, int delta)
@@ -4033,10 +4008,10 @@ public sealed partial class MainWindow : Window
         }
         for (int index = 0; index < Groups.Count; index++)
         {
-            GroupItem group = Groups[index];
+            GroupNavItem group = Groups[index];
             if (group.Uuid == groupUuid)
             {
-                Groups[index] = new GroupItem(group.Uuid, group.Name,
+                Groups[index] = new GroupNavItem(group.Uuid, group.Name,
                     Math.Max(0, group.CountValue + delta), group.Glyph);
                 return;
             }
@@ -4046,7 +4021,7 @@ public sealed partial class MainWindow : Window
     private void ListOptionsButton_Click(object sender, RoutedEventArgs e)
     {
         var flyout = new MenuFlyout();
-        void AddSort(string label, string value)
+        void AddSort(string label, EntrySort value)
         {
             var item = new RadioMenuFlyoutItem
             {
@@ -4061,9 +4036,9 @@ public sealed partial class MainWindow : Window
             };
             flyout.Items.Add(item);
         }
-        AddSort(Loc.T("Sort by title"), "title");
-        AddSort(Loc.T("Sort by recently modified"), "modified");
-        AddSort(Loc.T("Sort by group"), "group");
+        AddSort(Loc.T("Sort by title"), EntrySort.Title);
+        AddSort(Loc.T("Sort by recently modified"), EntrySort.Modified);
+        AddSort(Loc.T("Sort by group"), EntrySort.Group);
         flyout.Items.Add(new MenuFlyoutSeparator());
         var totpOnly = new ToggleMenuFlyoutItem
         {
@@ -4360,7 +4335,7 @@ public sealed partial class MainWindow : Window
 
     private async void EntryList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (EntryList.SelectedItem is not EntryItem item)
+        if (EntryList.SelectedItem is not EntryRowPresenter item)
         {
             ClearDetail();
             return;
@@ -4380,7 +4355,7 @@ public sealed partial class MainWindow : Window
         _draggedEntryGroupUuid = null;
         _draggedEntryTitle = null;
         _dragSameGroupHintShown = false;
-        if (e.Items.Count == 0 || e.Items[0] is not EntryItem entry)
+        if (e.Items.Count == 0 || e.Items[0] is not EntryRowPresenter entry)
         {
             e.Cancel = true;
             return;
@@ -4406,7 +4381,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         ListViewItem? container = FindAncestor<ListViewItem>(source);
-        if (container?.DataContext is not EntryItem entry)
+        if (container?.DataContext is not EntryRowPresenter entry)
         {
             return;
         }
@@ -4415,7 +4390,7 @@ public sealed partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private MenuFlyout BuildEntryContextMenu(EntryItem entry)
+    private MenuFlyout BuildEntryContextMenu(EntryRowPresenter entry)
     {
         var flyout = new MenuFlyout();
         void Add(string text, string glyph, Func<Task> action, bool danger = false)
@@ -4476,13 +4451,13 @@ public sealed partial class MainWindow : Window
         return flyout;
     }
 
-    private async Task CopyEntryPasswordAsync(EntryItem entry)
+    private async Task CopyEntryPasswordAsync(EntryRowPresenter entry)
     {
         EntryFullDto full = await _core.GetEntryAsync(entry.Uuid);
         CopyText(full.PasswordSecret, Loc.T("Password copied"));
     }
 
-    private async Task CopyEntryTotpAsync(EntryItem entry)
+    private async Task CopyEntryTotpAsync(EntryRowPresenter entry)
     {
         TotpCodeDto? code = await _core.TotpCodeAsync(entry.Uuid);
         if (code is null)
@@ -4493,7 +4468,7 @@ public sealed partial class MainWindow : Window
         CopyText(code.Code, Loc.T("One-time code copied"));
     }
 
-    private async Task OpenEntryUrlAsync(EntryItem entry)
+    private async Task OpenEntryUrlAsync(EntryRowPresenter entry)
     {
         if (Uri.TryCreate(entry.Url, UriKind.Absolute, out Uri? uri))
         {
@@ -4501,7 +4476,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task RunEntryActionAsync(EntryItem entry, Action action)
+    private async Task RunEntryActionAsync(EntryRowPresenter entry, Action action)
     {
         await ShowEntryAsync(entry);
         action();
@@ -4520,7 +4495,7 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
-    private async Task ShowEntryAsync(EntryItem summary, bool animate = true)
+    private async Task ShowEntryAsync(EntryRowPresenter summary, bool animate = true)
     {
         int generation = ++_showGeneration;
         _currentSummary = summary;
@@ -6300,98 +6275,4 @@ public sealed partial class MainWindow : Window
         _toastTimer.Start();
         Announce(message);
     }
-}
-
-public sealed class GroupItem
-{
-    public GroupItem(string? uuid, string name, int count, string glyph)
-    {
-        Uuid = uuid;
-        Name = name;
-        Count = count.ToString();
-        Glyph = glyph;
-    }
-
-    public string? Uuid { get; }
-    public string Name { get; }
-    public string Count { get; }
-    public string Glyph { get; }
-    public int CountValue => int.TryParse(Count, out int value) ? value : 0;
-}
-
-public sealed class EntryItem : INotifyPropertyChanged
-{
-    private static readonly Color[] Palette =
-    {
-        Color.FromArgb(255, 0, 120, 212),
-        Color.FromArgb(255, 135, 100, 184),
-        Color.FromArgb(255, 16, 124, 16),
-        Color.FromArgb(255, 202, 80, 16),
-        Color.FromArgb(255, 0, 153, 188),
-        Color.FromArgb(255, 197, 15, 31),
-    };
-
-    private string _groupUuid;
-    private string _groupName;
-    private string _secondary;
-
-    public EntryItem(EntrySummaryDto entry, string groupName)
-    {
-        Uuid = entry.Uuid;
-        _groupUuid = entry.GroupUuid;
-        Title = entry.Title;
-        Username = entry.Username;
-        Url = entry.Url;
-        _groupName = groupName;
-        HasTotp = entry.HasTotp;
-        _secondary = SecondaryFor(entry.Username, entry.Url, groupName);
-        Initial = entry.Title.Length > 0 ? entry.Title[..1].ToUpperInvariant() : "?";
-        int hash = 0;
-        foreach (char character in entry.Uuid)
-        {
-            hash = unchecked((hash * 31) + character);
-        }
-        AvatarBrush = new SolidColorBrush(Palette[(hash & int.MaxValue) % Palette.Length]);
-    }
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    public string Uuid { get; }
-    public string GroupUuid => _groupUuid;
-    public string Title { get; }
-    public string Username { get; }
-    public string Url { get; }
-    public string GroupName => _groupName;
-    public string Secondary => _secondary;
-    public bool HasTotp { get; }
-    public string Initial { get; }
-    public Brush AvatarBrush { get; }
-    public Visibility TotpVisibility => HasTotp ? Visibility.Visible : Visibility.Collapsed;
-
-    /// <summary>
-    /// Updates the group shown for an entry that stays visible after a move (All
-    /// entries / search view). Mutating the existing item keeps the ListView's
-    /// selection and scroll position instead of rebuilding the middle column.
-    /// </summary>
-    public void UpdateGroup(string groupUuid, string groupName)
-    {
-        if (_groupUuid == groupUuid && _groupName == groupName)
-        {
-            return;
-        }
-        _groupUuid = groupUuid;
-        _groupName = groupName;
-        _secondary = SecondaryFor(Username, Url, groupName);
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(GroupUuid)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(GroupName)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Secondary)));
-    }
-
-    private static string SecondaryFor(string username, string url, string groupName)
-        => !string.IsNullOrWhiteSpace(username)
-            ? username
-            : Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) &&
-              !string.IsNullOrWhiteSpace(uri.Host)
-                ? uri.Host
-                : groupName;
 }
