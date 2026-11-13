@@ -51,6 +51,10 @@ planned for v1.x and is expected to consume the same core directly.
 - Saves create a timestamped backup before replacing the live database. The core also
   implements a verified temp-file, fsync and replace protocol; the Windows save path is being
   migrated onto it (see the compatibility notes and ADR-0032 follow-up work).
+- Remote downloads are decrypted with the current master password before they replace the
+  live database; upload redirects are rejected rather than followed, and a sync baseline
+  without a content hash is refused. A corrupt sync sidecar makes the vault dirty instead of
+  clean.
 - The real database, credentials and WebDAV working copies never enter a git repository.
 - Test fixtures are synthetic or public samples; see `tests/fixtures/README.md`.
 

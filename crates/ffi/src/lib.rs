@@ -843,12 +843,24 @@ pub extern "C" fn kp_sync_commit(
 ) -> i32 {
     guarded(|| {
         let result = (|| {
-            let etag = c_string_opt(etag)?;
-            let sha = c_string_opt(content_sha256)?;
+            let etag = c_string_opt(etag)?.filter(|value| !value.trim().is_empty());
+            // A baseline without the content hash is not a baseline: the next
+            // sync could not tell whether the remote or local copy changed and
+            // would be free to overwrite the local database. Fail closed.
+            let sha = c_string_opt(content_sha256)?
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    FfiError::invalid("content SHA-256 is required for a sync baseline")
+                })?;
+            if sha.len() != 64 || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(FfiError::invalid(
+                    "content SHA-256 must be 64 hexadecimal characters",
+                ));
+            }
             with_state(handle, |state| {
                 state.baseline = SyncBaseline {
                     etag,
-                    sha256: sha,
+                    sha256: Some(sha),
                     size: None,
                     modified_unix: None,
                 };
@@ -1913,5 +1925,32 @@ mod tests {
     #[test]
     fn api_version_matches_core() {
         assert_eq!(kp_api_version(), keepassity_core::API_MAJOR);
+    }
+
+    #[test]
+    fn sync_commit_rejects_an_incomplete_baseline() {
+        let handle = open_fixture();
+        // A null/null commit used to succeed and clear the dirty flag, which let
+        // the next sync overwrite local edits without a baseline.
+        assert_ne!(
+            kp_sync_commit(handle, std::ptr::null(), std::ptr::null()),
+            0
+        );
+        let empty_etag = CString::new("").unwrap();
+        assert_ne!(
+            kp_sync_commit(handle, empty_etag.as_ptr(), std::ptr::null()),
+            0
+        );
+        let short_sha = CString::new("abc").unwrap();
+        assert_ne!(
+            kp_sync_commit(handle, std::ptr::null(), short_sha.as_ptr()),
+            0
+        );
+        let valid_sha = CString::new("a".repeat(64)).unwrap();
+        assert_eq!(
+            kp_sync_commit(handle, std::ptr::null(), valid_sha.as_ptr()),
+            0
+        );
+        assert_eq!(kp_close(handle), 0);
     }
 }

@@ -347,7 +347,8 @@
                     </NavigationView.PaneHeader>
 
                     <NavigationView.FooterMenuItems>
-                        <NavigationViewItem x:Name="SyncNavItem" Content="Local only" Tag="sync" UseSystemFocusVisuals="False"
+                        <NavigationViewItem x:Name="SyncNavItem"
+                                    Content="{x:Bind SyncStatus.Text, Mode=OneWay}" Tag="sync" UseSystemFocusVisuals="False"
                                             SelectsOnInvoked="False"
                                             loc:LocMarkup.Name="Sync status"
                                             AutomationProperties.AutomationId="SyncStatus"

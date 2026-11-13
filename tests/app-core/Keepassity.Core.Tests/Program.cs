@@ -49,6 +49,7 @@ try
 
     // MVVM: the unlock decision path is headless and has its own fakes.
     UnlockViewModelTests.Run(Check);
+    SyncStatusViewModelTests.Run(Check);
 
     // sync state round trip
     var syncStates = new SyncStateStore();
@@ -72,6 +73,36 @@ try
         SyncState otherUser = syncStates.Load(
             "https://example.test/db.kdbx", "other", "/tmp/db.kdbx");
         Check("sync state is keyed by user", otherUser.Etag is null);
+
+        // A corrupt or half-written sidecar must fail closed: treating it as
+        // clean lets the next sync download over local edits.
+        string corruptUrl = "https://example.test/corrupt.kdbx";
+        syncStates.Save(corruptUrl, "user", "/tmp/corrupt.kdbx",
+            new SyncState
+            {
+                Etag = "\"etag\"",
+                Sha256 = new string('b', 64),
+                LastSyncUnix = 987654321,
+            });
+        string stateDirectory = Path.Combine(ApplicationPaths.Root, "state");
+        string? sidecar = Directory.Exists(stateDirectory)
+            ? Directory.EnumerateFiles(stateDirectory, "*.json")
+                .FirstOrDefault(file => File.ReadAllText(file).Contains(
+                    "987654321", StringComparison.Ordinal))
+            : null;
+        Check("sync state sidecar exists for corruption test", sidecar is not null);
+        if (sidecar is not null)
+        {
+            File.WriteAllText(sidecar, "{ not valid json");
+            SyncState recovered = syncStates.Load(corruptUrl, "user", "/tmp/corrupt.kdbx");
+            Check("corrupt sync state is treated as dirty", recovered.LocalDirty);
+        }
+
+        syncStates.Save("https://example.test/half.kdbx", "user", "/tmp/half.kdbx",
+            new SyncState { Etag = "\"etag\"", Sha256 = null });
+        SyncState half = syncStates.Load(
+            "https://example.test/half.kdbx", "user", "/tmp/half.kdbx");
+        Check("incomplete sync baseline is treated as dirty", half.LocalDirty);
     }
     else
     {
@@ -133,6 +164,7 @@ try
     // M4-01: WebDavClient against an in-process WebDAV mock on a CJK path; also
     // proves the client sends the percent-encoded request target.
     WebDavNonAsciiPathTests.Run(Check);
+    WebDavSafetyTests.Run(Check);
     WebDavTlsTests.Run(Check);
 
     // backups

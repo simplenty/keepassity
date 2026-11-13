@@ -38,6 +38,12 @@ public sealed class WebDavClient : IDisposable
         "<d:getlastmodified/></d:prop></d:propfind>";
 
     private readonly HttpClient _client;
+    /// <summary>
+    /// Uploads never follow redirects: a 301/302/303/307/308 would otherwise be
+    /// replayed as a body-less GET (303) and a 200 response from the redirect
+    /// target would look like a successful database upload.
+    /// </summary>
+    private readonly HttpClient _uploadClient;
     private readonly Uri _fileUri;
 
     /// <param name="trustedCertificateSha256">
@@ -53,12 +59,28 @@ public sealed class WebDavClient : IDisposable
         {
             throw new WebDavException("WebDAV URL must be an absolute http(s) file URL.");
         }
+        if (uri.Scheme == Uri.UriSchemeHttp && !uri.IsLoopback)
+        {
+            // Basic authentication sends the WebDAV password with every
+            // request, so plain HTTP is only acceptable for loopback tests.
+            throw new WebDavException(
+                "WebDAV URLs must use https:// (the password travels with Basic authentication).");
+        }
         _fileUri = uri;
+        _client = CreateHttpClient(username, password, trustedCertificateSha256,
+            allowAutoRedirect: true);
+        _uploadClient = CreateHttpClient(username, password, trustedCertificateSha256,
+            allowAutoRedirect: false);
+    }
+
+    private static HttpClient CreateHttpClient(string username, string password,
+        string? trustedCertificateSha256, bool allowAutoRedirect)
+    {
         var handler = new HttpClientHandler
         {
             Credentials = new NetworkCredential(username, password),
             PreAuthenticate = true,
-            AllowAutoRedirect = true,
+            AllowAutoRedirect = allowAutoRedirect,
         };
         if (!string.IsNullOrWhiteSpace(trustedCertificateSha256))
         {
@@ -69,18 +91,19 @@ public sealed class WebDavClient : IDisposable
                  string.Equals(WebDavTls.Fingerprint(certificate), pinned,
                      StringComparison.Ordinal));
         }
-        _client = new HttpClient(handler)
+        var client = new HttpClient(handler)
         {
             Timeout = TimeSpan.FromSeconds(45),
         };
         // Update together with Directory.Build.props on a release bump.
-        _client.DefaultRequestHeaders.UserAgent.ParseAdd("keepassity/1.0.0");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("keepassity/1.0.0");
         if (!string.IsNullOrEmpty(username))
         {
             string token = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
-            _client.DefaultRequestHeaders.Authorization =
+            client.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Basic", token);
         }
+        return client;
     }
 
     public async Task<WebDavFileInfo?> GetMetadataAsync(CancellationToken cancellationToken = default)
@@ -163,7 +186,7 @@ public sealed class WebDavClient : IDisposable
         HttpResponseMessage response;
         try
         {
-            response = await _client.SendAsync(request,
+            response = await _uploadClient.SendAsync(request,
                 HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         }
         catch (HttpRequestException ex) when (ex.InnerException is AuthenticationException tls)
@@ -209,6 +232,10 @@ public sealed class WebDavClient : IDisposable
             HttpStatusCode.MethodNotAllowed => "The WebDAV server rejected the required method.",
             HttpStatusCode.InsufficientStorage => "The WebDAV server is out of storage.",
             HttpStatusCode.Conflict => "The remote path conflicts with a collection.",
+            HttpStatusCode.MovedPermanently or HttpStatusCode.Found or
+                HttpStatusCode.SeeOther or HttpStatusCode.TemporaryRedirect or
+                HttpStatusCode.PermanentRedirect =>
+                "The WebDAV server redirected the request; refusing to follow it.",
             _ => $"WebDAV request failed ({(int)response.StatusCode} {response.ReasonPhrase}).",
         };
         if (body.Length is > 0 and < 500)
@@ -218,5 +245,9 @@ public sealed class WebDavClient : IDisposable
         throw new WebDavException(message, (int)response.StatusCode);
     }
 
-    public void Dispose() => _client.Dispose();
+    public void Dispose()
+    {
+        _client.Dispose();
+        _uploadClient.Dispose();
+    }
 }

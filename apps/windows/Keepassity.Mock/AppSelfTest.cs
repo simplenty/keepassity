@@ -276,6 +276,30 @@ internal static class AppSelfTest
                     throw new InvalidOperationException("Reopened database has no entries.");
                 }
                 Record($"reopened: {reopened.Count} entr(ies)");
+
+                // Remote bytes are verified before they replace the live copy.
+                // Prove the C ABI accepts the intact save and rejects a damaged
+                // body, so a redirect page or truncated download cannot slip in.
+                Record("verifying save before replace");
+                byte[] saved = File.ReadAllBytes(temp);
+                verify.VerifyAsync(saved, password).GetAwaiter().GetResult();
+                byte[] damaged = (byte[])saved.Clone();
+                damaged[^1] ^= 0x5A;
+                bool damagedRejected = false;
+                try
+                {
+                    verify.VerifyAsync(damaged, password).GetAwaiter().GetResult();
+                }
+                catch (CoreException)
+                {
+                    damagedRejected = true;
+                }
+                if (!damagedRejected)
+                {
+                    throw new InvalidOperationException(
+                        "Verification accepted a damaged database.");
+                }
+                Record("verify: intact accepted, damaged rejected");
             }
 
             // A save must not change what a merge sees: merging the saved copy

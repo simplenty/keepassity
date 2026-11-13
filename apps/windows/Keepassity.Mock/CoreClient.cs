@@ -31,6 +31,9 @@ public sealed class CoreClient : ICoreClient
     private static extern IntPtr kp_open(byte[] kdbx, UIntPtr len, byte[] optsJson);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int kp_verify(byte[] kdbx, UIntPtr len, byte[] optsJson);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     private static extern int kp_lock(IntPtr handle);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -88,6 +91,38 @@ public sealed class CoreClient : ICoreClient
                 _handle = handle;
             }).ConfigureAwait(false);
             DatabasePath = path;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Decrypt and validate KDBX bytes without keeping a handle. Used before
+    /// replacing a local database with downloaded or restored bytes.
+    /// </summary>
+    public async Task VerifyAsync(byte[] bytes, string password)
+    {
+        if (bytes.Length == 0)
+        {
+            throw new ArgumentException("The database buffer is empty.", nameof(bytes));
+        }
+        if (string.IsNullOrEmpty(password))
+        {
+            throw new ArgumentException("The master password is required.", nameof(password));
+        }
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await Task.Run(() =>
+            {
+                byte[] options = Utf8Z(JsonSerializer.Serialize(new { password }));
+                if (kp_verify(bytes, (UIntPtr)bytes.LongLength, options) != 0)
+                {
+                    throw ParseError(LastError(), "verify database");
+                }
+            }).ConfigureAwait(false);
         }
         finally
         {
@@ -443,6 +478,14 @@ public sealed class CoreClient : ICoreClient
 
     public async Task SyncCommitAsync(string? etag, string? sha256)
     {
+        if (sha256 is not { Length: 64 } ||
+            !sha256.All(character => character is >= '0' and <= '9'
+                or >= 'a' and <= 'f' or >= 'A' and <= 'F'))
+        {
+            throw new ArgumentException(
+                "A sync baseline needs the 64-character SHA-256 of the synced bytes.",
+                nameof(sha256));
+        }
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {

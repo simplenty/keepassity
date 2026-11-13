@@ -248,6 +248,9 @@ internal sealed class WebDavMockServer : IDisposable
 
     public int Port { get; }
 
+    /// <summary>Answer the next PUT with a 303 to a readable resource.</summary>
+    public bool RedirectUploads { get; set; }
+
     public int PendingRequests
     {
         get
@@ -411,7 +414,8 @@ internal sealed class WebDavMockServer : IDisposable
     }
 
     private sealed record Response(int Status, string Reason, byte[] Body,
-        string? ETag, DateTimeOffset? Modified, long? ContentLength = null);
+        string? ETag, DateTimeOffset? Modified, long? ContentLength = null,
+        string? Location = null);
 
     private Response Handle(WebDavRequest request)
     {
@@ -434,6 +438,13 @@ internal sealed class WebDavMockServer : IDisposable
                             getResource.Modified)
                         : NotFound();
                 case "PUT":
+                    if (RedirectUploads)
+                    {
+                        // A body-less GET of this target returns 200; a client
+                        // that follows 303 would report a fake upload success.
+                        return new Response(303, "See Other", Array.Empty<byte>(),
+                            null, null, Location: "/redirected-target");
+                    }
                     return Put(request);
                 default:
                     return new Response(405, "Method Not Allowed", Array.Empty<byte>(),
@@ -500,6 +511,10 @@ internal sealed class WebDavMockServer : IDisposable
             headers.Append("Last-Modified: ")
                 .Append(modified.ToUniversalTime().ToString("R", CultureInfo.InvariantCulture))
                 .Append("\r\n");
+        }
+        if (response.Location is not null)
+        {
+            headers.Append("Location: ").Append(response.Location).Append("\r\n");
         }
         headers.Append("Content-Type: application/octet-stream\r\n");
         headers.Append("Connection: close\r\n\r\n");

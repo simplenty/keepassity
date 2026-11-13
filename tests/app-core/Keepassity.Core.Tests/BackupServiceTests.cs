@@ -24,6 +24,7 @@ internal static class BackupServiceTests
         RunRetentionBoundary(check, rootDirectory);
         RunDefaultRetention(check, rootDirectory);
         RunRetentionClamp(check, rootDirectory);
+        RunTimestampOrdering(check, rootDirectory);
         RunRestore(check, rootDirectory);
         RunCorruptedRestoreRejected(check, rootDirectory);
     }
@@ -40,16 +41,14 @@ internal static class BackupServiceTests
         for (int index = 0; index < retention + 3; index++)
         {
             File.SetLastWriteTime(database, baseTime.AddMinutes(index));
-            BackupEntry? backup = BackupService.CreateBackup(database, retention);
+            BackupEntry? backup = BackupService.CreateBackup(database, retention,
+                timestamp: baseTime.AddMinutes(index));
             check($"retention: backup {index + 1} created", backup is not null);
             if (backup is null)
             {
                 return;
             }
             created.Add(backup.Path);
-            // File.Copy may preserve the source timestamp, so pin each backup's
-            // LastWriteTime to make the pruning order deterministic.
-            File.SetLastWriteTime(backup.Path, baseTime.AddMinutes(index));
             int count = BackupService.ListBackups(database).Count;
             check($"retention: at most {retention} backups kept after {index + 1} create(s)",
                 count == Math.Min(index + 1, retention),
@@ -84,14 +83,14 @@ internal static class BackupServiceTests
         for (int index = 0; index <= DefaultRetention; index++)
         {
             File.SetLastWriteTime(database, baseTime.AddMinutes(index));
-            BackupEntry? backup = BackupService.CreateBackup(database);
+            BackupEntry? backup = BackupService.CreateBackup(database,
+                timestamp: baseTime.AddMinutes(index));
             check($"default retention: backup {index + 1} created", backup is not null);
             if (backup is null)
             {
                 return;
             }
             created.Add(backup.Path);
-            File.SetLastWriteTime(backup.Path, baseTime.AddMinutes(index));
         }
         List<BackupEntry> listed = BackupService.ListBackups(database);
         check("default retention: keeps 20 backups",
@@ -116,16 +115,42 @@ internal static class BackupServiceTests
         {
             File.SetLastWriteTime(database, baseTime.AddMinutes(index));
             // Retention values below one are clamped to one backup, never zero.
-            BackupEntry? backup = BackupService.CreateBackup(database, retention: 0);
-            if (backup is not null)
-            {
-                File.SetLastWriteTime(backup.Path, baseTime.AddMinutes(index));
-            }
+            BackupEntry? backup = BackupService.CreateBackup(database, retention: 0,
+                timestamp: baseTime.AddMinutes(index));
             check("retention: value below one is clamped to a single backup",
                 BackupService.ListBackups(database).Count == 1,
                 BackupService.ListBackups(database).Count.ToString(
                     CultureInfo.InvariantCulture));
         }
+    }
+
+    private static void RunTimestampOrdering(TestCheck check, string root)
+    {
+        string directory = NewDirectory(root, "backup-timestamp-ordering");
+        string database = Path.Combine(directory, "vault.kdbx");
+        File.WriteAllBytes(database,
+            File.ReadAllBytes(TestEnvironment.Fixture(FixtureName)));
+        // A source file can carry a future timestamp (clock skew, copied vault).
+        // Retention must follow the backup creation timestamp, not the copied
+        // file's LastWriteTime, or the newest backup can be pruned immediately.
+        File.SetLastWriteTime(database, new DateTime(2035, 1, 1, 0, 0, 0,
+            DateTimeKind.Local));
+        DateTimeOffset created = new(new DateTime(2026, 5, 6, 7, 8, 9, 123,
+            DateTimeKind.Local));
+        BackupEntry? backup = BackupService.CreateBackup(database, retention: 1,
+            timestamp: created);
+        check("timestamp ordering: backup created despite a future source mtime",
+            backup is not null);
+        if (backup is null)
+        {
+            return;
+        }
+        check("timestamp ordering: backup time comes from its name",
+            Math.Abs((backup.Timestamp - created).TotalSeconds) < 1,
+            backup.Timestamp.ToString("O", CultureInfo.InvariantCulture));
+        check("timestamp ordering: retention keeps the new backup",
+            File.Exists(backup.Path) &&
+            BackupService.ListBackups(database).Count == 1);
     }
 
     private static void RunRestore(TestCheck check, string root)
@@ -191,6 +216,20 @@ internal static class BackupServiceTests
             missingRejected = true;
         }
         check("restore: missing backup file is rejected", missingRejected);
+
+        bool emptyRejected = false;
+        byte[] liveBeforeEmpty = File.ReadAllBytes(database);
+        try
+        {
+            BackupService.RestoreBytes(database, Array.Empty<byte>(), DefaultRetention);
+        }
+        catch (ArgumentException)
+        {
+            emptyRejected = true;
+        }
+        check("restore: empty backup content is rejected", emptyRejected);
+        check("restore: rejected empty backup leaves the live database unchanged",
+            File.ReadAllBytes(database).SequenceEqual(liveBeforeEmpty));
     }
 
     private static void RunCorruptedRestoreRejected(

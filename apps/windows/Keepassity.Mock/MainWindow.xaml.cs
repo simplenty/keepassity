@@ -35,6 +35,9 @@ public sealed partial class MainWindow : Window
     /// <summary>State and commands for the unlock surface (MVVM boundary).</summary>
     public UnlockViewModel Unlock { get; }
 
+    /// <summary>Localized sync status shown in the navigation pane.</summary>
+    public SyncStatusViewModel SyncStatus { get; }
+
     private readonly CoreClient _core = new();
     private readonly AppSettingsStore _settingsStore = new();
     private readonly UISettings _uiSettings = new();
@@ -77,8 +80,6 @@ public sealed partial class MainWindow : Window
     private string _entrySort = "title";
     private bool _onlyTotp;
     private string _lastEntryFingerprint = string.Empty;
-    private string _syncStatusSource = "Local only";
-    private object?[] _syncStatusArguments = Array.Empty<object?>();
     private Grid? _rightPanel;
     private TextBlock? _rightPanelTitle;
     private ContentControl? _rightPanelContent;
@@ -139,6 +140,7 @@ public sealed partial class MainWindow : Window
         // attached localization properties apply the right strings on first load.
         Loc.Initialize(Settings.Language);
         Unlock = new UnlockViewModel(_core, LocText.Instance);
+        SyncStatus = new SyncStatusViewModel(LocText.Instance);
         InitializeComponent();
         ApplyThemePreference(Settings.Theme);
         Title = "Keepassity";
@@ -1317,19 +1319,12 @@ public sealed partial class MainWindow : Window
     /// catalog; use <c>{0}</c> placeholders for <paramref name="arguments"/>.
     /// </summary>
     private void SetSyncStatus(string source, params object?[] arguments)
-    {
-        _syncStatusSource = source;
-        _syncStatusArguments = arguments;
-        RenderSyncStatus();
-    }
+        => SyncStatus.Set(source, arguments);
 
     private void RenderSyncStatus()
     {
-        string text = _syncStatusArguments.Length == 0
-            ? Loc.T(_syncStatusSource)
-            : Loc.T(_syncStatusSource, _syncStatusArguments);
-        SyncNavItem.Content = text;
-        Announce(Loc.T("Sync status: {0}", text));
+        SyncStatus.Refresh();
+        Announce(Loc.T("Sync status: {0}", SyncStatus.Text));
     }
 
     // ------------------------------------------------------ accessibility
@@ -1555,7 +1550,7 @@ public sealed partial class MainWindow : Window
 
             SetSyncStatus("Syncing…");
             SyncState state = _syncStates.Load(url, username, _dbPath);
-            if (!string.IsNullOrEmpty(state.Etag) || !string.IsNullOrEmpty(state.Sha256))
+            if (!string.IsNullOrEmpty(state.Sha256))
             {
                 await _core.SyncCommitAsync(state.Etag, state.Sha256);
             }
@@ -1578,6 +1573,16 @@ public sealed partial class MainWindow : Window
             switch (decision.Action)
             {
                 case "up_to_date":
+                    if (string.IsNullOrEmpty(state.Sha256))
+                    {
+                        // The remote says unchanged, but there is no content
+                        // hash to record as a baseline. Do not mark the vault
+                        // clean; a later sync could overwrite local edits.
+                        state.LocalDirty = true;
+                        _syncStates.Save(url, username, _dbPath, state);
+                        SetSyncStatus("Sync needs baseline");
+                        break;
+                    }
                     state.Etag = metadata.ETag;
                     state.Size = metadata.Size;
                     state.RemoteModifiedUnix = metadata.ModifiedUnix;
@@ -1725,6 +1730,15 @@ public sealed partial class MainWindow : Window
         }
         if (contentChanged)
         {
+            if (string.IsNullOrEmpty(_masterPassword))
+            {
+                throw new InvalidOperationException(
+                    "Unlock the vault before applying remote changes.");
+            }
+            // The live database is only replaced after the downloaded bytes
+            // decrypt with the current master password. A redirect page or a
+            // corrupted body must not become the local vault.
+            await _core.VerifyAsync(bytes, _masterPassword);
             await WriteLocalBytesAsync(_dbPath!, bytes);
             await ReopenFromLocalAsync();
         }
@@ -1951,6 +1965,12 @@ public sealed partial class MainWindow : Window
     private async Task KeepRemoteConflictAsync(WebDavClient dav, WebDavFileInfo metadata,
         SyncState state, string url, string username, byte[] remote)
     {
+        if (string.IsNullOrEmpty(_masterPassword))
+        {
+            throw new InvalidOperationException(
+                "Unlock the vault before applying remote changes.");
+        }
+        await _core.VerifyAsync(remote, _masterPassword);
         await WriteLocalBytesAsync(_dbPath!, remote);
         await ReopenFromLocalAsync();
         await CommitSyncedAsync(state, remote, metadata.ETag, metadata, url, username,

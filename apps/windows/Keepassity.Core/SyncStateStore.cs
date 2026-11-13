@@ -51,26 +51,43 @@ public sealed class SyncStateStore
     {
         if (!Available)
         {
-            return new SyncState();
+            // Without a state directory the baseline is unknown. Do not report
+            // "clean": a clean baseline is what lets a sync overwrite local data.
+            return new SyncState { LocalDirty = true };
         }
-        try
+        SyncState? state = null;
+        bool existed = File.Exists(path);
+        if (existed)
         {
-            if (File.Exists(path))
+            try
             {
-                SyncState? state = JsonSerializer.Deserialize<SyncState>(
-                    File.ReadAllText(path), Options);
-                if (state is not null)
-                {
-                    return state;
-                }
+                state = JsonSerializer.Deserialize<SyncState>(File.ReadAllText(path), Options);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"sync state is unreadable; treating the vault as dirty: {ex.Message}");
             }
         }
-        catch
+        if (state is null)
         {
-            // Corrupt sidecar: start with a clean baseline.
+            // Missing on first sync is normal and clean. An existing but
+            // unreadable sidecar is not: fail closed so the next sync uploads
+            // or merges instead of overwriting the local database.
+            return new SyncState { LocalDirty = existed };
         }
-        return new SyncState();
+        if (!IsSha256(state.Sha256))
+        {
+            // A half-written baseline from an older build cannot prove the
+            // local and remote copies match; keep the local edits.
+            state.LocalDirty = true;
+        }
+        return state;
     }
+
+    private static bool IsSha256(string? value)
+        => value is { Length: 64 } &&
+           value.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f'
+               or >= 'A' and <= 'F');
 
     private void SaveTo(string path, SyncState state)
     {
@@ -78,9 +95,33 @@ public sealed class SyncStateStore
         {
             return;
         }
-        string temp = path + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(state, Options));
-        File.Move(temp, path, true);
+        string temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(state, Options);
+            using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write,
+                       FileShare.None, 4096, FileOptions.WriteThrough))
+            {
+                stream.Write(bytes);
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temp, path, true);
+        }
+        finally
+        {
+            if (File.Exists(temp))
+            {
+                try
+                {
+                    File.Delete(temp);
+                }
+                catch
+                {
+                    // The previous state is still intact; a temporary file is
+                    // preferable to a half-written baseline.
+                }
+            }
+        }
     }
 
     private string PathFor(string remoteUrl, string username, string localPath)

@@ -164,6 +164,7 @@
   "Symbols (!@#$…)": "符号 (!@#$…)",
   "Sync conflict": "同步冲突",
   "Sync failed: {0}": "同步失败：{0}",
+  "Sync needs baseline": "同步基线不完整，请重新同步。",
   "Sync paused. Local and remote are unchanged; conflict copies were saved.": "同步已暂停。本地和远程均未更改，冲突副本已保存。",
   "Sync skipped: {0}": "已跳过同步：{0}",
   "TOTP removed": "TOTP 已移除",
