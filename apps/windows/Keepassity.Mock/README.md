@@ -20,7 +20,7 @@ included in the output).
 ## Run
 
 ```powershell
-apps/windows/Keepassity.Mock/bin/Debug/net8.0-windows10.0.19041.0/win-x64/Keepassity.exe
+apps/windows/Keepassity.Mock/bin/Debug/net10.0-windows10.0.19041.0/win-x64/Keepassity.exe
 ```
 
 1. Choose a `.kdbx` file, or use **New database…** to create an empty KDBX 4.0

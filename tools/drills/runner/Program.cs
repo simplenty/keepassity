@@ -17,7 +17,7 @@
 
 using System.Security.Cryptography;
 using System.Text.Json;
-using Keepassity.Mock;
+using Keepassity.Core;
 
 namespace Keepassity.Drills.Runner;
 

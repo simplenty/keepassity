@@ -14,13 +14,36 @@ param(
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
-# Prefer a user-local SDK when one is installed: the machine-wide SDK can be
-# broken (missing workload resolvers) while a dotnet-install copy works. CI has
-# no user-local copy, so this is a no-op there.
+# Prefer a user-local SDK when it is new enough for global.json: the
+# machine-wide SDK can be broken (missing workload resolvers) while a
+# dotnet-install copy works. An older user-local SDK must not shadow the
+# machine-wide one after a framework upgrade, so compare versions first.
 $localDotnet = Join-Path $env:USERPROFILE '.dotnet'
 if (Test-Path (Join-Path $localDotnet 'dotnet.exe')) {
-  $env:PATH = $localDotnet + ';' + $env:PATH
-  $env:DOTNET_ROOT = $localDotnet
+  $required = $null
+  try {
+    $required = [version](Get-Content (Join-Path $root 'global.json') -Raw |
+      ConvertFrom-Json).sdk.version
+  } catch {
+    $required = $null
+  }
+  $localCompatible = $null
+  $sdkDirectory = Join-Path $localDotnet 'sdk'
+  if (Test-Path $sdkDirectory) {
+    $localCompatible = Get-ChildItem $sdkDirectory -Directory |
+      ForEach-Object {
+        try { [version]$_.Name } catch { $null }
+      } |
+      Where-Object { $_ -ne $null -and ($required -eq $null -or $_ -ge $required) } |
+      Sort-Object -Descending |
+      Select-Object -First 1
+  }
+  if ($localCompatible) {
+    $env:PATH = $localDotnet + ';' + $env:PATH
+    $env:DOTNET_ROOT = $localDotnet
+  } else {
+    Write-Host ("user-local .NET SDK is older than global.json requires ({0}); using the machine-wide SDK" -f $required)
+  }
 }
 $failures = 0
 function Run([string]$name, [scriptblock]$action) {

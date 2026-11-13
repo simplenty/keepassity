@@ -16,8 +16,8 @@ function Initialize-Drills {
     $repoRoot = $script:DrillRepoRoot
     $mockProject = Join-Path $repoRoot 'tools/drills/mock-webdav/MockWebDav.csproj'
     $runnerProject = Join-Path $repoRoot 'tools/drills/runner/DrillRunner.csproj'
-    $runnerBin = Join-Path $repoRoot 'tools/drills/runner/bin/Release/net8.0'
-    $mockBin = Join-Path $repoRoot 'tools/drills/mock-webdav/bin/Release/net8.0'
+    $runnerBin = Join-Path $repoRoot 'tools/drills/runner/bin/Release/net10.0'
+    $mockBin = Join-Path $repoRoot 'tools/drills/mock-webdav/bin/Release/net10.0'
     $fixture = Join-Path $repoRoot 'tests/fixtures/synthetic/synthetic-500.kdbx'
 
     if (-not (Test-Path -LiteralPath $fixture)) {

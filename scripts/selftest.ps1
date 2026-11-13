@@ -49,7 +49,7 @@ if (-not $Exe) {
   if ($candidate) {
     $Exe = $candidate.FullName
   } else {
-    $Exe = Join-Path $root 'apps/windows/Keepassity.Mock/bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/Keepassity.exe'
+    $Exe = Join-Path $root 'apps/windows/Keepassity.Mock/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64/Keepassity.exe'
   }
 }
 if (-not (Test-Path $Exe)) {

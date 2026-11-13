@@ -135,9 +135,9 @@ management UI, multi-database, mobile, macOS, Linux (Linux is planned for v1.x).
 ## Build from source
 
 Toolchain: Rust stable, pinned in `rust-toolchain.toml`; for the Windows shell, .NET SDK
-8.0 or newer and the Windows App SDK. `global.json` pins SDK 8.0.100 with
-`rollForward: latestMajor`, so a newer installed SDK (for example 10.0.402) is used
-automatically; CI installs 8.0.x. Inno Setup 6 is needed only to build the installer.
+10.0.x and the Windows App SDK. `global.json` pins SDK 10.0.100 with
+`rollForward: latestFeature`, so a newer installed 10.0.x SDK is used automatically; CI
+installs 10.0.x. Inno Setup 6 is needed only to build the installer.
 
 Core and interop checks (no UI needed):
 

@@ -10,14 +10,11 @@ contain secrets.
 
 - **Rust:** pinned by `rust-toolchain.toml` to **1.99.1** (the same version CI uses, together
   with `rustfmt` and `clippy`). Update the pin and CI in the same change.
-- **.NET SDK:** CI installs **8.0.x**. `global.json` pins SDK `8.0.100` with
-  `rollForward: latestMajor`, so a newer local SDK is used automatically. The maintainer's
-  machine-wide SDK installation (currently 10.0.402) is partially broken (missing workload
-  resolvers), so local builds use a user-local `dotnet-install` copy in `%USERPROFILE%\.dotnet`
-  that `scripts\test.ps1` prefers, and the shell is built **project-level** from the
-  checked-in files. Do not scaffold or regenerate the app with `dotnet new`/WinUI templates;
-  if your local SDK cannot build the checked-in solution, install the 8.0.x SDK and let
-  `global.json` select it.
+- **.NET SDK:** CI installs **10.0.x**. `global.json` pins SDK `10.0.100` with
+  `rollForward: latestFeature`, so a newer local 10.0.x SDK is used automatically. The shell is
+  built **project-level** from the checked-in files; do not scaffold or regenerate the app with
+  `dotnet new`/WinUI templates. If your local SDK cannot build the checked-in solution, install
+  the 10.0.x SDK and let `global.json` select it.
 - **Windows App SDK / IDE:** Visual Studio with the Windows App SDK C# templates (WinUI 3
   shell); the target project is `apps/windows/Keepassity.sln`.
 - **Native FFI library** must be built first:

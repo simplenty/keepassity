@@ -10,8 +10,8 @@ master password `demopass`). Never point these scripts at a real vault.
 
 ## Prerequisites
 
-- Windows with **.NET SDK 8 or newer** (both projects target `net8.0`) and the
-  matching .NET 8 runtime.
+- Windows with **.NET SDK 10 or newer** (both projects target `net10.0`) and the
+  matching .NET 10 runtime.
 - **Rust/cargo** for the native core; run commands from the repository root.
 - The synthetic fixture `tests/fixtures/synthetic/synthetic-500.kdbx` (committed;
   regenerate with `tools/fixture-gen/regenerate.ps1` if needed).
@@ -29,7 +29,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\drills\build-drills.ps
 ```
 
 This builds `mock-webdav`, `runner` (Release), builds `keepassity-ffi` in release
-and copies the FFI DLL into `tools\drills\runner\bin\Release\net8.0\`. Every drill
+and copies the FFI DLL into `tools\drills\runner\bin\Release\net10.0\`. Every drill
 script calls the same initialisation, so running this first is optional (useful
 for CI or to check the build in isolation). Equivalent manual steps:
 

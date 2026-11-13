@@ -1,7 +1,7 @@
 {
   "version": 2,
   "dependencies": {
-    "net8.0-windows10.0.19041": {
+    "net10.0-windows10.0.19041": {
       "H.NotifyIcon.WinUI": {
         "type": "Direct",
         "requested": "[2.3.2, )",
@@ -9,9 +9,7 @@
         "contentHash": "UoI3z3Kc/6gBC6gOrL/cKhGAf6wz8gxk6wc0lYQZZYwSfU3OMpnKOdWJ5c1PXMaaJi/QMKYHN/ilpB7uHGUOpg==",
         "dependencies": {
           "H.NotifyIcon": "2.3.2",
-          "Microsoft.WindowsAppSDK": "1.6.250108002",
-          "System.Collections.Immutable": "9.0.1",
-          "System.Reflection.Metadata": "9.0.1"
+          "Microsoft.WindowsAppSDK": "1.6.250108002"
         }
       },
       "Microsoft.WindowsAppSDK": {
@@ -153,11 +151,6 @@
           "Microsoft.WindowsAppSDK.InteractiveExperiences": "1.8.260708001"
         }
       },
-      "System.Collections.Immutable": {
-        "type": "Transitive",
-        "resolved": "9.0.1",
-        "contentHash": "qt4+ClsZYKzar/Rw1zbt0t9iuBUCLVNsjXicEuVQyKL7143CwhWzI2gTwzz8AhSaFYVHnpcb8SBGA+zaY4weUg=="
-      },
       "System.Drawing.Common": {
         "type": "Transitive",
         "resolved": "9.0.1",
@@ -170,14 +163,6 @@
         "type": "Transitive",
         "resolved": "9.0.0",
         "contentHash": "hyJB4UlpAi19Xr9AXzu2NuagKC4lPfHObNMEAA0HmqFz2rX7wKgzeYzO/jM/eBHDhnUGFFEjk5cOoJaxqg5J4A=="
-      },
-      "System.Reflection.Metadata": {
-        "type": "Transitive",
-        "resolved": "9.0.1",
-        "contentHash": "XGkA0wiS4vbZu708VtlgSh40stW2ucDriDItkiJUnnp867x5HaBfmoTqdA00DYG0Ld7Kg0cLvEPkUEUxputgzQ==",
-        "dependencies": {
-          "System.Collections.Immutable": "9.0.1"
-        }
       },
       "keepassity.core": {
         "type": "Project"
@@ -196,7 +181,7 @@
         "contentHash": "WadCzGEc2U+3e20avRLng4qNtt4zoOGWrdUISqJWrHe3/FSnrYjuM5Sb4yQb09LhkBXrrI4Zt3dLKgRMbItsrg=="
       }
     },
-    "net8.0-windows10.0.19041/win-x64": {
+    "net10.0-windows10.0.19041/win-x64": {
       "Microsoft.Web.WebView2": {
         "type": "Transitive",
         "resolved": "1.0.3179.45",
