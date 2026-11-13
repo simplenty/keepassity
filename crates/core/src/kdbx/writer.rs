@@ -11,9 +11,11 @@
 
 use crate::kdbx::detect_version;
 use crate::model::{
-    AutoType, CustomData, CustomDataValue, CustomIcon, Database, Entry, Group, Meta, Times, Uuid,
+    Argon2Kind, AutoType, CustomData, CustomDataValue, CustomIcon, Database, Entry, Group,
+    KdfSettings, Meta, OuterCipher, OuterCompression, Times, Uuid,
 };
-use keepassxcr::format::{read_kdbx_bytes, write_kdbx_bytes};
+use keepassxcr::crypto::{CipherId, KdfConfig, KdfType};
+use keepassxcr::format::{read_kdbx_bytes, write_kdbx_bytes, Compression, KdbxVersion};
 use keepassxcr::model::{
     Attachment as BackendAttachment, Database as BackendDatabase,
     DeletedObject as BackendDeletedObject, Entry as BackendEntry, Group as BackendGroup,
@@ -91,10 +93,65 @@ pub fn write_model(db: &Database, password: &str) -> Result<Vec<u8>, KdbxWriteEr
         ));
     }
     let backend = to_backend(db);
-    let file = keepassxcr::KdbxFile::new(backend);
+    let mut file = keepassxcr::KdbxFile::new(backend);
+    apply_outer_header(&mut file, db.outer.as_ref());
     let credentials = Credentials::password(password);
     write_kdbx_bytes(&file, &credentials)
         .map_err(|error| KdbxWriteError::Write(format!("{error:?}")))
+}
+
+/// Carry the source file's outer format settings into the writer. Without this
+/// every save rewrote a 4.1 database as 4.0 and replaced the KDF the user (or
+/// KeePass) chose with the writer's Argon2id default. Only KDBX4 headers are
+/// preserved; a KDBX3 file is still upgraded to the write policy in
+/// `DEFAULT_WRITE_VERSION`.
+fn apply_outer_header(file: &mut keepassxcr::KdbxFile, header: Option<&crate::model::OuterHeader>) {
+    let Some(header) = header else {
+        return;
+    };
+    file.version = match header.version.as_str() {
+        "4.1" => KdbxVersion::V4_1,
+        _ => KdbxVersion::V4_0,
+    };
+    file.cipher = match header.cipher {
+        OuterCipher::Aes128 => CipherId::Aes128,
+        OuterCipher::Aes256 => CipherId::Aes256,
+        OuterCipher::Twofish => CipherId::Twofish,
+        OuterCipher::ChaCha20 => CipherId::ChaCha20,
+    };
+    file.compression = match header.compression {
+        OuterCompression::None => Compression::None,
+        OuterCompression::Gzip => Compression::Gzip,
+    };
+    if let Some(kdf) = &header.kdf {
+        file.kdf = match kdf {
+            KdfSettings::Aes { rounds } => KdfConfig::Aes {
+                // The writer randomizes the salt on every save; only the type
+                // and cost need to survive.
+                seed: vec![0u8; 32],
+                rounds: *rounds,
+                legacy: false,
+            },
+            KdfSettings::Argon2 {
+                kind,
+                iterations,
+                memory_kib,
+                parallelism,
+                version,
+            } => KdfConfig::Argon2 {
+                kind: match kind {
+                    Argon2Kind::D => KdfType::Argon2d,
+                    Argon2Kind::Id => KdfType::Argon2id,
+                },
+                salt: vec![0u8; 32],
+                iterations: *iterations,
+                memory_kib: *memory_kib,
+                parallelism: *parallelism,
+                version: *version,
+            },
+        };
+    }
+    file.public_custom_data = header.public_custom_data.clone();
 }
 
 /// Create a new empty KDBX 4.0 database with a `General` root group.

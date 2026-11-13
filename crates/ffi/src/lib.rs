@@ -2042,6 +2042,32 @@ mod tests {
     }
 
     #[test]
+    fn save_keeps_the_source_kdbx_header() {
+        let direct = keepassity_core::kdbx::reader::parse(&fixture(), "demopass").unwrap();
+        let source_version = direct.format_version.clone();
+        let handle = open_fixture();
+        let mut bytes = std::ptr::null_mut();
+        let mut len = 0usize;
+        assert_eq!(kp_save(handle, &mut bytes, &mut len), 0);
+        let saved = unsafe { std::slice::from_raw_parts(bytes, len) };
+        let database =
+            keepassity_core::kdbx::reader::parse(saved, "demopass").expect("saved file reads");
+        let header = database.outer.expect("saved file keeps its header");
+        let version = header.version.clone();
+        let kdf = header.kdf.clone();
+        assert_eq!(version, source_version, "kdf={kdf:?}");
+        assert!(
+            matches!(
+                header.kdf,
+                Some(keepassity_core::model::KdfSettings::Aes { .. })
+            ),
+            "the AES-KDF fixture must not be rewritten as Argon2id"
+        );
+        kp_buffer_free(bytes, len);
+        assert_eq!(kp_close(handle), 0);
+    }
+
+    #[test]
     fn api_version_matches_core() {
         assert_eq!(kp_api_version(), keepassity_core::API_MAJOR);
     }

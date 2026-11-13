@@ -4,11 +4,12 @@
 
 ## KDBX clients
 
-"Files we write" come from two paths: an **app save** writes a KDBX 4.0 file through the
-model writer (see KDBX write format below), while the **CLI `rewrite`** used for interop
-evidence re-saves through the backend and preserves the input format version. The fixture set
-is `tests/fixtures/keepass-rs`: 25 public samples, of which 17 are rewritten and verified
-end-to-end, two are broken files that must be rejected, and six key-file /
+"Files we write" come from two paths: an **app save** preserves the source KDBX 4 outer
+format (version, cipher, compression and KDF settings) through the model writer, while a
+KDBX 3.1 source follows the documented upgrade to KDBX 4.0. The **CLI `rewrite`** used for
+interop evidence re-saves through the backend and preserves the input format version. The
+fixture set is `tests/fixtures/keepass-rs`: 25 public samples, of which 17 are rewritten and
+verified end-to-end, two are broken files that must be rejected, and six key-file /
 challenge-response samples are outside the v1.0 scope.
 
 | Client | Can read files we write | We can read files it writes | Version | Status |
@@ -22,14 +23,18 @@ trip runs in CI. The database used for the real-vault checks is never committed.
 
 ### KDBX write format
 
-App saves are written as **KDBX 4.0** with the backend defaults (AES-256, Argon2id with 128 MiB / 6 iterations / 4 lanes for new databases, ChaCha20
-protected stream, gzip): a database opened as KDBX 3.1 or 4.1 is written back as KDBX 4.0.
-The CLI/interop `rewrite` path preserves the input version. Model data that the writer maps
-(entries, groups, fields, times, tags, history, attachments, deleted objects, TOTP fields) is
-carried through an edit/save; raw XML blocks, custom icons and auto-type data that the model
-writer does not map are not preserved by an app save. The app edit/save path was manually
-checked at G3 (edit, save, reopen in KeePass 2.x); the interop matrix above covers the backend
-rewrite round trip.
+App saves preserve the KDBX 4 outer header read from the source file: the format version
+(4.0 stays 4.0, 4.1 stays 4.1), outer cipher (AES-128/256, Twofish or ChaCha20), compression,
+KDF type and cost (AES-KDF rounds or Argon2 memory/iterations/parallelism) and the
+`PublicCustomData` header field. A newly created database uses the write defaults (KDBX 4.0,
+AES-256, Argon2id 128 MiB / 6 iterations / 4 lanes, gzip). A KDBX 3.1 source is upgraded to
+KDBX 4.0 with those defaults, because KDBX3 has no equivalent outer header after the upgrade.
+The protected-stream algorithm follows the write backend (ChaCha20). Model data that the
+writer maps (entries, groups, fields, times, tags, history, attachments, deleted objects, TOTP
+fields) is carried through an edit/save; raw XML blocks, custom icons and auto-type data that
+the model writer does not map are not preserved by an app save. The app edit/save path was
+manually checked at G3 (edit, save, reopen in KeePass 2.x); the interop matrix above covers the
+backend rewrite round trip.
 
 ## WebDAV TLS and self-signed certificates
 
@@ -108,6 +113,7 @@ opened in KeePass, which lets you re-save it with normal settings.
 - No auto-update, no MSIX; the installer and portable binaries are unsigned (README notes
   SmartScreen).
 - WebDAV: local mock and one real provider (Jianguoyun) tested; other providers are untested.
-- The app writes KDBX 4.0 files (see KDBX write format); use KeePass 2.x / KeePassXC to open
-  them if you need the data in another client.
+- The app preserves KDBX 4 outer format settings on save and upgrades KDBX 3.1 to 4.0 (see
+  KDBX write format); use KeePass 2.x / KeePassXC to open the files if you need the data in
+  another client.
 - The 30-day acceptance (G5) is still pending; `v1.0.0` is not published yet.

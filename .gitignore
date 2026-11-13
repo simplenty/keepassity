@@ -2,6 +2,7 @@
 /target/
 **/bin/
 **/obj/
+/out/
 .vs/
 *.user
 *.suo

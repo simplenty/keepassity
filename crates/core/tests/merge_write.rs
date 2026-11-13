@@ -14,7 +14,14 @@ fn fixture() -> PathBuf {
 
 fn write_and_read(db: &Database) -> Database {
     let bytes = writer::write_model(db, "test").expect("write merged model");
-    assert_eq!(detect_version(&bytes[..12]).unwrap().as_str(), "4.0");
+    let version = detect_version(&bytes[..12]).unwrap().as_str();
+    if let Some(outer) = &db.outer {
+        // A save preserves the source KDBX4 version; only databases without an
+        // outer header (created in memory) use the 4.0 write default.
+        assert_eq!(version, outer.version);
+    } else {
+        assert_eq!(version, "4.0");
+    }
     reader::parse(&bytes, "test").expect("read written model")
 }
 

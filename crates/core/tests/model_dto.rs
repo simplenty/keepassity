@@ -153,6 +153,7 @@ fn full_database() -> Database {
 
     Database {
         format_version: "4.1".into(),
+        outer: None,
         meta,
         root: group,
         deleted_objects: vec![DeletedObject {

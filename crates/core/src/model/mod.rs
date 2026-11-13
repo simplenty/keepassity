@@ -665,11 +665,66 @@ pub struct DeletedObject {
     pub deletion_time: String,
 }
 
+/// Outer KDBX cipher. Preserved from the source file so a save does not
+/// silently switch algorithms.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OuterCipher {
+    Aes128,
+    Aes256,
+    Twofish,
+    ChaCha20,
+}
+
+/// Outer KDBX compression.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OuterCompression {
+    None,
+    Gzip,
+}
+
+/// Argon2 variant used by the source file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Argon2Kind {
+    D,
+    Id,
+}
+
+/// Key-derivation settings read from the source file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum KdfSettings {
+    Aes {
+        rounds: u64,
+    },
+    Argon2 {
+        kind: Argon2Kind,
+        iterations: u32,
+        memory_kib: u32,
+        parallelism: u32,
+        version: u32,
+    },
+}
+
+/// KDBX4 outer header settings that must survive a save. Keeping these avoids
+/// the old behaviour where every save rewrote a 4.1 file as 4.0 and replaced
+/// the user's KDF (for example AES-KDF) with the writer's Argon2id default.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OuterHeader {
+    pub version: String,
+    pub cipher: OuterCipher,
+    pub compression: OuterCompression,
+    pub kdf: Option<KdfSettings>,
+    pub public_custom_data: Option<Vec<u8>>,
+}
+
 /// Whole database model (everything decrypted).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Database {
     /// Format version as detected by [`crate::kdbx`] (`"3.1"` / `"4.0"` / `"4.1"`).
     pub format_version: String,
+    /// KDBX4 outer header settings. Not serialized: it is file metadata, not
+    /// vault content, and the writer needs the source values to preserve them.
+    #[serde(skip)]
+    pub outer: Option<OuterHeader>,
     /// `<Meta>`.
     pub meta: Meta,
     /// Root group.

@@ -5,6 +5,12 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Saving keeps the KDBX 4 outer format:** the writer now carries the source version (4.0/4.1),
+  outer cipher, compression, KDF type and cost, and the `PublicCustomData` header field through a
+  save. A KDBX 4.1 vault is no longer downgraded to 4.0, and an AES-KDF vault is no longer
+  silently rewritten with the writer's Argon2id defaults. KDBX 3.1 sources still follow the
+  documented upgrade to KDBX 4.0. This also makes the core's verified rewrite path accept the
+  model writer's output.
 - **Durable saves and deletes:** the save path now writes a flushed sibling temporary file, keeps the
   previous database as a timestamped backup, and replaces the live file atomically; failed or
   interrupted saves leave either the old or the new database, never a partial file. Deleting an

@@ -9,6 +9,7 @@
 //! SHA-256.
 
 use crate::kdbx::{detect_version, KdbxVersion};
+use crate::model::{Argon2Kind, KdfSettings, OuterCipher, OuterCompression, OuterHeader};
 use crate::model::{Association, AutoType, Binary, CustomData, CustomDataItem, CustomDataValue};
 use crate::model::{Database, DeletedObject, Entry, Group, MemoryProtection, Meta, StringField};
 use crate::model::{Times, Uuid};
@@ -107,6 +108,19 @@ const UUID_ARGON2D: [u8; 16] = [
 ];
 const UUID_ARGON2ID: [u8; 16] = [
     0x9E, 0x29, 0x8B, 0x19, 0x56, 0xDB, 0x47, 0x73, 0xB2, 0x3D, 0xFC, 0x3E, 0xC6, 0xF0, 0xA1, 0xE6,
+];
+
+const CIPHER_AES128: [u8; 16] = [
+    0x61, 0xAB, 0x05, 0xA1, 0x94, 0x64, 0x41, 0xC3, 0x8D, 0x74, 0x3A, 0x56, 0x3D, 0xF8, 0xDD, 0x35,
+];
+const CIPHER_AES256: [u8; 16] = [
+    0x31, 0xC1, 0xF2, 0xE6, 0xBF, 0x71, 0x43, 0x50, 0xBE, 0x58, 0x05, 0x21, 0x6A, 0xFC, 0x5A, 0xFF,
+];
+const CIPHER_TWOFISH: [u8; 16] = [
+    0xAD, 0x68, 0xF2, 0x9F, 0x57, 0x6F, 0x4B, 0xB9, 0xA3, 0x6A, 0xD4, 0x7A, 0xF9, 0x65, 0x34, 0x6C,
+];
+const CIPHER_CHACHA20: [u8; 16] = [
+    0xD6, 0x03, 0x8A, 0x2B, 0x8B, 0x6F, 0x4C, 0xB5, 0xA5, 0x24, 0x33, 0x9A, 0x31, 0xDB, 0xB5, 0x9A,
 ];
 
 /// VariantDictionary value type for a byte array (the KDBX 4 specification's
@@ -323,6 +337,131 @@ fn validate_kdbx4_kdf_parameters(payload: &[u8]) -> Result<(), KdbxReadError> {
     Ok(())
 }
 
+/// Read the KDBX4 outer header fields that the writer must preserve. Returns
+/// `None` for KDBX 3.1 (the writer intentionally upgrades it to KDBX 4) or a
+/// header whose cipher/compression is unknown to the write backend.
+fn parse_outer_header(bytes: &[u8], version: KdbxVersion) -> Option<OuterHeader> {
+    if !matches!(version, KdbxVersion::V4_0 | KdbxVersion::V4_1) {
+        return None;
+    }
+    let mut offset = 12usize;
+    let mut cipher: Option<OuterCipher> = None;
+    let mut compression: Option<OuterCompression> = None;
+    let mut kdf: Option<KdfSettings> = None;
+    let mut public_custom_data: Option<Vec<u8>> = None;
+    while let Some(value) = bytes.get(offset) {
+        let field = *value;
+        if field == 0 {
+            break;
+        }
+        let length = read_le_u32(bytes, offset + 1)? as usize;
+        let start = offset + 5;
+        let end = start.checked_add(length)?;
+        let payload = bytes.get(start..end)?;
+        match field {
+            2 if payload.len() == 16 => {
+                let mut uuid = [0u8; 16];
+                uuid.copy_from_slice(payload);
+                cipher = match uuid {
+                    CIPHER_AES128 => Some(OuterCipher::Aes128),
+                    CIPHER_AES256 => Some(OuterCipher::Aes256),
+                    CIPHER_TWOFISH => Some(OuterCipher::Twofish),
+                    CIPHER_CHACHA20 => Some(OuterCipher::ChaCha20),
+                    _ => return None,
+                };
+            }
+            3 if payload.len() == 4 => {
+                compression = match read_le_u32(payload, 0)? {
+                    0 => Some(OuterCompression::None),
+                    1 => Some(OuterCompression::Gzip),
+                    _ => return None,
+                };
+            }
+            11 => kdf = parse_kdf_settings(payload),
+            12 => public_custom_data = Some(payload.to_vec()),
+            _ => {}
+        }
+        offset = end;
+    }
+    Some(OuterHeader {
+        version: version.as_str().to_string(),
+        cipher: cipher?,
+        compression: compression?,
+        kdf,
+        public_custom_data,
+    })
+}
+
+/// Parse a KDBX4 VariantDictionary KDF block into the model settings.
+fn parse_kdf_settings(payload: &[u8]) -> Option<KdfSettings> {
+    let mut offset = 2usize;
+    let mut uuid: Option<[u8; 16]> = None;
+    let mut rounds: Option<u64> = None;
+    let mut memory_bytes: Option<u64> = None;
+    let mut iterations: Option<u64> = None;
+    let mut parallelism: Option<u32> = None;
+    let mut argon_version: Option<u32> = None;
+    while offset < payload.len() {
+        let value_type = *payload.get(offset)?;
+        offset += 1;
+        if value_type == 0 {
+            break;
+        }
+        let key_length = read_le_u32(payload, offset)? as usize;
+        offset += 4;
+        let key_end = offset.checked_add(key_length)?;
+        let key = payload.get(offset..key_end)?;
+        offset = key_end;
+        let value_length = read_le_u32(payload, offset)? as usize;
+        offset += 4;
+        let value_end = offset.checked_add(value_length)?;
+        let value = payload.get(offset..value_end)?;
+        offset = value_end;
+        match key {
+            b"$UUID"
+                if matches!(value_type, VARIANT_BYTE_ARRAY | VARIANT_INT32)
+                    && value.len() == 16 =>
+            {
+                let mut parsed = [0u8; 16];
+                parsed.copy_from_slice(value);
+                uuid = Some(parsed);
+            }
+            b"R" if value_type == 0x05 => rounds = read_le_u64(value, 0),
+            b"M" if value_type == 0x05 => memory_bytes = read_le_u64(value, 0),
+            b"I" if value_type == 0x05 => iterations = read_le_u64(value, 0),
+            b"P" if value_type == 0x04 => parallelism = read_le_u32(value, 0),
+            b"V" if value_type == 0x04 => argon_version = read_le_u32(value, 0),
+            _ => {}
+        }
+    }
+    let uuid = uuid?;
+    match uuid {
+        UUID_AES_KDF => Some(KdfSettings::Aes { rounds: rounds? }),
+        UUID_ARGON2D | UUID_ARGON2ID => {
+            let memory_bytes = memory_bytes?;
+            if memory_bytes % 1024 != 0 {
+                // The backend represents Argon2 memory in KiB; do not round a
+                // user's KDF silently.
+                return None;
+            }
+            let memory_kib = u32::try_from(memory_bytes / 1024).ok()?;
+            let iterations = u32::try_from(iterations?).ok()?;
+            Some(KdfSettings::Argon2 {
+                kind: if uuid == UUID_ARGON2ID {
+                    Argon2Kind::Id
+                } else {
+                    Argon2Kind::D
+                },
+                iterations,
+                memory_kib,
+                parallelism: parallelism?,
+                version: argon_version.unwrap_or(0x13),
+            })
+        }
+        _ => None,
+    }
+}
+
 fn open_with_keepass(bytes: &[u8], password: &str) -> Result<KpDatabase, KdbxReadError> {
     guard_keepass(|| {
         let mut cursor = Cursor::new(bytes);
@@ -374,6 +513,7 @@ pub fn parse(bytes: &[u8], password: &str) -> Result<Database, KdbxReadError> {
 
     let meta = meta_from(&kp.meta, &kp);
     let root = group_from(&kp.root(), &kp);
+    let outer = parse_outer_header(bytes, version);
 
     let mut deleted_objects: Vec<DeletedObject> = kp
         .deleted_objects
@@ -387,6 +527,7 @@ pub fn parse(bytes: &[u8], password: &str) -> Result<Database, KdbxReadError> {
 
     Ok(Database {
         format_version: version.as_str().to_string(),
+        outer,
         meta,
         root,
         deleted_objects,
