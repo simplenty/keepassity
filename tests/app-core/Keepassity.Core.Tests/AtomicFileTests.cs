@@ -78,5 +78,14 @@ internal static class AtomicFileTests
             File.Exists(live) && File.ReadAllBytes(live).SequenceEqual("live"u8.ToArray()));
         check("residual cleanup keeps another database's temp",
             File.Exists(other), other);
+
+        string copySource = Path.Combine(directory, "copy-source.bin");
+        string copyTarget = Path.Combine(directory, "copy-target.bin");
+        File.WriteAllBytes(copySource, "conflict-copy"u8.ToArray());
+        AtomicFile.Copy(copySource, copyTarget);
+        check("atomic copy writes the source bytes",
+            File.ReadAllBytes(copyTarget).SequenceEqual("conflict-copy"u8.ToArray()));
+        check("atomic copy leaves no temporary file",
+            Directory.GetFiles(directory, "copy-target.bin.keepassity-tmp-*").Length == 0);
     }
 }

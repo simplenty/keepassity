@@ -110,6 +110,20 @@ public static class AtomicFile
     }
 
     /// <summary>
+    /// Copy a file through the same flushed temporary and atomic move as a
+    /// durable write. Used for user-visible conflict copies, which must never be
+    /// left truncated after a crash.
+    /// </summary>
+    public static void Copy(string source, string destination)
+    {
+        if (!File.Exists(source))
+        {
+            throw new FileNotFoundException("Source file is missing.", source);
+        }
+        Write(destination, File.ReadAllBytes(source));
+    }
+
+    /// <summary>
     /// Write small configuration/state files durably without creating a backup.
     /// Uses the same flushed temporary file and atomic move as a database save.
     /// </summary>

@@ -5,6 +5,10 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Conflict copies are written atomically:** both the local and remote conflict copies now go
+  through a flushed temporary file and atomic move (`AtomicFile.Copy` / `AtomicFile.Write`)
+  instead of a direct copy, so a crash cannot leave a truncated "conflict" file that a user
+  might later restore.
 - **TOTP display is a view-model state machine:** `TotpDisplayViewModel` owns the selected entry,
   generation guard, displayed code, countdown, window rollover and the three-second pre-fetch
   (including adopting a pre-fetched code at the boundary). The shell passes a `TotpCodeSnapshot`

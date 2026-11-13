@@ -2081,7 +2081,7 @@ public sealed partial class MainWindow : Window
         {
             path = Path.Combine(directory, $"{stem} (conflict {stamp}-{suffix++}){extension}");
         }
-        File.Copy(_dbPath, path);
+        AtomicFile.Copy(_dbPath, path);
         return path;
     }
 
@@ -2102,7 +2102,7 @@ public sealed partial class MainWindow : Window
             path = Path.Combine(directory,
                 $"{stem} (remote conflict {stamp}-{suffix++}){extension}");
         }
-        File.WriteAllBytes(path, remote);
+        AtomicFile.Write(path, remote);
         return path;
     }
 
