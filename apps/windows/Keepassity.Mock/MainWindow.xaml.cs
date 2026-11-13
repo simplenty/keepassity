@@ -3271,44 +3271,17 @@ public sealed partial class MainWindow : Window
         Groups.Clear();
         int activeEntryCount = allEntries.Count(entry =>
             _recycleBinGroupUuid is null || entry.GroupUuid != _recycleBinGroupUuid);
-        Groups.Add(new GroupNavItem(null, Loc.T("All entries"), activeEntryCount, "\uE8FD"));
-        GroupNavItem? recycleBin = null;
-        GroupNavItem? templates = null;
-        var otherGroups = new List<GroupNavItem>();
-        foreach (GroupDto group in _groupDtos)
-        {
-            if (group.Uuid == _rootGroupUuid || string.IsNullOrWhiteSpace(group.Name))
-            {
-                continue;
-            }
-            int count = allEntries.Count(entry => entry.GroupUuid == group.Uuid);
-            var item = new GroupNavItem(group.Uuid, group.Name, count, "\uE8B7");
-            if (IsRecycleBinGroup(group.Name) && recycleBin is null)
-            {
-                recycleBin = item;
-            }
-            else if (IsTemplatesGroup(group.Name) && templates is null)
-            {
-                templates = item;
-            }
-            else
-            {
-                otherGroups.Add(item);
-            }
-        }
-        // Normal groups keep the vault order; template groups are pinned above
-        // the recycle bin, which is always the last navigation item.
-        foreach (GroupNavItem item in otherGroups)
+        foreach (GroupNavItem item in GroupNavigationProjection.Build(
+                     _groupDtos.Select(group =>
+                         new GroupNavigationInput(group.Uuid, group.Name)),
+                     _rootGroupUuid,
+                     Loc.T("All entries"),
+                     activeEntryCount,
+                     uuid => allEntries.Count(entry => entry.GroupUuid == uuid),
+                     IsRecycleBinGroup,
+                     IsTemplatesGroup))
         {
             Groups.Add(item);
-        }
-        if (templates is not null)
-        {
-            Groups.Add(templates);
-        }
-        if (recycleBin is not null)
-        {
-            Groups.Add(recycleBin);
         }
         PopulateNavigation(_selectedGroupUuid);
 

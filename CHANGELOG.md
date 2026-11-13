@@ -5,6 +5,9 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Group navigation ordering moved into a projection:** `GroupNavigationProjection` now builds
+  the "All entries / normal groups / Templates / Recycle Bin" order outside the shell, with
+  counts and root/blank filtering, and is covered by headless tests.
 - **Entry editor normalization moved into a view model:** `EntryEditorViewModel` owns the
   untitled-entry fallback, trimmed fields, comma-separated tag parsing/deduplication and TOTP
   defaults/clamping (SHA1/SHA256/SHA512, 6/8 digits, 1–300 s). Create and edit now use the same
