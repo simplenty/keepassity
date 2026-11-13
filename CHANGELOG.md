@@ -5,6 +5,12 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Durable saves and deletes:** the save path now writes a flushed sibling temporary file, keeps the
+  previous database as a timestamped backup, and replaces the live file atomically; failed or
+  interrupted saves leave either the old or the new database, never a partial file. Deleting an
+  entry now creates the Recycle Bin group when the database enables recycling but has no usable
+  group UUID, so a new database no longer silently turns a delete into an unrecoverable tombstone
+  while the UI promises a recycle bin.
 - **Settings is now an MVVM panel:** the Settings/About page is a bound `SettingsPanel`
   backed by `SettingsViewModel`; appearance, language, clipboard, auto-lock, backup retention
   and sync-on-save still apply immediately, while the WebDAV source is committed on Save.

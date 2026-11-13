@@ -179,6 +179,7 @@ try
     // M4-05: retention boundary (custom and default 20), restore ordering and
     // rejection of a corrupted backup with the live database left untouched.
     BackupServiceTests.Run(Check, dataDirectory);
+    AtomicFileTests.Run(Check, dataDirectory);
 
     // diagnostics archive contains a summary and no credential blobs
     string archive = DiagnosticsService.ExportAsync(reloaded.Current)

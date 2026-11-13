@@ -510,13 +510,13 @@ fn dispatch(state: &mut HandleState, command: &Value) -> Result<String, FfiError
                 .get("permanent")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-            let (entry, _) =
+            let (mut entry, _) =
                 remove_entry(&mut database.root, uuid).ok_or_else(FfiError::not_found)?;
-            let recycle = database.meta.recycle_bin_enabled && !permanent;
             let mut recycled = false;
-            if recycle {
-                if let Some(target) = database.meta.recycle_bin_uuid {
+            if !permanent {
+                if let Some(target) = ensure_recycle_bin(database) {
                     if let Some(group) = find_group_mut(database, target) {
+                        entry.times.location_changed = xml_datetime_from_unix(now_unix());
                         group.entries.push(entry);
                         recycled = true;
                     }
@@ -528,7 +528,7 @@ fn dispatch(state: &mut HandleState, command: &Value) -> Result<String, FfiError
                     deletion_time: xml_datetime_from_unix(now_unix()),
                 });
             }
-            Ok(json!({"deleted": true}).to_string())
+            Ok(json!({"deleted": true, "recycled": recycled}).to_string())
         }),
         "move_entry" => with_database_dirty(state, |database| {
             let uuid = parse_uuid_arg(command, "uuid")?;
@@ -1201,6 +1201,53 @@ fn collect_group_tombstones(group: &Group, out: &mut Vec<Uuid>) {
     for child in &group.groups {
         collect_group_tombstones(child, out);
     }
+}
+
+/// Return the recycle-bin group, creating it when the database enables the
+/// recycle bin but has no usable group UUID. A new database used to have a nil
+/// UUID, so deleting an entry silently produced a permanent tombstone while the
+/// UI promised a recycle bin.
+fn ensure_recycle_bin(database: &mut Database) -> Option<Uuid> {
+    if !database.meta.recycle_bin_enabled {
+        return None;
+    }
+    if let Some(uuid) = database.meta.recycle_bin_uuid {
+        if uuid != database.root.uuid && find_group(database, uuid).is_some() {
+            return Some(uuid);
+        }
+    }
+    // Adopt an existing group with KeePass's standard name instead of creating
+    // a second one next to it.
+    if let Some(uuid) = database
+        .root
+        .groups
+        .iter()
+        .find(|group| group.name == "Recycle Bin")
+        .map(|group| group.uuid)
+    {
+        database.meta.recycle_bin_uuid = Some(uuid);
+        return Some(uuid);
+    }
+    let uuid = new_uuid();
+    let now = xml_datetime_from_unix(now_unix());
+    database.meta.recycle_bin_uuid = Some(uuid);
+    database.meta.recycle_bin_changed = Some(now.clone());
+    database.root.groups.push(Group {
+        uuid,
+        name: "Recycle Bin".to_string(),
+        icon_id: 43,
+        times: Times {
+            creation: now.clone(),
+            last_modification: now.clone(),
+            last_access: now.clone(),
+            expiry: now.clone(),
+            location_changed: now,
+            ..Times::default()
+        },
+        is_expanded: false,
+        ..Group::default()
+    });
+    Some(uuid)
 }
 
 fn parse_group_name(command: &Value) -> Result<String, FfiError> {
@@ -1919,6 +1966,78 @@ mod tests {
         assert_eq!(window_end["remaining"].as_u64(), Some(1));
         assert_eq!(next_window["remaining"].as_u64(), Some(30));
 
+        assert_eq!(kp_close(handle), 0);
+    }
+
+    #[test]
+    fn deleting_an_entry_creates_and_uses_the_recycle_bin() {
+        let options = CString::new(r#"{"password":"recycle-pass","name":"recycle"}"#).unwrap();
+        let mut saved = std::ptr::null_mut();
+        let mut saved_len = 0usize;
+        assert_eq!(
+            kp_create_database(options.as_ptr(), &mut saved, &mut saved_len),
+            0
+        );
+        let bytes = unsafe { std::slice::from_raw_parts(saved, saved_len) }.to_vec();
+        kp_buffer_free(saved, saved_len);
+        let handle = open_bytes(&bytes, "recycle-pass");
+
+        let groups: Value =
+            serde_json::from_str(&call(handle, r#"{"command":"list_groups"}"#)).unwrap();
+        let root = groups[0]["uuid"].as_str().unwrap();
+        let uuid = create_entry_in(handle, root, r#"{"Title":"delete-me","Password":"p"}"#);
+        let deleted: Value = serde_json::from_str(&call(
+            handle,
+            &format!(r#"{{"command":"delete_entry","uuid":"{uuid}"}}"#),
+        ))
+        .unwrap();
+        assert_eq!(deleted["recycled"], true);
+
+        let groups: Value =
+            serde_json::from_str(&call(handle, r#"{"command":"list_groups"}"#)).unwrap();
+        let recycle = groups
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|group| group["name"] == "Recycle Bin")
+            .expect("a recycle-bin group must be created");
+        let recycle_uuid = recycle["uuid"].as_str().unwrap();
+        let entries: Value = serde_json::from_str(&call(
+            handle,
+            &format!(
+                r#"{{"command":"list_entries","group_uuid":"{recycle_uuid}","include_subgroups":true}}"#
+            ),
+        ))
+        .unwrap();
+        assert!(
+            entries
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["uuid"] == uuid.as_str()),
+            "the deleted entry must live in the recycle bin"
+        );
+        assert_eq!(kp_close(handle), 0);
+    }
+
+    #[test]
+    fn permanent_entry_deletion_still_uses_a_tombstone() {
+        let handle = open_fixture();
+        let groups: Value =
+            serde_json::from_str(&call(handle, r#"{"command":"list_groups"}"#)).unwrap();
+        let root = groups[0]["uuid"].as_str().unwrap();
+        let uuid = create_entry_in(handle, root, r#"{"Title":"gone","Password":"p"}"#);
+        let deleted: Value = serde_json::from_str(&call(
+            handle,
+            &format!(r#"{{"command":"delete_entry","uuid":"{uuid}","permanent":true}}"#),
+        ))
+        .unwrap();
+        assert_eq!(deleted["recycled"], false);
+        let full = call_error(
+            handle,
+            &format!(r#"{{"command":"get_entry","uuid":"{uuid}"}}"#),
+        );
+        assert!(full.contains("NotFound"), "unexpected error: {full}");
         assert_eq!(kp_close(handle), 0);
     }
 

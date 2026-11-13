@@ -2102,19 +2102,10 @@ public sealed partial class MainWindow : Window
 
     private async Task WriteLocalBytesAsync(string path, byte[] bytes)
     {
-        string directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
-        string temp = Path.Combine(directory,
-            $".{Path.GetFileName(path)}.keepassity-tmp-{Guid.NewGuid():N}");
-        await File.WriteAllBytesAsync(temp, bytes);
-        if (File.Exists(path))
-        {
-            BackupService.CreateBackup(path, Settings.BackupRetention, "sync");
-            File.Replace(temp, path, path + ".keepassity-bak", true);
-        }
-        else
-        {
-            File.Move(temp, path);
-        }
+        // Remote bytes were verified by the caller; place them with the same
+        // durable protocol the save path uses (backup, flush, atomic replace).
+        int retention = Settings.BackupRetention;
+        await Task.Run(() => AtomicFile.Replace(path, bytes, retention, "sync"));
     }
 
     private void MarkLocalDirty()

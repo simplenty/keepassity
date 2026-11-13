@@ -389,20 +389,11 @@ public sealed class CoreClient : ICoreClient
     public async Task SaveAsync(string path, int backupRetention = 20)
     {
         byte[] bytes = await SaveBytesAsync().ConfigureAwait(false);
-        string directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
-        Directory.CreateDirectory(directory);
-        string temp = Path.Combine(directory,
-            $".{Path.GetFileName(path)}.keepassity-tmp-{Guid.NewGuid():N}");
-        await File.WriteAllBytesAsync(temp, bytes).ConfigureAwait(false);
-        if (File.Exists(path))
-        {
-            BackupService.CreateBackup(path, backupRetention, "save");
-            File.Replace(temp, path, path + ".keepassity-bak", true);
-        }
-        else
-        {
-            File.Move(temp, path);
-        }
+        // The bytes come from the core writer; AtomicFile makes the placement
+        // durable (write-through, flush, backup, atomic replace) and leaves no
+        // partial database if the process dies mid-save.
+        await Task.Run(() => AtomicFile.Replace(path, bytes, backupRetention, "save"))
+            .ConfigureAwait(false);
         DatabasePath = path;
     }
 
