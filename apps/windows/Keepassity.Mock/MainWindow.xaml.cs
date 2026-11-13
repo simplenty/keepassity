@@ -33,8 +33,11 @@ public sealed partial class MainWindow : Window
     public ObservableCollection<GroupNavItem> Groups { get; } = new();
     public ObservableCollection<EntryRowPresenter> Entries { get; } = new();
 
-    /// <summary>State and commands for the unlock surface (MVVM boundary).</summary>
+    /// <summary>State and display strings for the unlock surface (MVVM boundary).</summary>
     public UnlockViewModel Unlock { get; }
+
+    /// <summary>State and display strings for the detail panel (MVVM boundary).</summary>
+    public EntryDetailViewModel Detail { get; }
 
     /// <summary>Localized sync status shown in the navigation pane.</summary>
     public SyncStatusViewModel SyncStatus { get; }
@@ -144,6 +147,8 @@ public sealed partial class MainWindow : Window
         Loc.Initialize(Settings.Language);
         Unlock = new UnlockViewModel(_core, LocText.Instance);
         SyncStatus = new SyncStatusViewModel(LocText.Instance);
+        Detail = new EntryDetailViewModel();
+        Detail.Clear(Loc.T("Select an entry"));
         InitializeComponent();
         ApplyThemePreference(Settings.Theme);
         Title = "Keepassity";
@@ -4506,52 +4511,22 @@ public sealed partial class MainWindow : Window
             return;
         }
         _currentFull = full;
-        DetailTitle.Text = full.Title;
         string groupName = _groupNames.GetValueOrDefault(full.GroupUuid, Loc.T("Vault"));
-        // The website is already a field below; keep the header to a short
-        // group label so long URLs do not get awkwardly ellipsized up here.
-        DetailSubtitle.Text = groupName;
-        DetailUsername.Text = full.Username;
-        DetailUrl.Text = full.Url;
-        DetailNotes.Text = full.Notes;
-        DetailPassword.Text = "••••••••••••";
-        DetailTags.Text = full.Tags.Count > 0 ? string.Join("  ·  ", full.Tags) : string.Empty;
-
         CustomFieldDto? custom = full.CustomFields.FirstOrDefault(field => !IsTotpField(field.Key));
-        CustomFieldsSection.Visibility = custom is null ? Visibility.Collapsed : Visibility.Visible;
-        CustomFieldsDivider.Visibility = CustomFieldsSection.Visibility;
-        CustomFieldName.Text = custom?.Key ?? string.Empty;
-        CustomFieldValue.Text = custom?.Value ?? string.Empty;
-
-        bool hasUsername = !string.IsNullOrWhiteSpace(full.Username);
-        bool hasPassword = !string.IsNullOrEmpty(full.PasswordSecret);
-        bool hasUrl = !string.IsNullOrWhiteSpace(full.Url);
-        bool hasTags = full.Tags.Count > 0;
-        bool hasNotes = !string.IsNullOrWhiteSpace(full.Notes);
-        bool hasCustom = custom is not null;
-        bool hasTotp = full.Totp is not null;
-
-        UsernameRow.Visibility = hasUsername ? Visibility.Visible : Visibility.Collapsed;
-        PasswordRow.Visibility = hasPassword ? Visibility.Visible : Visibility.Collapsed;
-        UrlRow.Visibility = hasUrl ? Visibility.Visible : Visibility.Collapsed;
-        TagsRow.Visibility = hasTags ? Visibility.Visible : Visibility.Collapsed;
-        NotesSection.Visibility = hasNotes ? Visibility.Visible : Visibility.Collapsed;
-        NotesDivider.Visibility = NotesSection.Visibility;
-        UsernameDivider.Visibility = hasUsername &&
-            (hasPassword || hasUrl || hasTags)
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        PasswordDivider.Visibility = hasPassword &&
-            (hasUrl || hasTags)
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        UrlDivider.Visibility = hasUrl && hasTags
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-
-        TotpSection.Visibility = hasTotp ? Visibility.Visible : Visibility.Collapsed;
+        Detail.Load(new EntryDetailInput(
+            full.Title,
+            groupName,
+            full.Username,
+            full.PasswordSecret,
+            full.Url,
+            full.Notes,
+            full.Tags,
+            custom?.Key,
+            custom?.Value,
+            full.Totp is not null));
+        TotpSection.Visibility = ToVisibility(Detail.HasTotp);
         TotpDivider.Visibility = TotpSection.Visibility;
-        if (hasTotp)
+        if (Detail.HasTotp)
         {
             TotpCode.FontSize = 24;
             TotpRemainingText.Visibility = Visibility.Visible;
@@ -4582,26 +4557,7 @@ public sealed partial class MainWindow : Window
         _currentFull = null;
         _currentSummary = null;
         ResetTotpDisplayState();
-        DetailTitle.Text = Loc.T("Select an entry");
-        DetailSubtitle.Text = string.Empty;
-        DetailUsername.Text = string.Empty;
-        DetailPassword.Text = string.Empty;
-        DetailUrl.Text = string.Empty;
-        DetailTags.Text = string.Empty;
-        DetailNotes.Text = string.Empty;
-        UsernameRow.Visibility = Visibility.Collapsed;
-        PasswordRow.Visibility = Visibility.Collapsed;
-        UrlRow.Visibility = Visibility.Collapsed;
-        TagsRow.Visibility = Visibility.Collapsed;
-        UsernameDivider.Visibility = Visibility.Collapsed;
-        PasswordDivider.Visibility = Visibility.Collapsed;
-        UrlDivider.Visibility = Visibility.Collapsed;
-        CustomFieldsSection.Visibility = Visibility.Collapsed;
-        CustomFieldsDivider.Visibility = Visibility.Collapsed;
-        NotesSection.Visibility = Visibility.Collapsed;
-        NotesDivider.Visibility = Visibility.Collapsed;
-        TotpSection.Visibility = Visibility.Collapsed;
-        TotpDivider.Visibility = Visibility.Collapsed;
+        Detail.Clear(Loc.T("Select an entry"));
         TotpProgress.Value = 0;
         TotpRemainingText.Text = string.Empty;
         TotpCode.Text = "—";
@@ -4811,9 +4767,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         _passwordVisible = !_passwordVisible;
-        DetailPassword.Text = _passwordVisible
-            ? _currentFull.PasswordSecret
-            : "••••••••••••";
+        Detail.SetPasswordVisible(_passwordVisible);
     }
 
     private void CopyUsernameButton_Click(object sender, RoutedEventArgs e)
@@ -4850,9 +4804,9 @@ public sealed partial class MainWindow : Window
 
     private void CopyCustomFieldButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!string.IsNullOrEmpty(CustomFieldValue.Text))
+        if (!string.IsNullOrEmpty(Detail.CustomFieldValue))
         {
-            CopyText(CustomFieldValue.Text, Loc.T("Custom field copied"));
+            CopyText(Detail.CustomFieldValue, Loc.T("Custom field copied"));
         }
     }
 

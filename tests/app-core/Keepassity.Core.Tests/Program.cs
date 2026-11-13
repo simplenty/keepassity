@@ -52,6 +52,7 @@ try
     SyncStatusViewModelTests.Run(Check);
     SettingsViewModelTests.Run(Check);
     EntryListViewModelTests.Run(Check);
+    EntryDetailViewModelTests.Run(Check);
 
     // sync state round trip
     var syncStates = new SyncStateStore();

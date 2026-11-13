@@ -5,6 +5,10 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Detail panel state moved into the view model:** `EntryDetailViewModel` owns the title/group,
+  field visibility, tag formatting, custom-field selection and the password mask/reveal state;
+  the XAML detail panel binds the text and visibility through `x:Bind`. Password reveal no longer
+  writes UI controls directly, and the mask/divider rules now have headless tests.
 - **Entry list presentation moved out of the shell:** row display logic (title/initial/avatar color,
   username/URL/group fallback, TOTP badge), sorting, the TOTP filter and the row fingerprint now
   live in `Keepassity.ViewModels` and run under the headless test harness. The shell keeps only a
