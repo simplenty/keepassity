@@ -44,8 +44,41 @@ public static class BackupService
             path = Path.Combine(directory,
                 Path.GetFileNameWithoutExtension(name) + $"-{suffix++}.kdbx");
         }
-        File.Copy(databasePath, path);
-        FlushToDisk(path);
+
+        // Copy to a temporary sibling, flush it, then move it into place. A crash
+        // during the copy therefore cannot leave a truncated file with a real
+        // backup name that a later restore might choose.
+        string temp = Path.Combine(directory,
+            $".{Path.GetFileName(path)}.tmp-{Guid.NewGuid():N}");
+        try
+        {
+            File.Copy(databasePath, temp, overwrite: false);
+            FlushToDisk(temp);
+            File.Move(temp, path);
+        }
+        catch (IOException) when (File.Exists(path))
+        {
+            // Another backup won the race for this name; pick the next suffix
+            // and copy again instead of overwriting it.
+            File.Delete(temp);
+            return CreateBackup(databasePath, retention, reason, timestamp);
+        }
+        finally
+        {
+            if (File.Exists(temp))
+            {
+                try
+                {
+                    File.Delete(temp);
+                }
+                catch
+                {
+                    // A clearly named temporary file is safer than deleting the
+                    // wrong path or leaving a partially named backup.
+                }
+            }
+        }
+
         Prune(directory, retention, path);
         return Describe(path);
     }

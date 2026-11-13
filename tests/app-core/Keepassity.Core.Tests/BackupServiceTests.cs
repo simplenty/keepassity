@@ -70,6 +70,11 @@ internal static class BackupServiceTests
                 .All(pair => pair.First.Timestamp >= pair.Second.Timestamp));
         check("retention: backup files copy the database bytes",
             listed.All(entry => File.ReadAllBytes(entry.Path).SequenceEqual(content)));
+        string backupDirectory = BackupService.BackupDirectory(database);
+        check("retention: no temporary backup files are left",
+            Directory.GetFiles(backupDirectory, "*.tmp-*").Length == 0,
+            string.Join(", ", Directory.GetFiles(backupDirectory, "*.tmp-*")
+                .Select(Path.GetFileName)));
     }
 
     private static void RunDefaultRetention(TestCheck check, string root)

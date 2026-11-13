@@ -5,6 +5,9 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Backup files are created atomically:** the recovery copy is written to a flushed temporary
+  sibling and moved into place, so a crash mid-copy cannot leave a truncated file with a real
+  backup name. A name collision retries with the next suffix instead of overwriting.
 - **Release artifacts are checksum-verified:** `SHA256SUMS` now includes the SBOM, uses LF
   endings for `sha256sum -c` on any platform, and the release workflow recomputes every digest
   before upload. The release gate also runs `fmt`, `clippy` and the public-file allowlist.
