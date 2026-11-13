@@ -5,6 +5,12 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Settings is now an MVVM panel:** the Settings/About page is a bound `SettingsPanel`
+  backed by `SettingsViewModel`; appearance, language, clipboard, auto-lock, backup retention
+  and sync-on-save still apply immediately, while the WebDAV source is committed on Save.
+  Stored-credential state, HTTPS validation, DPAPI storage, diagnostics export and the
+  About/license text moved out of the window code-behind without changing the user-visible
+  flow.
 - **Sync and restore fail closed:** a WebDAV upload that receives a redirect (for example a 303)
   is rejected instead of being replayed as a body-less GET whose 200 response looked like a
   successful database upload; non-loopback plain HTTP is refused because Basic authentication

@@ -50,6 +50,7 @@ try
     // MVVM: the unlock decision path is headless and has its own fakes.
     UnlockViewModelTests.Run(Check);
     SyncStatusViewModelTests.Run(Check);
+    SettingsViewModelTests.Run(Check);
 
     // sync state round trip
     var syncStates = new SyncStateStore();
