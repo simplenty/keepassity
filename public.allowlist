@@ -36,6 +36,7 @@ scripts/publish-windows.ps1
 scripts/selftest.ps1
 scripts/verify-fixtures.ps1
 scripts/make-checksums.ps1
+scripts/verify-checksums.ps1
 scripts/test.ps1
 scripts/build-installer.ps1
 installer/**

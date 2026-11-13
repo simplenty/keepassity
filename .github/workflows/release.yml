@@ -40,9 +40,15 @@ jobs:
       - name: verify the source
         shell: pwsh
         run: |
+          cargo fmt --all -- --check
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          cargo clippy --workspace --all-targets -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           cargo test --workspace
           if ($LASTEXITCODE -ne 0) { exit 1 }
           dotnet run --project tests/app-core/Keepassity.Core.Tests -c Release
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-public.ps1
           if ($LASTEXITCODE -ne 0) { exit 1 }
           powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-fixtures.ps1
           if ($LASTEXITCODE -ne 0) { exit 1 }
@@ -90,10 +96,6 @@ jobs:
             -SourceDir "out/dist/keepassity-$env:KEEPASSITY_VERSION-win-x64" `
             -OutputDir "out/dist"
 
-      - name: write checksums
-        shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-checksums.ps1 -Directory out/dist
-
       - name: generate SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
@@ -101,6 +103,14 @@ jobs:
           format: spdx-json
           output-file: out/dist/sbom.spdx.json
           artifact-name: keepassity-sbom
+
+      - name: write checksums
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-checksums.ps1 -Directory out/dist
+
+      - name: verify checksums
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-checksums.ps1 -Directory out/dist
 
       - name: attest build provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0

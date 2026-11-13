@@ -38,7 +38,9 @@ not. The four steps below produce the portable folder, the installer, the checks
 SBOM, and `tools/installer/verify-install.ps1` checks the result after installing it. The
 uninstaller only removes files the installer created; a user file placed next to the
 executable is kept, and the verification script checks for leftover program files rather than
-requiring the folder itself to disappear.
+requiring the folder itself to disappear. `SHA256SUMS` includes the SBOM and is verified again
+before the draft release is created; lines use LF so `sha256sum -c` works on non-Windows
+machines.
 
 The app project's default FFI lookup is `out\cargo-target\release`, which is what
 `CARGO_TARGET_DIR` below matches. Inno Setup 6 must be installed for the installer step.
@@ -65,8 +67,9 @@ repository's evidence) until the tag is created.
 1. Merge the release branch into `main`.
 2. Create an annotated tag `v1.0.0` on `main` and push it; the workflow triggers on `v*` tags.
 3. The release workflow (`.github/workflows/release.yml`, Windows runner):
-   - verifies the source: `cargo test --workspace`, the `tests/app-core` suite and
-     `scripts/verify-fixtures.ps1`;
+   - verifies the source: `cargo fmt --all -- --check`,
+     `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`,
+     the `tests/app-core` suite, the public-file allowlist and `scripts/verify-fixtures.ps1`;
    - builds `cargo build -p keepassity-ffi --release`;
    - publishes the self-contained app with `scripts/publish-windows.ps1 -Version <tag> -Zip`
      into `out/dist/keepassity-<version>-win-x64/` and

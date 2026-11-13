@@ -5,6 +5,9 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Release artifacts are checksum-verified:** `SHA256SUMS` now includes the SBOM, uses LF
+  endings for `sha256sum -c` on any platform, and the release workflow recomputes every digest
+  before upload. The release gate also runs `fmt`, `clippy` and the public-file allowlist.
 - **Settings can no longer be silently downgraded:** a settings file from a newer schema is
   loaded but treated as read-only, so an older build cannot overwrite fields it does not
   understand. An unreadable settings file is copied to `settings.json.corrupt-<timestamp>`
