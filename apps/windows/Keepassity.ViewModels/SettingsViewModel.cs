@@ -247,7 +247,17 @@ public sealed partial class SettingsViewModel : ObservableObject
                 SettingsToastSeverity.Informational);
             return;
         }
-        bool cleared = _host.DeleteStoredPassword(url, username);
+        bool cleared;
+        try
+        {
+            cleared = _host.DeleteStoredPassword(url, username);
+        }
+        catch (Exception ex)
+        {
+            _host.ShowToast(_text.T("Cannot clear stored password: {0}", ex.Message),
+                SettingsToastSeverity.Error);
+            return;
+        }
         _host.ShowToast(
             cleared
                 ? _text.T("Stored WebDAV password cleared")
@@ -293,7 +303,15 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         _settings.WebDavUrl = url.Length == 0 ? null : url;
         _settings.WebDavUsername = username.Length == 0 ? null : username;
-        _host.SaveSettings();
+        try
+        {
+            _host.SaveSettings();
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(new SettingsApplyResult(false,
+                Error: _text.T("Cannot save settings: {0}", ex.Message)));
+        }
         RefreshStoredCredential();
         bool syncNow = url.Length > 0 && username.Length > 0;
         return Task.FromResult(new SettingsApplyResult(true, syncNow));

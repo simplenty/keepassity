@@ -107,6 +107,20 @@ internal static class SettingsViewModelTests
         Check("credential storage failure is reported",
             !failed.Ok && failed.Error is not null);
 
+        host.SaveError = new IOException("disk full");
+        var saveFailed = vm.ApplyAsync(string.Empty).GetAwaiter().GetResult();
+        Check("settings save failure is reported",
+            !saveFailed.Ok && saveFailed.Error is not null);
+        host.SaveError = null;
+
+        host.Stored.Add(Key(vm.WebDavUrl, vm.WebDavUsername));
+        host.DeleteError = new InvalidOperationException("dpapi unavailable");
+        vm.ClearStoredPassword();
+        Check("credential delete failure is reported",
+            host.Toasts.Any(toast => toast.Contains("Cannot clear stored password",
+                StringComparison.Ordinal)));
+        host.DeleteError = null;
+
         vm.ExportDiagnosticsAsync().GetAwaiter().GetResult();
         Check("diagnostics success is reported",
             host.Toasts.Contains("Diagnostics exported: /tmp/diagnostics.zip"));
@@ -163,6 +177,10 @@ internal static class SettingsViewModelTests
 
         public Exception? StoreError { get; set; }
 
+        public Exception? SaveError { get; set; }
+
+        public Exception? DeleteError { get; set; }
+
         public Exception? ExportError { get; set; }
 
         public void ApplyTheme(string theme) => Themes.Add(theme);
@@ -173,13 +191,24 @@ internal static class SettingsViewModelTests
             LastLanguage = setting;
         }
 
-        public void SaveSettings() => Saves++;
+        public void SaveSettings()
+        {
+            if (SaveError is not null)
+            {
+                throw SaveError;
+            }
+            Saves++;
+        }
 
         public bool HasStoredPassword(string url, string username) =>
             Stored.Contains(url + "\n" + username);
 
         public bool DeleteStoredPassword(string url, string username)
         {
+            if (DeleteError is not null)
+            {
+                throw DeleteError;
+            }
             Deleted.Add((url, username));
             return Stored.Remove(url + "\n" + username);
         }
