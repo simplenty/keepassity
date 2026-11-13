@@ -111,7 +111,19 @@ if ($ExpectUninstalled) {
   Write-Host ("install dir: {0}" -f $InstallDir)
 
   if (Test-Path $InstallDir) {
-    Fail 'program folder removed' ('still exists: ' + $InstallDir)
+    # The uninstaller removes the program files it installed and leaves
+    # directories that still contain user data. A directory per se is not a
+    # failure; a leftover program file is.
+    $leftProgramFiles = @()
+    foreach ($name in @('Keepassity.exe', 'Keepassity.Core.dll', 'keepassity_ffi.dll',
+        'unins000.exe', 'unins000.dat')) {
+      if (Test-Path (Join-Path $InstallDir $name)) { $leftProgramFiles += $name }
+    }
+    if ($leftProgramFiles.Count -eq 0) {
+      Pass 'program files removed (folder kept for user data)'
+    } else {
+      Fail 'program files removed' (($leftProgramFiles -join ', ') + ' still in ' + $InstallDir)
+    }
   } else {
     Pass 'program folder removed'
   }

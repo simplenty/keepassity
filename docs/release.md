@@ -35,7 +35,10 @@ fails even though the build succeeded, and `icacls ... /setintegritylevel Medium
 relabel it without `SeRelabelPrivilege`. A folder such as
 `%USERPROFILE%\keepassity-release` works; `out\dist` inside a Low-labeled workspace does
 not. The four steps below produce the portable folder, the installer, the checksums and the
-SBOM, and `tools/installer/verify-install.ps1` checks the result after installing it.
+SBOM, and `tools/installer/verify-install.ps1` checks the result after installing it. The
+uninstaller only removes files the installer created; a user file placed next to the
+executable is kept, and the verification script checks for leftover program files rather than
+requiring the folder itself to disappear.
 
 The app project's default FFI lookup is `out\cargo-target\release`, which is what
 `CARGO_TARGET_DIR` below matches. Inno Setup 6 must be installed for the installer step.

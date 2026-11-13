@@ -82,8 +82,18 @@ public partial class App : Application
         bool allowMultiple = TestHooks.HasSwitch("--allow-multiple");
         if (!allowMultiple)
         {
-            bool createdNew;
-            _instanceMutex = new Mutex(true, @"Local\keepassity-windows-app", out createdNew);
+            bool createdNew = true;
+            try
+            {
+                _instanceMutex = new Mutex(true, @"Local\keepassity-windows-app", out createdNew);
+            }
+            catch (Exception ex)
+            {
+                // A broken named-mutex object must not stop the app from
+                // opening. The per-vault file lock still prevents two windows
+                // from writing the same database.
+                AppLog.Warn($"single-instance mutex unavailable: {ex.Message}");
+            }
             if (!createdNew)
             {
                 // A running instance exists. Explorer "Open with keepassity" and

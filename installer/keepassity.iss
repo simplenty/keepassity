@@ -83,10 +83,13 @@ Filename: "{app}\{#AppExe}"; Description: "Launch Keepassity"; Flags: nowait pos
 
 [InstallDelete]
 ; Remove the pre-1.0 binary name so an upgrade does not leave a stale executable
-; (v0.1.0 shipped Keepassity.Mock.exe; v1.0.0 ships Keepassity.exe).
+; (v0.1.0 shipped Keepassity.Mock.exe; v1.0.0 ships Keepassity.exe). Only exact
+; files we used to install are listed: a wildcard could delete a user file that
+; happens to sit in the installation folder.
 Type: files; Name: "{app}\Keepassity.Mock.exe"
 Type: files; Name: "{app}\Keepassity.Mock.pdb"
-Type: files; Name: "{app}\Keepassity.Mock.*"
 
-[UninstallDelete]
-Type: filesandordirs; Name: "{app}"
+; Deliberately no [UninstallDelete] section. Inno Setup removes the files it
+; installed and only removes directories it can leave empty; `filesandordirs
+; {app}` would delete a vault, a backup or any other file a user put next to the
+; executable. An uninstall must never remove data it did not create.

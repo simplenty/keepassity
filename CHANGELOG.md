@@ -5,6 +5,11 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Uninstall no longer deletes user files:** the uninstaller used to remove the whole
+  installation directory (`filesandordirs {app}`), which would also delete a vault, backup or
+  note a user put next to the executable. Inno Setup now removes only the files it installed;
+  a directory containing user data is kept. A broken single-instance mutex is also logged and
+  ignored instead of crashing startup; the per-vault lock remains the writer guard.
 - **Deleting a group is recoverable:** a group and everything inside it is moved to the Recycle
   Bin (the whole subtree stays intact) instead of being permanently removed; when the Recycle
   Bin is disabled the old tombstone-based permanent path is used. The confirmation dialog and
