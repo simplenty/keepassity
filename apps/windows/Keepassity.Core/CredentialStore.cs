@@ -44,13 +44,41 @@ public sealed class CredentialStore
             return null;
         }
         string path = PathFor(url, username);
-        if (!File.Exists(path))
+        try
         {
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+            byte[] encrypted = File.ReadAllBytes(path);
+            byte[] plain = Unprotect(encrypted);
+            return Encoding.UTF8.GetString(plain);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException
+                                       or UnauthorizedAccessException
+                                       or System.Security.Cryptography.CryptographicException)
+        {
+            // A credential blob encrypted for another user/machine, or a
+            // truncated file, must not break the settings/sync UI. Keep the
+            // bytes for diagnosis and behave as if no password were stored.
+            PreserveCorrupt(path);
+            AppLog.Warn($"stored WebDAV credential could not be read: {ex.Message}");
             return null;
         }
-        byte[] encrypted = File.ReadAllBytes(path);
-        byte[] plain = Unprotect(encrypted);
-        return Encoding.UTF8.GetString(plain);
+    }
+
+    private static void PreserveCorrupt(string path)
+    {
+        try
+        {
+            string backup = path + ".corrupt-" + DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            File.Move(path, backup, overwrite: false);
+        }
+        catch
+        {
+            // Leave the file in place if it cannot be moved; Load still returns
+            // null and the user can clear the credential explicitly.
+        }
     }
 
     /// <summary>

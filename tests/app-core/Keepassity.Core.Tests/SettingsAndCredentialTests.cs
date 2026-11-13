@@ -109,10 +109,31 @@ internal static class SettingsAndCredentialTests
         check("credential: keyed by username",
             !credentials.HasPassword(WebDavUrl, "other-user"));
 
+        // A blob from another user/machine or a truncated file must not throw
+        // into the settings/sync UI; it is preserved and treated as absent.
+        string corruptUrl = "https://dav.example.test/corrupt.kdbx";
+        string corruptCredentialDir = Path.Combine(ApplicationPaths.Root, "credentials");
+        var before = Directory.GetFiles(corruptCredentialDir, "*.bin").ToHashSet(
+            StringComparer.OrdinalIgnoreCase);
+        credentials.SavePassword(corruptUrl, WebDavUser, "corrupt-me");
+        string? blob = Directory.GetFiles(corruptCredentialDir, "*.bin")
+            .FirstOrDefault(path => !before.Contains(path));
+        check("credential: corrupt-test blob created", blob is not null);
+        if (blob is not null)
+        {
+            File.WriteAllBytes(blob, new byte[] { 1, 2, 3 });
+            string? corruptLoaded = credentials.LoadPassword(corruptUrl, WebDavUser);
+            check("credential: corrupt blob loads as absent", corruptLoaded is null);
+            check("credential: corrupt blob is preserved",
+                Directory.GetFiles(corruptCredentialDir, "*.corrupt-*").Length > 0);
+            check("credential: corrupt blob no longer advertised",
+                !credentials.HasPassword(corruptUrl, WebDavUser));
+        }
+
         // The on-disk credential blob must be DPAPI-protected, not plaintext.
         string credentialDirectory = Path.Combine(ApplicationPaths.Root, "credentials");
         string[] blobs = Directory.Exists(credentialDirectory)
-            ? Directory.GetFiles(credentialDirectory, "*.bin")
+            ? Directory.GetFiles(corruptCredentialDir, "*.bin")
             : Array.Empty<string>();
         check("credential: protected blob written", blobs.Length >= 1,
             blobs.Length.ToString());

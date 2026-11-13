@@ -5,6 +5,10 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Unreadable stored WebDAV credentials no longer break the UI:** a truncated or
+  wrong-user/machine DPAPI blob is moved to `<name>.bin.corrupt-<timestamp>`, logged, and treated
+  as "no stored password" instead of throwing into settings or sync. The user can re-enter the
+  password and the corrupt bytes are kept for diagnosis.
 - **Vault writes are serialized inside one process:** a `VaultWriteGate` now covers saves,
   remote local-copy replacements and backup restores. Two async edit paths can no longer start
   overlapping atomic replaces where a slower, older snapshot lands last; the first save keeps
