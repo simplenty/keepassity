@@ -126,9 +126,7 @@ public sealed class RecentDatabaseStore
     {
         try
         {
-            string temp = _filePath + ".tmp";
-            File.WriteAllText(temp, JsonSerializer.Serialize(_entries, Options));
-            File.Move(temp, _filePath, true);
+            AtomicFile.Write(_filePath, JsonSerializer.SerializeToUtf8Bytes(_entries, Options));
         }
         catch
         {

@@ -68,6 +68,8 @@ public sealed partial class MainWindow : Window
     private string? _currentTotpCode;
     private string? _lastClipboardText;
     private string? _masterPassword;
+    private VaultFileLock? _vaultLock;
+    private VaultFingerprint? _vaultFingerprint;
     private TrayIcon? _trayIcon;
     private bool _exitRequested;
     private bool _trayHintShown;
@@ -213,6 +215,8 @@ public sealed partial class MainWindow : Window
             _sessionLockMonitor = null;
             _singleInstanceRelay?.Dispose();
             _singleInstanceRelay = null;
+            _vaultLock?.Dispose();
+            _vaultLock = null;
             _networkReplayTimer?.Stop();
             NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
             _trayIcon?.Dispose();
@@ -2102,10 +2106,23 @@ public sealed partial class MainWindow : Window
 
     private async Task WriteLocalBytesAsync(string path, byte[] bytes)
     {
+        bool isLiveDatabase = _dbPath is not null &&
+            string.Equals(Path.GetFullPath(path), Path.GetFullPath(_dbPath),
+                StringComparison.OrdinalIgnoreCase);
+        if (isLiveDatabase && VaultChangedOnDisk())
+        {
+            throw new InvalidOperationException(Loc.T(
+                "The database was changed outside Keepassity. Reopen it before " +
+                "saving; nothing was overwritten."));
+        }
         // Remote bytes were verified by the caller; place them with the same
         // durable protocol the save path uses (backup, flush, atomic replace).
         int retention = Settings.BackupRetention;
         await Task.Run(() => AtomicFile.Replace(path, bytes, retention, "sync"));
+        if (isLiveDatabase)
+        {
+            RememberVaultFingerprint();
+        }
     }
 
     private void MarkLocalDirty()
@@ -2173,6 +2190,7 @@ public sealed partial class MainWindow : Window
             await SaveAsync(silent: true, syncAfterSave: false);
             BackupService.RestoreBytes(_dbPath, selectedBytes, Settings.BackupRetention);
             await ReopenFromLocalAsync();
+            RememberVaultFingerprint();
             MarkLocalDirty();
             ShowToast(Loc.T("Backup restored"), InfoBarSeverity.Success);
             if (IsSyncConfigured)
@@ -2375,6 +2393,13 @@ public sealed partial class MainWindow : Window
             SyncState pendingState = _syncStates.Load(remoteUrl, remoteUsername, pendingPath);
             if (File.Exists(pendingPath) && pendingState.LocalDirty)
             {
+                if (!TryAcquireVaultLock(pendingPath))
+                {
+                    ShowUnlockError(Loc.T("Cannot open database"),
+                        Loc.T("The database is open in another Keepassity window. " +
+                              "Close it there first."));
+                    return;
+                }
                 if (rememberPassword)
                 {
                     try
@@ -2413,6 +2438,13 @@ public sealed partial class MainWindow : Window
                 _credentials.SavePassword(remoteUrl, remoteUsername, remotePassword);
             }
             string workingPath = RemoteDatabaseStore.PathFor(remoteUrl, remoteUsername);
+            if (!TryAcquireVaultLock(workingPath))
+            {
+                ShowUnlockError(Loc.T("Cannot open database"),
+                    Loc.T("The database is open in another Keepassity window. " +
+                          "Close it there first."));
+                return;
+            }
             await WriteLocalBytesAsync(workingPath, bytes);
             ApplyWebDavSource(remoteUrl, remoteUsername, workingPath);
             SyncState state = _syncStates.Load(remoteUrl, remoteUsername, workingPath);
@@ -2437,6 +2469,13 @@ public sealed partial class MainWindow : Window
             string workingPath = RemoteDatabaseStore.PathFor(remoteUrl, remoteUsername);
             if (File.Exists(workingPath))
             {
+                if (!TryAcquireVaultLock(workingPath))
+                {
+                    ShowUnlockError(Loc.T("Cannot open database"),
+                        Loc.T("The database is open in another Keepassity window. " +
+                              "Close it there first."));
+                    return;
+                }
                 if (rememberPassword)
                 {
                     try
@@ -2956,6 +2995,15 @@ public sealed partial class MainWindow : Window
                 {
                     _credentials.SavePassword(remoteUrl, remoteUsername, remotePassword);
                 }
+                // Claim the working copy before writing it: another window may
+                // own the same deterministic path even though this database is
+                // new to this process.
+                if (!TryAcquireVaultLock(workingPath))
+                {
+                    throw new InvalidOperationException(Loc.T(
+                        "The database is open in another Keepassity window. " +
+                        "Close it there first."));
+                }
                 await WriteLocalBytesAsync(workingPath, bytes);
                 ApplyWebDavSource(remoteUrl, remoteUsername, workingPath);
                 SyncState state = _syncStates.Load(remoteUrl, remoteUsername, workingPath);
@@ -2966,6 +3014,7 @@ public sealed partial class MainWindow : Window
                 state.LocalDirty = false;
                 state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                 _syncStates.Save(remoteUrl, remoteUsername, workingPath, state);
+                RememberVaultFingerprint(workingPath);
                 await _core.OpenAsync(workingPath, password);
                 _masterPassword = password;
                 _selectedGroupUuid = null;
@@ -2995,6 +3044,13 @@ public sealed partial class MainWindow : Window
                 _dbPath = path;
                 _webDavSource = false;
                 _sourceWebDavUrl = null;
+                if (!TryAcquireVaultLock(path))
+                {
+                    throw new InvalidOperationException(Loc.T(
+                        "The database is open in another Keepassity window. " +
+                        "Close it there first."));
+                }
+                RememberVaultFingerprint(path);
                 await _core.OpenAsync(path, password);
                 _masterPassword = password;
                 _selectedGroupUuid = null;
@@ -3099,6 +3155,19 @@ public sealed partial class MainWindow : Window
         {
             MasterPassword.Focus(FocusState.Programmatic);
         }
+        if (_dbPath is not null)
+        {
+            if (!TryAcquireVaultLock(_dbPath))
+            {
+                Unlock.ShowStatus(Loc.T("Cannot open database"),
+                    Loc.T("The database is open in another Keepassity window. " +
+                          "Close it there first."),
+                    UnlockStatusSeverity.Error);
+                Announce(Loc.T("Unlock failed: {0}", Unlock.StatusMessage));
+                return;
+            }
+            RememberVaultFingerprint();
+        }
 
         _busy = true;
         bool unlocked;
@@ -3112,6 +3181,7 @@ public sealed partial class MainWindow : Window
         }
         if (!unlocked)
         {
+            ReleaseVaultLock();
             Announce(Loc.T("Unlock failed: {0}", Unlock.StatusMessage));
             return;
         }
@@ -5705,15 +5775,102 @@ public sealed partial class MainWindow : Window
 
     // ------------------------------------------------------------ save/lock
 
-    private async Task SaveAsync(bool silent = false, bool syncAfterSave = true)
+    /// <summary>
+    /// Take the cross-process vault lock, keeping the current one when it is for
+    /// the same path. Returns false when another Keepassity window owns it.
+    /// </summary>
+    private bool TryAcquireVaultLock(string path)
     {
-        if (_dbPath is null)
+        string full;
+        try
         {
+            full = Path.GetFullPath(path);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"cannot resolve the database path for locking: {ex.Message}");
+            return false;
+        }
+        if (_vaultLock is not null &&
+            string.Equals(_vaultLock.DatabasePath, full, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        _vaultLock?.Dispose();
+        _vaultLock = VaultFileLock.TryAcquire(full, out string? error);
+        if (_vaultLock is null)
+        {
+            AppLog.Warn($"vault lock unavailable: {error}");
+        }
+        return _vaultLock is not null;
+    }
+
+    private void ReleaseVaultLock()
+    {
+        _vaultLock?.Dispose();
+        _vaultLock = null;
+        _vaultFingerprint = null;
+    }
+
+    /// <summary>Record the database bytes the in-memory model is based on.</summary>
+    private void RememberVaultFingerprint(string? path = null)
+    {
+        string? target = path ?? _dbPath;
+        if (target is null)
+        {
+            _vaultFingerprint = null;
             return;
         }
         try
         {
-            await _core.SaveAsync(_dbPath, Settings.BackupRetention);
+            _vaultFingerprint = VaultFingerprint.Capture(target);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"cannot fingerprint the database: {ex.Message}");
+            _vaultFingerprint = null;
+        }
+    }
+
+    /// <summary>
+    /// True when the file on disk no longer matches the bytes this window's
+    /// model was opened from. A missing or unreadable file also counts as
+    /// changed so a save cannot recreate a file that another program moved.
+    /// </summary>
+    private bool VaultChangedOnDisk()
+    {
+        if (_dbPath is null || _vaultFingerprint is not VaultFingerprint expected)
+        {
+            return false;
+        }
+        try
+        {
+            return !VaultFingerprint.Capture(_dbPath).Matches(expected);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
+    private async Task<bool> SaveAsync(bool silent = false, bool syncAfterSave = true)
+    {
+        if (_dbPath is null)
+        {
+            return false;
+        }
+        if (VaultChangedOnDisk())
+        {
+            AppLog.Warn("save refused: the database changed outside this window");
+            ShowToast(Loc.T("The database was changed outside Keepassity. Reopen it " +
+                            "before saving; nothing was overwritten."),
+                InfoBarSeverity.Error);
+            return false;
+        }
+        try
+        {
+            await _core.SaveAsync(_dbPath, Settings.BackupRetention, VaultChangedOnDisk);
+            RememberVaultFingerprint();
             MarkLocalDirty();
             if (!silent)
             {
@@ -5723,6 +5880,15 @@ public sealed partial class MainWindow : Window
             {
                 _ = SyncAsync();
             }
+            return true;
+        }
+        catch (CoreException ex) when (ex.Code == "VaultChanged")
+        {
+            AppLog.Warn("save refused: the database changed outside this window");
+            ShowToast(Loc.T("The database was changed outside Keepassity. Reopen it " +
+                            "before saving; nothing was overwritten."),
+                InfoBarSeverity.Error);
+            return false;
         }
         catch (Exception ex)
         {
@@ -5777,6 +5943,7 @@ public sealed partial class MainWindow : Window
         SearchBox.Text = string.Empty;
         MasterPassword.Password = string.Empty;
         _masterPassword = null;
+        ReleaseVaultLock();
         SetSyncStatus(IsSyncConfigured ? "Not synced" : "Local only");
         Unlock.ClearStatus();
         UpdateDatabasePath();

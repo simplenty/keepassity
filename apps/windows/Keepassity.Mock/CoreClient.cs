@@ -386,9 +386,18 @@ public sealed class CoreClient : ICoreClient
         }
     }
 
-    public async Task SaveAsync(string path, int backupRetention = 20)
+    public async Task SaveAsync(string path, int backupRetention = 20,
+        Func<bool>? databaseChanged = null)
     {
         byte[] bytes = await SaveBytesAsync().ConfigureAwait(false);
+        // The model was already serialized; the caller gets one last chance to
+        // notice that another program replaced the file while the KDF/write was
+        // running. This closes the window between "check, then save".
+        if (databaseChanged?.Invoke() == true)
+        {
+            throw new CoreException("VaultChanged",
+                "the database changed outside this window");
+        }
         // The bytes come from the core writer; AtomicFile makes the placement
         // durable (write-through, flush, backup, atomic replace) and leaves no
         // partial database if the process dies mid-save.

@@ -59,4 +59,46 @@ public static class AtomicFile
             }
         }
     }
+
+    /// <summary>
+    /// Write small configuration/state files durably without creating a backup.
+    /// Uses the same flushed temporary file and atomic move as a database save.
+    /// </summary>
+    public static void Write(string path, byte[] content)
+    {
+        if (content is null || content.Length == 0)
+        {
+            throw new ArgumentException("Refusing to write an empty file.", nameof(content));
+        }
+        string fullPath = Path.GetFullPath(path);
+        string directory = Path.GetDirectoryName(fullPath)!;
+        Directory.CreateDirectory(directory);
+        string temp = Path.Combine(directory,
+            $".{Path.GetFileName(fullPath)}.keepassity-tmp-{Guid.NewGuid():N}");
+        try
+        {
+            using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write,
+                       FileShare.None, 4096, FileOptions.WriteThrough))
+            {
+                stream.Write(content);
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temp, fullPath, true);
+        }
+        finally
+        {
+            if (File.Exists(temp))
+            {
+                try
+                {
+                    File.Delete(temp);
+                }
+                catch
+                {
+                    // The previous file is still intact; a clearly named
+                    // temporary file is harmless.
+                }
+            }
+        }
+    }
 }

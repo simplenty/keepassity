@@ -56,6 +56,9 @@ planned for v1.x and is expected to consume the same core directly.
   live database; upload redirects are rejected rather than followed, and a sync baseline
   without a content hash is refused. A corrupt sync sidecar makes the vault dirty instead of
   clean.
+- One process writes a vault: opening it takes a cross-process lock, and a save compares the
+  file's SHA-256 with the bytes the in-memory model came from. An external change blocks the
+  save instead of being overwritten.
 - The real database, credentials and WebDAV working copies never enter a git repository.
 - Test fixtures are synthetic or public samples; see `tests/fixtures/README.md`.
 

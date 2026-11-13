@@ -180,6 +180,7 @@ try
     // rejection of a corrupted backup with the live database left untouched.
     BackupServiceTests.Run(Check, dataDirectory);
     AtomicFileTests.Run(Check, dataDirectory);
+    VaultGuardTests.Run(Check, dataDirectory);
 
     // diagnostics archive contains a summary and no credential blobs
     string archive = DiagnosticsService.ExportAsync(reloaded.Current)

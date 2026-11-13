@@ -101,9 +101,7 @@ public sealed class AppSettingsStore
     {
         try
         {
-            string temp = _path + ".tmp";
-            File.WriteAllText(temp, JsonSerializer.Serialize(Current, Options));
-            File.Move(temp, _path, true);
+            AtomicFile.Write(_path, JsonSerializer.SerializeToUtf8Bytes(Current, Options));
         }
         catch
         {

@@ -95,33 +95,7 @@ public sealed class SyncStateStore
         {
             return;
         }
-        string temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try
-        {
-            byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(state, Options);
-            using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write,
-                       FileShare.None, 4096, FileOptions.WriteThrough))
-            {
-                stream.Write(bytes);
-                stream.Flush(flushToDisk: true);
-            }
-            File.Move(temp, path, true);
-        }
-        finally
-        {
-            if (File.Exists(temp))
-            {
-                try
-                {
-                    File.Delete(temp);
-                }
-                catch
-                {
-                    // The previous state is still intact; a temporary file is
-                    // preferable to a half-written baseline.
-                }
-            }
-        }
+        AtomicFile.Write(path, JsonSerializer.SerializeToUtf8Bytes(state, Options));
     }
 
     private string PathFor(string remoteUrl, string username, string localPath)

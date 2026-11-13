@@ -178,6 +178,8 @@
   "The certificate presented by {0} was not trusted, so the connection was cancelled.": "{0} 提供的证书不受信任，因此连接已取消。",
   "The database file no longer exists.": "数据库文件已不存在。",
   "The database path is not valid.": "数据库路径无效。",
+  "The database is open in another Keepassity window. Close it there first.": "数据库已在另一个 Keepassity 窗口中打开。请先关闭那个窗口。",
+  "The database was changed outside Keepassity. Reopen it before saving; nothing was overwritten.": "数据库已被 Keepassity 之外的程序修改。请重新打开后再保存；本次未覆盖任何内容。",
   "The dropped file could not be read.": "无法读取拖入的文件。",
   "The empty group \"{0}\" will be removed.": "空分组“{0}”将被移除。",
   "The entry": "该条目",

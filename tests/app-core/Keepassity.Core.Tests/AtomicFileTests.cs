@@ -49,5 +49,18 @@ internal static class AtomicFileTests
         check("atomic replace refuses an empty payload", emptyRejected);
         check("refused atomic replace keeps the live bytes",
             File.ReadAllBytes(path).SequenceEqual(second));
+
+        string config = Path.Combine(directory, "settings.json");
+        byte[] firstConfig = "{\"theme\":\"Light\"}"u8.ToArray();
+        byte[] secondConfig = "{\"theme\":\"Dark\"}"u8.ToArray();
+        AtomicFile.Write(config, firstConfig);
+        check("atomic config write creates the file",
+            File.ReadAllBytes(config).SequenceEqual(firstConfig));
+        AtomicFile.Write(config, secondConfig);
+        check("atomic config write replaces the file",
+            File.ReadAllBytes(config).SequenceEqual(secondConfig));
+        check("atomic config write leaves no backup or temporary file",
+            Directory.GetFiles(directory, "*.keepassity-bak").Length == 0 &&
+            Directory.GetFiles(directory, "*.keepassity-tmp-*").Length == 0);
     }
 }

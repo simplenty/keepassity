@@ -34,7 +34,7 @@ public sealed class CredentialStore
         }
         byte[] plain = Encoding.UTF8.GetBytes(password);
         byte[] encrypted = Protect(plain);
-        File.WriteAllBytes(PathFor(url, username), encrypted);
+        AtomicFile.Write(PathFor(url, username), encrypted);
     }
 
     public string? LoadPassword(string url, string username)

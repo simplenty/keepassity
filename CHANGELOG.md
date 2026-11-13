@@ -5,6 +5,12 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **One writer per vault, and no silent external overwrite:** opening a vault takes a cross-process
+  lock, so a second Keepassity window cannot save over the first. Before every save (and before a
+  remote download or merge replaces the local working copy) the app compares the file's SHA-256
+  with the bytes its model was opened from; if another program changed the file, the save is
+  refused and the user is told to reopen, instead of overwriting their work. Settings, recent
+  databases, sync state and DPAPI credential files now use flushed, atomic writes too.
 - **Saving keeps the KDBX 4 outer format:** the writer now carries the source version (4.0/4.1),
   outer cipher, compression, KDF type and cost, and the `PublicCustomData` header field through a
   save. A KDBX 4.1 vault is no longer downgraded to 4.0, and an AES-KDF vault is no longer
