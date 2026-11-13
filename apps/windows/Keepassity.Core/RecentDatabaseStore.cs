@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System.Text.Json;
 
-namespace Keepassity.Mock;
+namespace Keepassity.Core;
 
 public sealed class RecentDatabaseEntry
 {
@@ -40,9 +40,15 @@ public sealed class RecentDatabaseStore
     private readonly string _filePath;
     private readonly List<RecentDatabaseEntry> _entries = new();
 
-    public RecentDatabaseStore()
+    /// <summary>
+    /// <paramref name="path"/> is for tests and diagnostics; the app uses the
+    /// application data root.
+    /// </summary>
+    public RecentDatabaseStore(string? path = null)
     {
-        _filePath = Path.Combine(ApplicationPaths.Root, "recent-databases.json");
+        _filePath = string.IsNullOrWhiteSpace(path)
+            ? System.IO.Path.Combine(ApplicationPaths.Root, "recent-databases.json")
+            : System.IO.Path.GetFullPath(path);
         Load();
     }
 
@@ -100,6 +106,7 @@ public sealed class RecentDatabaseStore
                 List<RecentDatabaseEntry>>(File.ReadAllText(_filePath), Options);
             if (loaded is null)
             {
+                PreserveCorruptFile();
                 return;
             }
             foreach (RecentDatabaseEntry entry in loaded)
@@ -118,7 +125,9 @@ public sealed class RecentDatabaseStore
         }
         catch
         {
-            // A corrupt recent list must never block unlocking; start empty.
+            // A corrupt recent list must never block unlocking; start empty but
+            // keep the bytes so the failure can be diagnosed.
+            PreserveCorruptFile();
         }
     }
 
@@ -134,11 +143,30 @@ public sealed class RecentDatabaseStore
         }
     }
 
+    private void PreserveCorruptFile()
+    {
+        try
+        {
+            if (!File.Exists(_filePath))
+            {
+                return;
+            }
+            string backup = _filePath + ".corrupt-" +
+                            DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            File.Copy(_filePath, backup, overwrite: false);
+            AppLog.Warn($"preserved unreadable recent-database list as {System.IO.Path.GetFileName(backup)}");
+        }
+        catch
+        {
+            // Diagnostics must not block unlocking.
+        }
+    }
+
     private static string Normalize(string path)
     {
         try
         {
-            return Path.GetFullPath(path);
+            return System.IO.Path.GetFullPath(path);
         }
         catch
         {

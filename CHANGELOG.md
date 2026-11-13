@@ -5,6 +5,10 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Recent-database list is platform-neutral and corruption-safe:** `RecentDatabaseStore` moved
+  from the shell to `Keepassity.Core`, gained a testable explicit path, and preserves an
+  unreadable `recent-databases.json` as `.corrupt-<timestamp>` instead of silently discarding
+  it. Newest-first order, de-duplication, the five-entry cap and removal are covered headlessly.
 - **Unreadable stored WebDAV credentials no longer break the UI:** a truncated or
   wrong-user/machine DPAPI blob is moved to `<name>.bin.corrupt-<timestamp>`, logged, and treated
   as "no stored password" instead of throwing into settings or sync. The user can re-enter the
