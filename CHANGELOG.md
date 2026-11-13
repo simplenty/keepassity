@@ -5,6 +5,10 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Save temporary files use the core protocol name and are cleaned on unlock:** `AtomicFile`
+  now writes `<database>.keepassity-tmp-<nonce>` (the same infix as the core `save_atomic`
+  protocol) and removes crash-left siblings/legacy dot-prefixed temps before a vault opens.
+  Other databases' temps and the live file are never touched.
 - **Backup files are created atomically:** the recovery copy is written to a flushed temporary
   sibling and moved into place, so a crash mid-copy cannot leave a truncated file with a real
   backup name. A name collision retries with the next suffix instead of overwriting.

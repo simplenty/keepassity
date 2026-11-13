@@ -62,5 +62,21 @@ internal static class AtomicFileTests
         check("atomic config write leaves no backup or temporary file",
             Directory.GetFiles(directory, "*.keepassity-bak").Length == 0 &&
             Directory.GetFiles(directory, "*.keepassity-tmp-*").Length == 0);
+
+        string live = Path.Combine(directory, "vault.kdbx");
+        File.WriteAllBytes(live, "live"u8.ToArray());
+        string temp = live + AtomicFile.TempInfix + "abc";
+        string legacy = Path.Combine(directory, ".vault.kdbx" + AtomicFile.TempInfix + "old");
+        string other = Path.Combine(directory, "other.kdbx" + AtomicFile.TempInfix + "x");
+        File.WriteAllBytes(temp, "partial"u8.ToArray());
+        File.WriteAllBytes(legacy, "partial"u8.ToArray());
+        File.WriteAllBytes(other, "unrelated"u8.ToArray());
+        int removed = AtomicFile.CleanupResidualTemps(live);
+        check("residual save temps are removed", removed == 2 && !File.Exists(temp) &&
+            !File.Exists(legacy), removed.ToString());
+        check("residual cleanup keeps the live database",
+            File.Exists(live) && File.ReadAllBytes(live).SequenceEqual("live"u8.ToArray()));
+        check("residual cleanup keeps another database's temp",
+            File.Exists(other), other);
     }
 }

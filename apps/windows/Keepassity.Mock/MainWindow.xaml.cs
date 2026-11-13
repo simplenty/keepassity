@@ -3172,6 +3172,11 @@ public sealed partial class MainWindow : Window
                 Announce(Loc.T("Unlock failed: {0}", Unlock.StatusMessage));
                 return;
             }
+            int cleaned = AtomicFile.CleanupResidualTemps(_dbPath);
+            if (cleaned > 0)
+            {
+                AppLog.Info($"removed {cleaned} residual save temporary file(s)");
+            }
             RememberVaultFingerprint();
         }
 

@@ -48,10 +48,13 @@ planned for v1.x and is expected to consume the same core directly.
 
 ## Data safety
 
-- Saves write a flushed sibling temporary file, keep a timestamped backup and replace the live
-  database atomically (`AtomicFile`). The core also implements a verified write/read-back protocol;
-  the Windows save path is being migrated onto it (see the compatibility notes and ADR-0032
-  follow-up work).
+- Saves are verified and durable in two layers: `kp_save` decrypts and parses the fresh
+  ciphertext with the cached KDF key before returning it, then `AtomicFile` writes a
+  `<database>.keepassity-tmp-<nonce>` sibling with write-through and an explicit flush, keeps a
+  timestamped backup and replaces the live file atomically. The same temp infix is used by the
+  core's IO-free `save_atomic` protocol; an unlock removes leftover temps before opening. The
+  Windows path therefore matches the core protocol's ordering (verify → temp → backup → replace),
+  with the backup hook delegated to `BackupService`.
 - Remote downloads are decrypted with the current master password before they replace the
   live database; upload redirects are rejected rather than followed, and a sync baseline
   without a content hash is refused. A corrupt sync sidecar makes the vault dirty instead of

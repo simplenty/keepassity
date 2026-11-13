@@ -10,6 +10,13 @@ namespace Keepassity.Core;
 public static class AtomicFile
 {
     /// <summary>
+    /// Marker between the database path and the random nonce. This is the same
+    /// convention as the core save protocol, so a crash-left temporary file can
+    /// be identified by either layer.
+    /// </summary>
+    public const string TempInfix = ".keepassity-tmp-";
+
+    /// <summary>
     /// Replace <paramref name="path"/> with <paramref name="content"/>, keeping
     /// a backup of the previous file when it exists.
     /// </summary>
@@ -24,7 +31,7 @@ public static class AtomicFile
         string directory = Path.GetDirectoryName(fullPath)!;
         Directory.CreateDirectory(directory);
         string temp = Path.Combine(directory,
-            $".{Path.GetFileName(fullPath)}.keepassity-tmp-{Guid.NewGuid():N}");
+            Path.GetFileName(fullPath) + TempInfix + Guid.NewGuid().ToString("N"));
         try
         {
             using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write,
@@ -61,6 +68,48 @@ public static class AtomicFile
     }
 
     /// <summary>
+    /// Remove temporary files left by a crash for <paramref name="path"/>. Only
+    /// names matching the protocol are touched; the live database and unrelated
+    /// files are never deleted. Legacy dot-prefixed names from older builds are
+    /// included.
+    /// </summary>
+    public static int CleanupResidualTemps(string path)
+    {
+        string fullPath = Path.GetFullPath(path);
+        string? directory = Path.GetDirectoryName(fullPath);
+        if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
+        {
+            return 0;
+        }
+        string name = Path.GetFileName(fullPath);
+        string[] candidates =
+        {
+            name + TempInfix,
+            "." + name + TempInfix,
+        };
+        int removed = 0;
+        foreach (string prefix in candidates)
+        {
+            foreach (string candidate in Directory.EnumerateFiles(directory, prefix + "*"))
+            {
+                // A concurrent save would have the file open with FileShare.None;
+                // deletion fails and the next cleanup retries. The vault lock
+                // means this should not happen during a normal save.
+                try
+                {
+                    File.Delete(candidate);
+                    removed++;
+                }
+                catch
+                {
+                    // Leave it; it is clearly named and not the live file.
+                }
+            }
+        }
+        return removed;
+    }
+
+    /// <summary>
     /// Write small configuration/state files durably without creating a backup.
     /// Uses the same flushed temporary file and atomic move as a database save.
     /// </summary>
@@ -74,7 +123,7 @@ public static class AtomicFile
         string directory = Path.GetDirectoryName(fullPath)!;
         Directory.CreateDirectory(directory);
         string temp = Path.Combine(directory,
-            $".{Path.GetFileName(fullPath)}.keepassity-tmp-{Guid.NewGuid():N}");
+            Path.GetFileName(fullPath) + TempInfix + Guid.NewGuid().ToString("N"));
         try
         {
             using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write,
