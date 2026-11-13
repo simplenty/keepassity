@@ -4909,9 +4909,16 @@ public sealed partial class MainWindow : Window
         }
         try
         {
-            string uuid = await _core.CreateEntryAsync(group.Uuid,
-                string.IsNullOrWhiteSpace(title.Text) ? Loc.T("Untitled entry") : title.Text.Trim(),
-                username.Text.Trim(), password.Password, url.Text.Trim(), notes.Text);
+            var editor = EntryEditorViewModel.New(group.Uuid);
+            editor.Title = title.Text;
+            editor.Username = username.Text;
+            editor.Password = password.Password;
+            editor.Url = url.Text;
+            editor.Notes = notes.Text;
+            string uuid = await _core.CreateEntryAsync(editor.GroupUuid!,
+                editor.CreateTitle(Loc.T("Untitled entry")),
+                editor.NormalizedUsername(), editor.Password, editor.NormalizedUrl(),
+                editor.Notes);
             await SaveAsync();
             await ReloadVaultAsync(uuid, preserveScroll: false);
             ShowToast(Loc.T("Entry created and saved"), InfoBarSeverity.Success);
@@ -4928,6 +4935,18 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
+        EntryEditorViewModel editor = EntryEditorViewModel.FromEntry(
+            _currentFull.Uuid,
+            _currentFull.Title,
+            _currentFull.Username,
+            _currentFull.PasswordSecret,
+            _currentFull.Url,
+            _currentFull.Tags,
+            _currentFull.Notes,
+            _currentFull.Totp?.SecretBase32,
+            _currentFull.Totp?.Algorithm,
+            _currentFull.Totp?.Digits,
+            _currentFull.Totp?.Period);
         var title = new TextBox { Header = Loc.T("Title"), Text = _currentFull.Title };
         var username = new TextBox { Header = Loc.T("Username"), Text = _currentFull.Username };
         var password = new PasswordBox
@@ -5019,32 +5038,34 @@ public sealed partial class MainWindow : Window
         }
         try
         {
-            List<string> tagList = tags.Text
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            string uuid = _currentFull.Uuid;
-            await _core.UpdateEntryAsync(uuid, title.Text.Trim(),
-                username.Text.Trim(), password.Password, url.Text.Trim(), notes.Text, tagList);
-            string totpValue = totpSecret.Text.Trim();
-            if (totpValue.Length == 0)
+            editor.Title = title.Text;
+            editor.Username = username.Text;
+            editor.Password = password.Password;
+            editor.Url = url.Text;
+            editor.TagsText = tags.Text;
+            editor.Notes = notes.Text;
+            editor.TotpSecret = totpSecret.Text;
+            editor.TotpAlgorithm = totpAlgorithm.SelectedItem as string ?? "SHA1";
+            editor.TotpDigits = totpDigits.SelectedItem as string ?? "6";
+            editor.TotpPeriod = (int)Math.Clamp(totpPeriod.Value, 1, 300);
+
+            List<string> tagList = editor.TagList();
+            string uuid = editor.Uuid!;
+            await _core.UpdateEntryAsync(uuid, editor.UpdateTitle(),
+                editor.NormalizedUsername(), editor.Password, editor.NormalizedUrl(),
+                editor.Notes, tagList);
+            if (editor.ShouldDeleteTotp)
             {
-                if (existingTotp is not null)
-                {
-                    await _core.TotpDeleteAsync(uuid);
-                }
+                await _core.TotpDeleteAsync(uuid);
             }
-            else
+            else if (editor.BuildTotp() is { } totp)
             {
                 await _core.TotpSetAsync(uuid, new TotpConfigDto
                 {
-                    SecretBase32 = totpValue,
-                    Algorithm = totpAlgorithm.SelectedItem as string ?? "SHA1",
-                    Digits = int.TryParse(totpDigits.SelectedItem as string,
-                        out int parsedDigits)
-                        ? parsedDigits
-                        : 6,
-                    Period = (int)Math.Clamp(totpPeriod.Value, 1, 300),
+                    SecretBase32 = totp.SecretBase32,
+                    Algorithm = totp.Algorithm,
+                    Digits = totp.Digits,
+                    Period = totp.Period,
                     Encoder = "totp",
                 });
             }

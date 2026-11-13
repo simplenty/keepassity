@@ -5,6 +5,10 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Entry editor normalization moved into a view model:** `EntryEditorViewModel` owns the
+  untitled-entry fallback, trimmed fields, comma-separated tag parsing/deduplication and TOTP
+  defaults/clamping (SHA1/SHA256/SHA512, 6/8 digits, 1–300 s). Create and edit now use the same
+  rules; the "empty secret removes TOTP" decision is tested instead of living in two dialogs.
 - **Detail panel state moved into the view model:** `EntryDetailViewModel` owns the title/group,
   field visibility, tag formatting, custom-field selection and the password mask/reveal state;
   the XAML detail panel binds the text and visibility through `x:Bind`. Password reveal no longer
