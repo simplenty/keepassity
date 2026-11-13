@@ -7,8 +7,10 @@
 
 use keepassity_core::kdbx::reader::parse;
 use keepassity_core::kdbx::save::verify_rewritten;
-use keepassity_core::kdbx::writer::write_model;
+use keepassity_core::kdbx::writer::{write_model, write_model_cached};
 use keepassity_core::merge::merge;
+use keepassxcr::format::read_kdbx_bytes;
+use keepassxcr::Credentials;
 
 fn fixture(name: &str) -> Vec<u8> {
     std::fs::read(format!(
@@ -67,4 +69,24 @@ fn a_written_database_passes_verified_rewrite() {
     let database = parse(&original, "demopass").expect("read fixture");
     let written = write_model(&database, "demopass").expect("write model");
     verify_rewritten(&original, &written, "demopass").expect("verified rewrite");
+}
+
+#[test]
+fn cached_saves_reuse_the_kdf_salt() {
+    // The first save derives the transformed key and returns a cache; the
+    // second save must reuse the same KDF salt/transformed key instead of
+    // running the KDF again, while still drawing a fresh master seed and IV.
+    let database =
+        parse(&fixture("test_db_kdbx4_with_password_aes.kdbx"), "demopass").expect("read fixture");
+    let (first, cache) =
+        write_model_cached(&database, "demopass", None).expect("first cached write");
+    let (second, _cache) =
+        write_model_cached(&database, "demopass", Some(&cache)).expect("second cached write");
+    assert_ne!(first, second, "master seed/IV must still be fresh");
+
+    let credentials = Credentials::password("demopass");
+    let first_file = read_kdbx_bytes(&first, &credentials).expect("read first");
+    let second_file = read_kdbx_bytes(&second, &credentials).expect("read second");
+    assert_eq!(first_file.kdf.seed(), second_file.kdf.seed());
+    assert!(parse(&second, "demopass").is_ok());
 }

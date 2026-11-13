@@ -44,6 +44,8 @@ struct Subscriber {
 struct HandleState {
     database: Option<Database>,
     password: Option<String>,
+    /// Transformed KDF key for the next save. Dropped on lock/close.
+    kdf_cache: Option<keepassity_core::kdbx::writer::KdfCache>,
     dirty: bool,
     baseline: SyncBaseline,
     last_sync_unix: Option<i64>,
@@ -218,6 +220,7 @@ pub extern "C" fn kp_open(kdbx: *const u8, len: usize, opts_json: *const c_char)
             state: Mutex::new(HandleState {
                 database: Some(database),
                 password: Some(password),
+                kdf_cache: None,
                 dirty: false,
                 baseline: SyncBaseline::default(),
                 last_sync_unix: None,
@@ -283,6 +286,7 @@ pub extern "C" fn kp_lock(handle: *mut KpHandle) -> i32 {
         match with_state(handle, |state| {
             state.database = None;
             state.password = None;
+            state.kdf_cache = None;
             Ok(())
         }) {
             Ok(()) => success(),
@@ -664,9 +668,11 @@ pub extern "C" fn kp_save(
         }
         match with_state(handle, |state| {
             let password = state.password.clone().ok_or_else(FfiError::locked)?;
+            let cache = state.kdf_cache.take();
             let database = state.database.as_ref().ok_or_else(FfiError::locked)?;
-            let bytes = writer::write_model(database, &password)
+            let (bytes, cache) = writer::write_model_cached(database, &password, cache.as_ref())
                 .map_err(|_| FfiError::new("IoError", "cannot serialize the database"))?;
+            state.kdf_cache = Some(cache);
             set_buffer(out_bytes, out_len, bytes);
             Ok(())
         }) {
@@ -810,15 +816,20 @@ pub extern "C" fn kp_sync_merge(
         match with_state(handle, |state| {
             let password = state.password.clone().ok_or_else(FfiError::locked)?;
             let remote_db = open_database(remote_bytes, &password)?;
-            let local = state.database.as_ref().ok_or_else(FfiError::locked)?;
-            let merged = merge_for_sync(local, &remote_db);
-            let bytes = writer::write_model(&merged.database, &password)
-                .map_err(|_| FfiError::new("IoError", "cannot serialize merged database"))?;
+            let merged = {
+                let local = state.database.as_ref().ok_or_else(FfiError::locked)?;
+                merge_for_sync(local, &remote_db)
+            };
+            let cache = state.kdf_cache.take();
+            let (bytes, cache) =
+                writer::write_model_cached(&merged.database, &password, cache.as_ref())
+                    .map_err(|_| FfiError::new("IoError", "cannot serialize merged database"))?;
             let conflicts: Vec<ConflictItem> =
                 merged.conflicts.iter().map(ConflictItem::from).collect();
             let conflicts_text = serde_json::to_string(&conflicts)
                 .map_err(|_| FfiError::internal("cannot serialize conflicts"))?;
             state.database = Some(merged.database);
+            state.kdf_cache = Some(cache);
             state.dirty = true;
             set_buffer(out_bytes, out_len, bytes);
             unsafe {
@@ -2065,6 +2076,29 @@ mod tests {
         );
         kp_buffer_free(bytes, len);
         assert_eq!(kp_close(handle), 0);
+    }
+
+    #[test]
+    fn repeated_saves_reuse_the_cached_kdf_and_stay_readable() {
+        let handle = open_fixture();
+        let first = save_to_vec(handle);
+        let second = save_to_vec(handle);
+        assert_ne!(
+            first, second,
+            "a save must still use a fresh master seed/IV"
+        );
+        keepassity_core::kdbx::reader::parse(&first, "demopass").expect("first save reads");
+        keepassity_core::kdbx::reader::parse(&second, "demopass").expect("second save reads");
+        assert_eq!(kp_close(handle), 0);
+    }
+
+    fn save_to_vec(handle: *mut KpHandle) -> Vec<u8> {
+        let mut bytes = std::ptr::null_mut();
+        let mut len = 0usize;
+        assert_eq!(kp_save(handle, &mut bytes, &mut len), 0);
+        let copy = unsafe { std::slice::from_raw_parts(bytes, len) }.to_vec();
+        kp_buffer_free(bytes, len);
+        copy
     }
 
     #[test]

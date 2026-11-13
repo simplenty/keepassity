@@ -264,6 +264,11 @@ internal static class AppSelfTest
                     throw new InvalidOperationException("Save produced no file.");
                 }
                 Record($"saved: {new FileInfo(temp).Length} bytes");
+                // The second save uses the transformed-key cache in the FFI
+                // handle; it must still produce a readable database.
+                Record("saving copy again (cached KDF)");
+                core.SaveAsync(temp, 20).GetAwaiter().GetResult();
+                Record($"saved again: {new FileInfo(temp).Length} bytes");
             }
 
             using (var verify = new CoreClient())

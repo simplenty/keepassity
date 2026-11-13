@@ -424,34 +424,62 @@ pub fn read_kdbx_bytes(data: &[u8], credentials: &Credentials) -> AppResult<Kdbx
     })
 }
 
+/// Reusable KDF output for a save.
+///
+/// The KDF salt and transformed key are kept together: the next save reuses
+/// both, so only the master seed/IV/protected-stream key are regenerated. This
+/// is KeePass's "transformed key" reuse and turns a save from a full KDF run
+/// into a few milliseconds once the vault has been saved once. Keep the cache
+/// with the unlocked vault and drop it on lock/close (the transformed key is
+/// zeroized on drop).
+pub struct KdfCache {
+    kdf: KdfConfig,
+    transformed: Zeroizing<Vec<u8>>,
+}
+
 pub fn write_kdbx_bytes(file: &KdbxFile, credentials: &Credentials) -> AppResult<Vec<u8>> {
+    write_kdbx_bytes_with_cache(file, credentials, None).map(|(bytes, _)| bytes)
+}
+
+/// Encrypt `file`, reusing `cache` when supplied and returning the cache for the
+/// next save. The output keeps the KDF configuration from the cache (including
+/// its salt); a fresh master seed, IV and protected-stream key are still drawn
+/// on every save.
+pub fn write_kdbx_bytes_with_cache(
+    file: &KdbxFile,
+    credentials: &Credentials,
+    cache: Option<&KdfCache>,
+) -> AppResult<(Vec<u8>, KdfCache)> {
     if credentials.is_empty() {
         return Err(AppError::InvalidInput(
             "credentials required to encrypt database".to_string(),
         ));
     }
 
-    let mut kdf = file.kdf.clone();
-    randomize_kdf_seed(&mut kdf);
+    let (kdf, transformed) = match cache {
+        Some(cache) => (
+            cache.kdf.clone(),
+            Zeroizing::new(cache.transformed.to_vec()),
+        ),
+        None => {
+            let mut kdf = file.kdf.clone();
+            randomize_kdf_seed(&mut kdf);
+            let transformed = credentials.transform_key(&kdf, None)?;
+            (kdf, transformed)
+        }
+    };
 
     let mut master_seed = vec![0u8; 32];
     OsRng.fill_bytes(&mut master_seed);
 
-    let keys = credentials.derive_keys(file.version, &kdf, &master_seed)?;
+    let final_key = build_final_key(&master_seed, None, &transformed);
 
     let data = if file.version.is_kdbx4() {
-        write_kdbx4(
-            file,
-            &kdf,
-            &master_seed,
-            &keys.final_key[..],
-            &keys.transformed,
-        )?
+        write_kdbx4(file, &kdf, &master_seed, &final_key[..], &transformed)?
     } else {
-        write_kdbx3(file, &kdf, &master_seed, &keys.final_key[..])?
+        write_kdbx3(file, &kdf, &master_seed, &final_key[..])?
     };
-    credentials.keep(&keys)?;
-    Ok(data)
+    Ok((data, KdfCache { kdf, transformed }))
 }
 
 struct HeaderData {

@@ -22,8 +22,8 @@ pub use constants::{
     HeaderFieldId, InnerHeaderFieldId, KDBX_SIGNATURE_1, KDBX_SIGNATURE_2, VariantFieldType,
 };
 pub use kdbx::{
-    Credentials, CredentialsBuilder, KdbxFile, read_kdbx, read_kdbx_bytes, write_kdbx,
-    write_kdbx_bytes,
+    Credentials, CredentialsBuilder, KdbxFile, KdfCache, read_kdbx, read_kdbx_bytes, write_kdbx,
+    write_kdbx_bytes, write_kdbx_bytes_with_cache,
 };
 pub use types::{Compression, KdbxVersion};
 pub use variant_map::{VariantValue, read_variant_map, write_variant_map};

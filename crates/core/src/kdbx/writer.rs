@@ -15,7 +15,9 @@ use crate::model::{
     KdfSettings, Meta, OuterCipher, OuterCompression, Times, Uuid,
 };
 use keepassxcr::crypto::{CipherId, KdfConfig, KdfType};
-use keepassxcr::format::{read_kdbx_bytes, write_kdbx_bytes, Compression, KdbxVersion};
+use keepassxcr::format::{
+    read_kdbx_bytes, write_kdbx_bytes, write_kdbx_bytes_with_cache, Compression, KdbxVersion,
+};
 use keepassxcr::model::{
     Attachment as BackendAttachment, Database as BackendDatabase,
     DeletedObject as BackendDeletedObject, Entry as BackendEntry, Group as BackendGroup,
@@ -23,6 +25,8 @@ use keepassxcr::model::{
 };
 use keepassxcr::Credentials;
 use std::fmt;
+
+pub use keepassxcr::format::KdfCache;
 
 /// Write backend identity (also exposed in diagnostics).
 pub const WRITE_BACKEND: &str = "keepassxcr 0.3.1 (vendored, byte API)";
@@ -87,6 +91,18 @@ pub fn reseal(bytes: &[u8], password: &str) -> Result<Vec<u8>, KdbxWriteError> {
 /// protection, custom data, custom icons, recycle bin, history limits). Unknown
 /// raw XML outside the model is not carried over.
 pub fn write_model(db: &Database, password: &str) -> Result<Vec<u8>, KdbxWriteError> {
+    write_model_cached(db, password, None).map(|(bytes, _)| bytes)
+}
+
+/// Write `db`, reusing the transformed KDF key in `cache` when provided. The
+/// caller keeps the returned cache with the unlocked database; the next save
+/// then skips the KDF entirely. The first save derives the key and returns the
+/// cache, so the app does not pay a second KDF at open time.
+pub fn write_model_cached(
+    db: &Database,
+    password: &str,
+    cache: Option<&KdfCache>,
+) -> Result<(Vec<u8>, KdfCache), KdbxWriteError> {
     if password.is_empty() {
         return Err(KdbxWriteError::Write(
             "password required to encrypt".to_string(),
@@ -96,7 +112,7 @@ pub fn write_model(db: &Database, password: &str) -> Result<Vec<u8>, KdbxWriteEr
     let mut file = keepassxcr::KdbxFile::new(backend);
     apply_outer_header(&mut file, db.outer.as_ref());
     let credentials = Credentials::password(password);
-    write_kdbx_bytes(&file, &credentials)
+    write_kdbx_bytes_with_cache(&file, &credentials, cache)
         .map_err(|error| KdbxWriteError::Write(format!("{error:?}")))
 }
 

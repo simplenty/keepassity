@@ -5,6 +5,11 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Saving reuses the transformed KDF key:** after the first save of an unlocked vault, later
+  saves reuse the KDF salt and transformed key and only draw a fresh master seed, IV and
+  protected-stream key. The KDF cost/type and format version still match the source file, so the
+  compatibility guarantees are unchanged, but routine saves no longer spend hundreds of
+  milliseconds on Argon2/AES-KDF. The cache is dropped when the vault locks or closes.
 - **One writer per vault, and no silent external overwrite:** opening a vault takes a cross-process
   lock, so a second Keepassity window cannot save over the first. Before every save (and before a
   remote download or merge replaces the local working copy) the app compares the file's SHA-256

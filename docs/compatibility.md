@@ -26,15 +26,17 @@ trip runs in CI. The database used for the real-vault checks is never committed.
 App saves preserve the KDBX 4 outer header read from the source file: the format version
 (4.0 stays 4.0, 4.1 stays 4.1), outer cipher (AES-128/256, Twofish or ChaCha20), compression,
 KDF type and cost (AES-KDF rounds or Argon2 memory/iterations/parallelism) and the
-`PublicCustomData` header field. A newly created database uses the write defaults (KDBX 4.0,
-AES-256, Argon2id 128 MiB / 6 iterations / 4 lanes, gzip). A KDBX 3.1 source is upgraded to
-KDBX 4.0 with those defaults, because KDBX3 has no equivalent outer header after the upgrade.
-The protected-stream algorithm follows the write backend (ChaCha20). Model data that the
-writer maps (entries, groups, fields, times, tags, history, attachments, deleted objects, TOTP
-fields) is carried through an edit/save; raw XML blocks, custom icons and auto-type data that
-the model writer does not map are not preserved by an app save. The app edit/save path was
-manually checked at G3 (edit, save, reopen in KeePass 2.x); the interop matrix above covers the
-backend rewrite round trip.
+`PublicCustomData` header field. The KDF salt is chosen on the first save and the transformed
+key is reused for later saves in the same unlocked session; a fresh master seed, encryption IV
+and protected-stream key are still drawn on every save. A newly created database uses the
+write defaults (KDBX 4.0, AES-256, Argon2id 128 MiB / 6 iterations / 4 lanes, gzip). A KDBX 3.1
+source is upgraded to KDBX 4.0 with those defaults, because KDBX3 has no equivalent outer
+header after the upgrade. The protected-stream algorithm follows the write backend (ChaCha20).
+Model data that the writer maps (entries, groups, fields, times, tags, history, attachments,
+deleted objects, TOTP fields) is carried through an edit/save; raw XML blocks, custom icons and
+auto-type data that the model writer does not map are not preserved by an app save. The app
+edit/save path was manually checked at G3 (edit, save, reopen in KeePass 2.x); the interop
+matrix above covers the backend rewrite round trip.
 
 ## WebDAV TLS and self-signed certificates
 
