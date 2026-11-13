@@ -6,7 +6,7 @@
 //! `History`; deleted UUIDs never resurrect; a newer LocationChanged decides
 //! the parent group. The output is deterministic and does not mutate inputs.
 
-use crate::model::{AutoType, Database, DeletedObject, Entry, Group, Times, Uuid};
+use crate::model::{AutoType, Database, DeletedObject, Entry, Group, HistoryLimits, Times, Uuid};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// What kind of object conflicts.
@@ -61,48 +61,132 @@ pub fn merge(local: &Database, remote: &Database) -> (Database, MergeReport) {
     let a = index(local);
     let b = index(remote);
     let mut report = MergeReport::default();
+    // The database that receives the merge owns the history retention policy.
+    let limits = HistoryLimits::from_meta(&local.meta);
 
-    let deleted = merge_deleted(local, remote);
-    let deleted_uuids: BTreeSet<Uuid> = deleted.iter().map(|item| item.uuid).collect();
-    let mut deleted_groups = BTreeSet::new();
-    // A deleted group deletes its whole subtree (cannot resurrect descendants).
-    loop {
-        let mut changed = false;
-        for uuid in a.groups.keys().chain(b.groups.keys()) {
-            if deleted_groups.contains(uuid) {
-                continue;
-            }
-            let parent = parent_of_group(&a, &b, *uuid);
-            if parent.is_some_and(|parent| {
-                deleted_uuids.contains(&parent) || deleted_groups.contains(&parent)
-            }) {
-                deleted_groups.insert(*uuid);
-                changed = true;
-            }
-        }
-        for uuid in deleted_uuids
-            .iter()
-            .filter(|uuid| a.groups.contains_key(uuid) || b.groups.contains_key(uuid))
-        {
-            if deleted_groups.insert(*uuid) {
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
+    // Deletion records are a union by UUID; when either side has several
+    // records for the same object, the latest deletion wins. The root group is
+    // never deletable, even if a corrupt remote says so.
+    let mut deleted = merge_deleted(local, remote);
+    deleted.retain(|item| item.uuid != a.root && item.uuid != b.root);
+    let mut deletion_times: BTreeMap<Uuid, i64> = BTreeMap::new();
+    for item in &deleted {
+        let time = timestamp(&item.deletion_time);
+        deletion_times
+            .entry(item.uuid)
+            .and_modify(|known| *known = (*known).max(time))
+            .or_insert(time);
     }
 
     let all_group_uuids: BTreeSet<Uuid> = a.groups.keys().chain(b.groups.keys()).copied().collect();
     let all_entry_uuids: BTreeSet<Uuid> =
         a.entries.keys().chain(b.entries.keys()).copied().collect();
 
+    // A deleted group also covers its subtree. Carry the latest deletion time
+    // down each side's tree so an unchanged child is removed with its parent,
+    // while a child changed after the deletion can still survive.
+    let mut group_deletion_times: BTreeMap<Uuid, i64> = BTreeMap::new();
+    inherit_group_deletions(&a, &deletion_times, &mut group_deletion_times);
+    inherit_group_deletions(&b, &deletion_times, &mut group_deletion_times);
+
+    // Only an object that was not modified after the deletion may be removed.
+    // A newer local/remote edit wins and is surfaced as a conflict, so the user
+    // can see that one side deleted data the other side had modified.
+    let mut entry_deleted: BTreeSet<Uuid> = BTreeSet::new();
+    for uuid in &all_entry_uuids {
+        let modified = latest_entry_time(&a, &b, *uuid);
+        let parent = choose_entry_parent(&a, &b, *uuid);
+        let own = deletion_times.get(uuid).copied();
+        let inherited = parent
+            .and_then(|parent| group_deletion_times.get(&parent))
+            .copied();
+        let effective = match (own, inherited) {
+            (Some(own), Some(inherited)) => Some(own.max(inherited)),
+            (Some(time), None) | (None, Some(time)) => Some(time),
+            (None, None) => None,
+        };
+        let Some(effective) = effective else {
+            continue;
+        };
+        if modified <= effective {
+            entry_deleted.insert(*uuid);
+            report.deleted_skipped += 1;
+            continue;
+        }
+        if own.is_some() {
+            report.conflicts += 1;
+            report.conflict_items.push(entry_deletion_conflict(
+                *uuid,
+                a.entries.get(uuid),
+                b.entries.get(uuid),
+                latest_deleted(local, *uuid),
+                latest_deleted(remote, *uuid),
+            ));
+        }
+    }
+
+    // Groups are decided to a fixed point, deepest last: a group can only be
+    // deleted when nothing inside it survives (a newer entry, a newer subgroup,
+    // or a subgroup that itself still has content).
+    let mut group_deleted: BTreeSet<Uuid> = BTreeSet::new();
+    let mut group_deletable: BTreeSet<Uuid> = BTreeSet::new();
+    for uuid in &all_group_uuids {
+        if *uuid == a.root || *uuid == b.root {
+            continue;
+        }
+        let Some(effective) = group_deletion_times.get(uuid).copied() else {
+            continue;
+        };
+        let modified = latest_group_time(&a, &b, *uuid);
+        if modified <= effective {
+            group_deletable.insert(*uuid);
+        } else if deletion_times.contains_key(uuid) {
+            report.conflicts += 1;
+            report.conflict_items.push(group_deletion_conflict(
+                *uuid,
+                a.groups.get(uuid),
+                b.groups.get(uuid),
+                latest_deleted(local, *uuid),
+                latest_deleted(remote, *uuid),
+            ));
+        }
+    }
+    loop {
+        let mut changed = false;
+        for uuid in &all_group_uuids {
+            if group_deleted.contains(uuid) || !group_deletable.contains(uuid) {
+                continue;
+            }
+            if has_surviving_content(&a, &b, *uuid, &entry_deleted, &group_deleted) {
+                continue;
+            }
+            group_deleted.insert(*uuid);
+            report.deleted_skipped += 1;
+            changed = true;
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    // A deletion record for a live object was not applied (newer edit or
+    // surviving content); drop it. Records for objects that are gone stay, so a
+    // stale copy cannot resurrect them.
+    deleted.retain(|item| {
+        if entry_deleted.contains(&item.uuid) || group_deleted.contains(&item.uuid) {
+            return true;
+        }
+        !(a.entries.contains_key(&item.uuid)
+            || b.entries.contains_key(&item.uuid)
+            || a.groups.contains_key(&item.uuid)
+            || b.groups.contains_key(&item.uuid))
+    });
+
     let root = a.root;
     let mut merged_groups: BTreeMap<Uuid, Group> = BTreeMap::new();
     let mut group_parent: BTreeMap<Uuid, Uuid> = BTreeMap::new();
     for uuid in &all_group_uuids {
-        if deleted_groups.contains(uuid) {
-            report.deleted_skipped += 1;
+        if group_deleted.contains(uuid) {
             continue;
         }
         let (winner, other, both) = match (a.groups.get(uuid), b.groups.get(uuid)) {
@@ -121,7 +205,7 @@ pub fn merge(local: &Database, remote: &Database) -> (Database, MergeReport) {
             |side| side.groups.get(uuid).map(|group| &group.times),
             root,
         );
-        let parent = if deleted_groups.contains(&parent) || !all_group_uuids.contains(&parent) {
+        let parent = if group_deleted.contains(&parent) || !all_group_uuids.contains(&parent) {
             root
         } else {
             parent
@@ -189,8 +273,7 @@ pub fn merge(local: &Database, remote: &Database) -> (Database, MergeReport) {
     let mut merged_entries: BTreeMap<Uuid, Entry> = BTreeMap::new();
     let mut entry_parent: BTreeMap<Uuid, Uuid> = BTreeMap::new();
     for uuid in &all_entry_uuids {
-        if deleted_uuids.contains(uuid) {
-            report.deleted_skipped += 1;
+        if entry_deleted.contains(uuid) {
             continue;
         }
         let (winner, loser) = match (a.entries.get(uuid), b.entries.get(uuid)) {
@@ -269,35 +352,25 @@ pub fn merge(local: &Database, remote: &Database) -> (Database, MergeReport) {
                     seen.push(candidate);
                 }
             }
+            // KeePass keeps history oldest first; sorting before truncation
+            // makes the newest items the ones that survive the limits.
+            seen.sort_by_key(|snapshot| timestamp(&snapshot.times.last_modification));
             let added = seen.len().saturating_sub(entry.history.len());
             if !seen.is_empty() {
                 entry.history = seen;
             }
             report.history_added += added;
         }
+        // The database that receives the merge owns the retention policy.
+        entry.truncate_history(limits);
 
         let local_parent = a.entry_parent.get(uuid).copied();
-        let remote_parent = b.entry_parent.get(uuid).copied();
-        let layout_side = if local_parent.is_some() && remote_parent.is_some() {
-            let left = a.entries.get(uuid).map(|entry| &entry.times);
-            let right = b.entries.get(uuid).map(|entry| &entry.times);
-            match (left, right) {
-                (Some(left), Some(right))
-                    if timestamp(&right.location_changed) > timestamp(&left.location_changed) =>
-                {
-                    remote_parent
-                }
-                _ => local_parent,
-            }
-        } else {
-            local_parent.or(remote_parent)
-        };
-        let parent = layout_side.unwrap_or(root);
-        if deleted_groups.contains(&parent) {
-            report.deleted_skipped += 1;
-            continue;
-        }
-        let parent = if merged_groups.contains_key(&parent) {
+        // A surviving entry must not disappear just because its chosen parent
+        // group was deleted; move it to the root instead of dropping data.
+        let parent = choose_entry_parent(&a, &b, *uuid).unwrap_or(root);
+        let parent = if group_deleted.contains(&parent) {
+            root
+        } else if merged_groups.contains_key(&parent) {
             parent
         } else {
             root
@@ -449,21 +522,251 @@ fn build_group(
 }
 
 fn merge_deleted(local: &Database, remote: &Database) -> Vec<DeletedObject> {
-    let mut deleted = local.deleted_objects.clone();
-    for item in &remote.deleted_objects {
-        if !deleted.iter().any(|existing| existing.uuid == item.uuid) {
-            deleted.push(item.clone());
+    let mut deleted: Vec<DeletedObject> = Vec::new();
+    for item in local
+        .deleted_objects
+        .iter()
+        .chain(remote.deleted_objects.iter())
+    {
+        match deleted
+            .iter()
+            .position(|existing| existing.uuid == item.uuid)
+        {
+            Some(index) => {
+                // A later deletion of the same object supersedes an earlier
+                // record; the first record keeps its deterministic position.
+                if timestamp(&item.deletion_time) > timestamp(&deleted[index].deletion_time) {
+                    deleted[index] = item.clone();
+                }
+            }
+            None => deleted.push(item.clone()),
         }
     }
     deleted
 }
 
-fn parent_of_group(a: &Side, b: &Side, uuid: Uuid) -> Option<Uuid> {
-    a.group_parent
-        .get(&uuid)
-        .copied()
-        .flatten()
-        .or_else(|| b.group_parent.get(&uuid).copied().flatten())
+fn latest_deleted(database: &Database, uuid: Uuid) -> Option<&DeletedObject> {
+    database
+        .deleted_objects
+        .iter()
+        .filter(|item| item.uuid == uuid)
+        .max_by_key(|item| timestamp(&item.deletion_time))
+}
+
+/// Carry group deletion times down both trees: an unchanged child of a deleted
+/// group is covered by the parent's deletion time, but a child changed later
+/// keeps its own (later) modification time and can survive.
+fn inherit_group_deletions(
+    side: &Side,
+    deletion_times: &BTreeMap<Uuid, i64>,
+    out: &mut BTreeMap<Uuid, i64>,
+) {
+    fn walk(
+        side: &Side,
+        uuid: Uuid,
+        inherited: Option<i64>,
+        deletion_times: &BTreeMap<Uuid, i64>,
+        out: &mut BTreeMap<Uuid, i64>,
+    ) {
+        let own = deletion_times.get(&uuid).copied();
+        let effective = match (inherited, own) {
+            (Some(inherited), Some(own)) => Some(inherited.max(own)),
+            (Some(time), None) | (None, Some(time)) => Some(time),
+            (None, None) => None,
+        };
+        if let Some(time) = effective {
+            out.entry(uuid)
+                .and_modify(|known| *known = (*known).max(time))
+                .or_insert(time);
+        }
+        for child in side.group_order.get(&uuid).into_iter().flatten() {
+            walk(side, *child, effective, deletion_times, out);
+        }
+    }
+    walk(side, side.root, None, deletion_times, out);
+}
+
+fn latest_entry_time(a: &Side, b: &Side, uuid: Uuid) -> i64 {
+    let mut latest = i64::MIN;
+    if let Some(entry) = a.entries.get(&uuid) {
+        latest = latest.max(timestamp(&entry.times.last_modification));
+    }
+    if let Some(entry) = b.entries.get(&uuid) {
+        latest = latest.max(timestamp(&entry.times.last_modification));
+    }
+    latest
+}
+
+fn latest_group_time(a: &Side, b: &Side, uuid: Uuid) -> i64 {
+    let mut latest = i64::MIN;
+    if let Some(group) = a.groups.get(&uuid) {
+        latest = latest.max(timestamp(&group.times.last_modification));
+    }
+    if let Some(group) = b.groups.get(&uuid) {
+        latest = latest.max(timestamp(&group.times.last_modification));
+    }
+    latest
+}
+
+/// The parent group after merging, decided by the latest `LocationChanged`.
+/// This mirrors the layout rule used when the entry is attached.
+fn choose_entry_parent(a: &Side, b: &Side, uuid: Uuid) -> Option<Uuid> {
+    let local = a.entry_parent.get(&uuid).copied();
+    let remote = b.entry_parent.get(&uuid).copied();
+    match (local, remote) {
+        (Some(local), Some(remote)) => {
+            let local_time = a
+                .entries
+                .get(&uuid)
+                .map(|entry| timestamp(&entry.times.location_changed))
+                .unwrap_or(i64::MIN);
+            let remote_time = b
+                .entries
+                .get(&uuid)
+                .map(|entry| timestamp(&entry.times.location_changed))
+                .unwrap_or(i64::MIN);
+            if remote_time > local_time {
+                Some(remote)
+            } else {
+                Some(local)
+            }
+        }
+        (Some(local), None) => Some(local),
+        (None, Some(remote)) => Some(remote),
+        (None, None) => None,
+    }
+}
+
+fn has_surviving_content(
+    a: &Side,
+    b: &Side,
+    group: Uuid,
+    entry_deleted: &BTreeSet<Uuid>,
+    group_deleted: &BTreeSet<Uuid>,
+) -> bool {
+    [a, b].into_iter().any(|side| {
+        side.entry_order
+            .get(&group)
+            .into_iter()
+            .flatten()
+            .any(|uuid| !entry_deleted.contains(uuid))
+            || side
+                .group_order
+                .get(&group)
+                .into_iter()
+                .flatten()
+                .any(|uuid| !group_deleted.contains(uuid))
+    })
+}
+
+fn entry_deletion_conflict(
+    uuid: Uuid,
+    local: Option<&Entry>,
+    remote: Option<&Entry>,
+    local_deletion: Option<&DeletedObject>,
+    remote_deletion: Option<&DeletedObject>,
+) -> MergeConflict {
+    let deleted_remotely = remote_deletion.is_some() && local.is_some() && local_deletion.is_none();
+    let deleted_locally = local_deletion.is_some() && remote.is_some() && remote_deletion.is_none();
+    let fields = if deleted_remotely {
+        // A readable trace for the UI/log; never a field value.
+        vec!["deleted remotely but modified locally".to_string()]
+    } else if deleted_locally {
+        vec!["deleted locally but modified remotely".to_string()]
+    } else {
+        vec!["modified after deletion".to_string()]
+    };
+    // Show the deletion event on the side that deleted the object and the edit
+    // time on the side that kept it; a stale copy's timestamp would hide when
+    // the deletion actually happened.
+    let local_modified = if deleted_remotely {
+        local
+            .map(|entry| entry.times.last_modification.clone())
+            .unwrap_or_default()
+    } else if deleted_locally {
+        local_deletion
+            .map(|item| item.deletion_time.clone())
+            .unwrap_or_default()
+    } else {
+        local
+            .map(|entry| entry.times.last_modification.clone())
+            .or_else(|| local_deletion.map(|item| item.deletion_time.clone()))
+            .unwrap_or_default()
+    };
+    let remote_modified = if deleted_locally {
+        remote
+            .map(|entry| entry.times.last_modification.clone())
+            .unwrap_or_default()
+    } else if deleted_remotely {
+        remote_deletion
+            .map(|item| item.deletion_time.clone())
+            .unwrap_or_default()
+    } else {
+        remote
+            .map(|entry| entry.times.last_modification.clone())
+            .or_else(|| remote_deletion.map(|item| item.deletion_time.clone()))
+            .unwrap_or_default()
+    };
+    MergeConflict {
+        uuid,
+        kind: ConflictKind::Entry,
+        local_modified,
+        remote_modified,
+        fields,
+    }
+}
+
+fn group_deletion_conflict(
+    uuid: Uuid,
+    local: Option<&Group>,
+    remote: Option<&Group>,
+    local_deletion: Option<&DeletedObject>,
+    remote_deletion: Option<&DeletedObject>,
+) -> MergeConflict {
+    let deleted_remotely = remote_deletion.is_some() && local.is_some() && local_deletion.is_none();
+    let deleted_locally = local_deletion.is_some() && remote.is_some() && remote_deletion.is_none();
+    let fields = if deleted_remotely {
+        vec!["deleted remotely but modified locally".to_string()]
+    } else if deleted_locally {
+        vec!["deleted locally but modified remotely".to_string()]
+    } else {
+        vec!["modified after deletion".to_string()]
+    };
+    let local_modified = if deleted_remotely {
+        local
+            .map(|group| group.times.last_modification.clone())
+            .unwrap_or_default()
+    } else if deleted_locally {
+        local_deletion
+            .map(|item| item.deletion_time.clone())
+            .unwrap_or_default()
+    } else {
+        local
+            .map(|group| group.times.last_modification.clone())
+            .or_else(|| local_deletion.map(|item| item.deletion_time.clone()))
+            .unwrap_or_default()
+    };
+    let remote_modified = if deleted_locally {
+        remote
+            .map(|group| group.times.last_modification.clone())
+            .unwrap_or_default()
+    } else if deleted_remotely {
+        remote_deletion
+            .map(|item| item.deletion_time.clone())
+            .unwrap_or_default()
+    } else {
+        remote
+            .map(|group| group.times.last_modification.clone())
+            .or_else(|| remote_deletion.map(|item| item.deletion_time.clone()))
+            .unwrap_or_default()
+    };
+    MergeConflict {
+        uuid,
+        kind: ConflictKind::Group,
+        local_modified,
+        remote_modified,
+        fields,
+    }
 }
 
 fn choose_group<'a>(left: &'a Group, right: &'a Group) -> (&'a Group, Option<&'a Group>, bool) {

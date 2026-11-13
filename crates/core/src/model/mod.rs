@@ -317,8 +317,16 @@ pub struct CustomIcon {
     pub unknown: Vec<RawXml>,
 }
 
+/// History items kept per entry when the database does not say. KeePass and
+/// KeePassXC both default to 10, so an omitted `<HistoryMaxItems>` must not be
+/// read as "keep nothing".
+pub const DEFAULT_HISTORY_MAX_ITEMS: i64 = 10;
+/// Total history size kept per entry when the database does not say (6 MiB,
+/// the KeePass default).
+pub const DEFAULT_HISTORY_MAX_SIZE: i64 = 6 * 1024 * 1024;
+
 /// `<Meta>` block.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Meta {
     /// Generator string.
     pub generator: String,
@@ -350,6 +358,70 @@ pub struct Meta {
     /// Unknown children (maintenance history, etc.).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unknown: Vec<RawXml>,
+}
+
+impl Default for Meta {
+    fn default() -> Self {
+        // Mirror the KDBX defaults: a new or partially specified database has
+        // the recycle bin and bounded history enabled, not everything disabled.
+        // `Meta::default()` is also the base of `Database::default()`, so tests
+        // and the empty-database writer rely on these values.
+        Self {
+            generator: String::new(),
+            database_name: String::new(),
+            database_description: String::new(),
+            default_username: String::new(),
+            memory_protection: MemoryProtection::default(),
+            recycle_bin_enabled: true,
+            recycle_bin_uuid: None,
+            recycle_bin_changed: None,
+            history_max_items: DEFAULT_HISTORY_MAX_ITEMS,
+            history_max_size: DEFAULT_HISTORY_MAX_SIZE,
+            custom_data: CustomData::default(),
+            custom_icons: Vec::new(),
+            unknown: Vec::new(),
+        }
+    }
+}
+
+/// How much history an entry keeps, from `<Meta>`.
+///
+/// A negative value means no limit (KeePass semantics); zero means keep no
+/// history at all. The reader fills omitted XML elements with the KeePass
+/// defaults, so the values are used verbatim here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HistoryLimits {
+    /// Most history items per entry.
+    pub max_items: i64,
+    /// Most bytes of history per entry, counted by [`Entry::approximate_size`].
+    pub max_size: i64,
+}
+
+impl Default for HistoryLimits {
+    fn default() -> Self {
+        Self {
+            max_items: DEFAULT_HISTORY_MAX_ITEMS,
+            max_size: DEFAULT_HISTORY_MAX_SIZE,
+        }
+    }
+}
+
+impl HistoryLimits {
+    /// Limits of a database `<Meta>` block.
+    pub fn from_meta(meta: &Meta) -> Self {
+        Self {
+            max_items: meta.history_max_items,
+            max_size: meta.history_max_size,
+        }
+    }
+
+    /// No limits (all history kept).
+    pub fn unlimited() -> Self {
+        Self {
+            max_items: -1,
+            max_size: -1,
+        }
+    }
 }
 
 /// One `<String>` entry of an entry.
@@ -471,6 +543,67 @@ impl Entry {
                 || field.key == "TOTP Seed"
                 || field.key == "TOTP Settings"
         })
+    }
+
+    /// Approximate byte size used for `<HistoryMaxSize>`.
+    ///
+    /// KeePass limits history by an approximate serialized size. Counting field
+    /// names and values, attachment names and bytes, and tags mirrors the
+    /// vendored keepassxcr `Entry::size` implementation closely enough for the
+    /// limit, without requiring a serializer here (core stays IO-free).
+    pub fn approximate_size(&self) -> i64 {
+        let fields: usize = self
+            .strings
+            .iter()
+            .map(|field| field.key.len() + field.value.len())
+            .sum();
+        let binaries: usize = self
+            .binaries
+            .iter()
+            .map(|binary| binary.key.len() + binary.value.len())
+            .sum();
+        let tags: usize = self.tags.iter().map(String::len).sum();
+        i64::try_from(fields + binaries + tags).unwrap_or(i64::MAX)
+    }
+
+    /// Drop the oldest history items beyond `limits`.
+    ///
+    /// This is the KeePass retention rule: a negative limit disables that
+    /// dimension, while zero keeps no history. The newest items survive.
+    pub fn truncate_history(&mut self, limits: HistoryLimits) {
+        if limits.max_items >= 0 {
+            let max_items = usize::try_from(limits.max_items).unwrap_or(usize::MAX);
+            if self.history.len() > max_items {
+                let excess = self.history.len() - max_items;
+                self.history.drain(..excess);
+            }
+        }
+        if limits.max_size >= 0 {
+            let mut total = 0i64;
+            let mut keep = 0usize;
+            for item in self.history.iter().rev() {
+                total = total.saturating_add(item.approximate_size());
+                if total > limits.max_size {
+                    break;
+                }
+                keep += 1;
+            }
+            let excess = self.history.len() - keep;
+            self.history.drain(..excess);
+        }
+    }
+
+    /// Record the current state as the newest history item, then apply limits.
+    ///
+    /// Callers change the entry afterwards (and set the new modification time),
+    /// so the previous password and fields remain recoverable. The snapshot does
+    /// not nest history and does not keep a merge-only previous-parent hint.
+    pub fn push_history_snapshot(&mut self, limits: HistoryLimits) {
+        let mut snapshot = self.clone();
+        snapshot.history.clear();
+        snapshot.previous_parent_group = None;
+        self.history.push(snapshot);
+        self.truncate_history(limits);
     }
 }
 

@@ -14,7 +14,8 @@ use keepassity_core::dto::{
 };
 use keepassity_core::kdbx::writer;
 use keepassity_core::model::{
-    xml_datetime_from_unix, Database, DeletedObject, Entry, Group, StringField, Times, Uuid,
+    xml_datetime_from_unix, Database, DeletedObject, Entry, Group, HistoryLimits, StringField,
+    Times, Uuid,
 };
 use keepassity_core::sync::{local_hash, merge_for_sync, SyncActionKind, SyncBaseline, SyncState};
 use keepassity_core::totp::fields as totp_fields;
@@ -492,7 +493,12 @@ fn dispatch(state: &mut HandleState, command: &Value) -> Result<String, FfiError
                 .get("patch")
                 .and_then(Value::as_object)
                 .ok_or_else(|| FfiError::invalid("patch object is required"))?;
+            let limits = HistoryLimits::from_meta(&database.meta);
             let (entry, _) = find_entry_mut(database, uuid).ok_or_else(FfiError::not_found)?;
+            // Keep the previous version recoverable before changing anything;
+            // KeePass expects history to grow on every edit, bounded by the
+            // database's own retention settings.
+            entry.push_history_snapshot(limits);
             apply_patch(entry, patch);
             let now = now_unix();
             touch(entry, now);
@@ -527,6 +533,11 @@ fn dispatch(state: &mut HandleState, command: &Value) -> Result<String, FfiError
         "move_entry" => with_database_dirty(state, |database| {
             let uuid = parse_uuid_arg(command, "uuid")?;
             let target = parse_uuid_arg(command, "group_uuid")?;
+            // Validate the destination before removing the entry: a failed
+            // move must leave the in-memory model unchanged.
+            if find_group(database, target).is_none() {
+                return Err(FfiError::not_found());
+            }
             let (mut entry, old_parent) =
                 remove_entry(&mut database.root, uuid).ok_or_else(FfiError::not_found)?;
             let target_group = find_group_mut(database, target).ok_or_else(FfiError::not_found)?;
@@ -976,7 +987,9 @@ fn touch(entry: &mut Entry, now: i64) {
 fn set_field(entry: &mut Entry, key: &str, value: &str, protected: bool) {
     if let Some(field) = entry.strings.iter_mut().find(|field| field.key == key) {
         field.value = value.to_string();
-        field.protected = protected;
+        // An existing protection flag is a property of the file, not of this
+        // call: a generic update path must never turn a protected secret into
+        // plaintext by passing `false`. New fields take the caller's default.
         return;
     }
     entry.strings.push(StringField {
@@ -1026,7 +1039,10 @@ fn apply_patch(entry: &mut Entry, patch: &serde_json::Map<String, Value>) {
         }
         match value {
             Value::Null => entry.strings.retain(|field| &field.key != key),
-            Value::String(text) => set_field(entry, key, text, key == "Password"),
+            // Existing fields keep their flag (see `set_field`); a field added
+            // by a patch is unprotected by default. The create path is what
+            // marks Password/OTP fields protected.
+            Value::String(text) => set_field(entry, key, text, false),
             _ => {}
         }
     }
@@ -1537,6 +1553,195 @@ mod tests {
             entry_uuid
         );
         let _: Value = serde_json::from_str(&call(handle, &delete)).unwrap();
+        assert_eq!(kp_close(handle), 0);
+    }
+
+    fn first_group_uuid(handle: *mut KpHandle) -> String {
+        let groups: Value =
+            serde_json::from_str(&call(handle, r#"{"command":"list_groups"}"#)).unwrap();
+        groups[0]["uuid"].as_str().expect("group uuid").to_string()
+    }
+
+    fn create_entry_in(handle: *mut KpHandle, group_uuid: &str, fields: &str) -> String {
+        let command = format!(
+            r#"{{"command":"create_entry","group_uuid":"{group_uuid}","fields":{fields}}}"#
+        );
+        let created: Value = serde_json::from_str(&call(handle, &command)).unwrap();
+        created["uuid"].as_str().expect("entry uuid").to_string()
+    }
+
+    /// Clone one entry out of the open handle (test-only access to the model).
+    fn state_entry(handle: *mut KpHandle, uuid: Uuid) -> Entry {
+        let handle = unsafe { &*handle };
+        let state = handle.state.lock().expect("handle lock");
+        let database = state.database.as_ref().expect("open database");
+        find_entry(database, uuid)
+            .expect("entry in model")
+            .0
+            .clone()
+    }
+
+    fn set_history_limits(handle: *mut KpHandle, max_items: i64, max_size: i64) {
+        let handle = unsafe { &*handle };
+        let mut state = handle.state.lock().expect("handle lock");
+        let database = state.database.as_mut().expect("open database");
+        database.meta.history_max_items = max_items;
+        database.meta.history_max_size = max_size;
+    }
+
+    fn update_field(handle: *mut KpHandle, uuid: &str, key: &str, value: &str) {
+        let command = format!(
+            r#"{{"command":"update_entry","uuid":"{uuid}","patch":{{"{key}":"{value}"}}}}"#
+        );
+        let _: Value = serde_json::from_str(&call(handle, &command)).unwrap();
+    }
+
+    #[test]
+    fn update_entry_records_old_password_in_history() {
+        let handle = open_fixture();
+        let group = first_group_uuid(handle);
+        let uuid_text = create_entry_in(
+            handle,
+            &group,
+            r#"{"Title":"history-test","UserName":"u","Password":"old-password"}"#,
+        );
+        let uuid = parse_uuid(&uuid_text).expect("uuid");
+
+        update_field(handle, &uuid_text, "Password", "new-password");
+
+        let full: Value = serde_json::from_str(&call(
+            handle,
+            &format!(r#"{{"command":"get_entry","uuid":"{uuid_text}"}}"#),
+        ))
+        .unwrap();
+        assert_eq!(full["history_count"], 1);
+
+        let entry = state_entry(handle, uuid);
+        assert_eq!(entry.field("Password"), Some("new-password"));
+        assert_eq!(entry.history.len(), 1);
+        assert_eq!(entry.history[0].field("Password"), Some("old-password"));
+        assert!(
+            entry.history[0].history.is_empty(),
+            "history snapshots must not nest history"
+        );
+        assert_eq!(entry.history[0].previous_parent_group, None);
+        assert!(
+            entry
+                .strings
+                .iter()
+                .find(|field| field.key == "Password")
+                .is_some_and(|field| field.protected),
+            "an existing protected password must stay protected"
+        );
+        assert_eq!(kp_close(handle), 0);
+    }
+
+    #[test]
+    fn update_entry_patch_keeps_existing_protected_flag() {
+        let handle = open_fixture();
+        let group = first_group_uuid(handle);
+        let uuid_text = create_entry_in(
+            handle,
+            &group,
+            r#"{"Title":"otp-protected","otp":"JBSWY3DPEHPK3PXP"}"#,
+        );
+        let uuid = parse_uuid(&uuid_text).expect("uuid");
+        let before = state_entry(handle, uuid);
+        assert!(
+            before
+                .strings
+                .iter()
+                .find(|field| field.key == "otp")
+                .is_some_and(|field| field.protected),
+            "create must store otp as protected"
+        );
+
+        update_field(handle, &uuid_text, "otp", "JBSWY3DPEHPK3PXQ");
+
+        let entry = state_entry(handle, uuid);
+        let otp = entry
+            .strings
+            .iter()
+            .find(|field| field.key == "otp")
+            .expect("otp field");
+        assert_eq!(otp.value, "JBSWY3DPEHPK3PXQ");
+        assert!(
+            otp.protected,
+            "a generic patch must not turn a protected field into plaintext"
+        );
+        assert_eq!(kp_close(handle), 0);
+    }
+
+    #[test]
+    fn update_entry_respects_history_item_limit() {
+        let handle = open_fixture();
+        set_history_limits(handle, 2, -1);
+        let group = first_group_uuid(handle);
+        let uuid_text = create_entry_in(
+            handle,
+            &group,
+            r#"{"Title":"history-limit","Password":"p0"}"#,
+        );
+        let uuid = parse_uuid(&uuid_text).expect("uuid");
+        for password in ["p1", "p2", "p3"] {
+            update_field(handle, &uuid_text, "Password", password);
+        }
+
+        let entry = state_entry(handle, uuid);
+        assert_eq!(entry.field("Password"), Some("p3"));
+        assert_eq!(entry.history.len(), 2);
+        assert_eq!(entry.history[0].field("Password"), Some("p1"));
+        assert_eq!(entry.history[1].field("Password"), Some("p2"));
+        assert_eq!(kp_close(handle), 0);
+    }
+
+    #[test]
+    fn update_entry_respects_history_size_limit() {
+        let handle = open_fixture();
+        set_history_limits(handle, -1, 0);
+        let group = first_group_uuid(handle);
+        let uuid_text = create_entry_in(
+            handle,
+            &group,
+            r#"{"Title":"history-size","Password":"p0"}"#,
+        );
+        let uuid = parse_uuid(&uuid_text).expect("uuid");
+
+        update_field(handle, &uuid_text, "Password", "p1");
+
+        let entry = state_entry(handle, uuid);
+        assert_eq!(entry.field("Password"), Some("p1"));
+        assert!(
+            entry.history.is_empty(),
+            "a zero size limit must keep no history"
+        );
+        assert_eq!(kp_close(handle), 0);
+    }
+
+    #[test]
+    fn move_entry_to_missing_group_keeps_the_entry() {
+        let handle = open_fixture();
+        let group = first_group_uuid(handle);
+        let uuid_text = create_entry_in(
+            handle,
+            &group,
+            r#"{"Title":"move-me","UserName":"u","Password":"p"}"#,
+        );
+        let missing = "ffffffffffffffffffffffffffffffff";
+        let error = call_error(
+            handle,
+            &format!(r#"{{"command":"move_entry","uuid":"{uuid_text}","group_uuid":"{missing}"}}"#),
+        );
+        assert!(error.contains("NotFound"), "unexpected error: {error}");
+
+        // The failed move must not have removed the entry from the model.
+        let full: Value = serde_json::from_str(&call(
+            handle,
+            &format!(r#"{{"command":"get_entry","uuid":"{uuid_text}"}}"#),
+        ))
+        .unwrap();
+        assert_eq!(full["title"], "move-me");
+        assert_eq!(full["group_uuid"], group);
         assert_eq!(kp_close(handle), 0);
     }
 

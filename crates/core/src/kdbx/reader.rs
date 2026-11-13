@@ -109,6 +109,13 @@ const UUID_ARGON2ID: [u8; 16] = [
     0x9E, 0x29, 0x8B, 0x19, 0x56, 0xDB, 0x47, 0x73, 0xB2, 0x3D, 0xFC, 0x3E, 0xC6, 0xF0, 0xA1, 0xE6,
 ];
 
+/// VariantDictionary value type for a byte array (the KDBX 4 specification's
+/// type for `$UUID`). Real files use this, not the Int32 type.
+const VARIANT_BYTE_ARRAY: u8 = 0x42;
+/// VariantDictionary Int32 value type. Early versions of this validator
+/// accepted it for `$UUID`; keep reading it for compatibility.
+const VARIANT_INT32: u8 = 0x0C;
+
 fn extreme_kdf_error(detail: impl fmt::Display) -> KdbxReadError {
     KdbxReadError::Unsupported(format!(
         "the database asks for an extreme {detail} (opening it would take a very long \
@@ -146,57 +153,75 @@ pub(crate) fn validate_kdf_cost(bytes: &[u8], version: KdbxVersion) -> Result<()
 
 fn validate_kdbx3_kdf(bytes: &[u8]) -> Result<(), KdbxReadError> {
     let mut offset = 12usize;
-    loop {
-        let field = match bytes.get(offset) {
-            Some(value) => *value,
-            None => return Ok(()),
-        };
+    let mut rounds: Option<u64> = None;
+    let mut saw_rounds = false;
+    while let Some(value) = bytes.get(offset) {
+        let field = *value;
         if field == 0 {
-            return Ok(());
+            break;
         }
         let Some(length) = read_le_u16(bytes, offset + 1) else {
-            return Ok(());
+            break;
         };
         let start = offset + 3;
         let end = start + length as usize;
         let Some(payload) = bytes.get(start..end) else {
-            return Ok(());
+            break;
         };
-        if field == 6 && payload.len() == 8 {
-            let rounds = u64::from_le_bytes(payload.try_into().expect("length checked"));
-            if rounds > MAX_AES_KDF_ROUNDS {
-                return Err(extreme_kdf_error(format_args!(
-                    "AES-KDF round count ({rounds})"
-                )));
+        if field == 6 {
+            // The header parser uses the last occurrence; a duplicate field
+            // would let a hostile file hide one value from this validator.
+            if saw_rounds {
+                return Err(KdbxReadError::Header(
+                    "duplicate KDBX 3 transform-rounds header field".to_string(),
+                ));
             }
-            return Ok(());
+            saw_rounds = true;
+            rounds = read_le_u64(payload, 0);
         }
         offset = end;
     }
+    if let Some(rounds) = rounds {
+        if rounds > MAX_AES_KDF_ROUNDS {
+            return Err(extreme_kdf_error(format_args!(
+                "AES-KDF round count ({rounds})"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn validate_kdbx4_kdf(bytes: &[u8]) -> Result<(), KdbxReadError> {
     let mut offset = 12usize;
-    loop {
-        let field = match bytes.get(offset) {
-            Some(value) => *value,
-            None => return Ok(()),
-        };
+    let mut parameters: Option<&[u8]> = None;
+    while let Some(value) = bytes.get(offset) {
+        let field = *value;
         if field == 0 {
-            return Ok(());
+            break;
         }
         let Some(length) = read_le_u32(bytes, offset + 1) else {
-            return Ok(());
+            break;
         };
         let start = offset + 5;
         let end = start + length as usize;
         let Some(payload) = bytes.get(start..end) else {
-            return Ok(());
+            break;
         };
         if field == 11 {
-            return validate_kdbx4_kdf_parameters(payload);
+            // keepass 0.17 keeps the last KDBX4 KDF-parameters field. Reject
+            // duplicates instead of validating one field and using another.
+            if parameters.is_some() {
+                return Err(KdbxReadError::Header(
+                    "duplicate KDBX 4 KDF parameters header field".to_string(),
+                ));
+            }
+            parameters = Some(payload);
         }
         offset = end;
+    }
+    match parameters {
+        Some(payload) => validate_kdbx4_kdf_parameters(payload),
+        None => Ok(()),
     }
 }
 
@@ -232,7 +257,10 @@ fn validate_kdbx4_kdf_parameters(payload: &[u8]) -> Result<(), KdbxReadError> {
             return Ok(());
         };
         offset = value_end;
-        if key == b"$UUID" && value_type == 0x0C && value.len() == 16 {
+        if key == b"$UUID"
+            && matches!(value_type, VARIANT_BYTE_ARRAY | VARIANT_INT32)
+            && value.len() == 16
+        {
             let mut parsed = [0u8; 16];
             parsed.copy_from_slice(value);
             uuid = Some(parsed);
@@ -461,11 +489,20 @@ fn meta_from(meta: &keepass::db::Meta, db: &KpDatabase) -> Meta {
         database_description: meta.database_description.clone().unwrap_or_default(),
         default_username: meta.default_username.clone().unwrap_or_default(),
         memory_protection: memory_protection_from(meta.memory_protection.as_ref()),
-        recycle_bin_enabled: meta.recyclebin_enabled.unwrap_or(false),
+        // Omitted `<Meta>` elements use the KeePass defaults, not zero: a file
+        // without these elements still has the recycle bin on and bounded
+        // history (10 items / 6 MiB). Reading them as 0 silently disabled both.
+        recycle_bin_enabled: meta.recyclebin_enabled.unwrap_or(true),
         recycle_bin_uuid: meta.recyclebin_uuid.map(uuid_from_display),
         recycle_bin_changed: meta.recyclebin_changed.map(format_time),
-        history_max_items: meta.history_max_items.unwrap_or(0) as i64,
-        history_max_size: meta.history_max_size.unwrap_or(0) as i64,
+        history_max_items: meta
+            .history_max_items
+            .map(|value| value as i64)
+            .unwrap_or(crate::model::DEFAULT_HISTORY_MAX_ITEMS),
+        history_max_size: meta
+            .history_max_size
+            .map(|value| value as i64)
+            .unwrap_or(crate::model::DEFAULT_HISTORY_MAX_SIZE),
         custom_data: custom_data_from(&meta.custom_data),
         custom_icons,
         unknown: Vec::new(),
@@ -584,8 +621,9 @@ fn auto_type_from(auto_type: &KpAutoType) -> AutoType {
 #[cfg(test)]
 mod kdf_limit_tests {
     use super::{
-        validate_kdf_cost, KdbxVersion, MAX_AES_KDF_ROUNDS, MAX_ARGON2_ITERATIONS,
-        MAX_ARGON2_MEMORY_BYTES, MAX_ARGON2_PARALLELISM,
+        validate_kdbx4_kdf_parameters, validate_kdf_cost, KdbxReadError, KdbxVersion,
+        MAX_AES_KDF_ROUNDS, MAX_ARGON2_ITERATIONS, MAX_ARGON2_MEMORY_BYTES, MAX_ARGON2_PARALLELISM,
+        VARIANT_BYTE_ARRAY, VARIANT_INT32,
     };
 
     const UUID_AES: [u8; 16] = [
@@ -624,12 +662,18 @@ mod kdf_limit_tests {
     }
 
     fn kdbx3_header(rounds: u64) -> Vec<u8> {
+        kdbx3_header_with_rounds(&[rounds])
+    }
+
+    fn kdbx3_header_with_rounds(rounds: &[u64]) -> Vec<u8> {
         let mut bytes = vec![
             0x03, 0xD9, 0xA2, 0x9A, 0x67, 0xFB, 0x4B, 0xB5, 0x01, 0x00, 0x03, 0x00,
         ];
-        bytes.push(0x06);
-        bytes.extend_from_slice(&8u16.to_le_bytes());
-        bytes.extend_from_slice(&rounds.to_le_bytes());
+        for rounds in rounds {
+            bytes.push(0x06);
+            bytes.extend_from_slice(&8u16.to_le_bytes());
+            bytes.extend_from_slice(&rounds.to_le_bytes());
+        }
         bytes.push(0x00);
         bytes.extend_from_slice(&4u16.to_le_bytes());
         bytes.extend_from_slice(&[0x0D, 0x0A, 0x0D, 0x0A]);
@@ -637,30 +681,104 @@ mod kdf_limit_tests {
     }
 
     fn kdbx4_header(dictionary: Vec<u8>) -> Vec<u8> {
+        kdbx4_header_with_dictionaries(std::slice::from_ref(&dictionary))
+    }
+
+    fn kdbx4_header_with_dictionaries(dictionaries: &[Vec<u8>]) -> Vec<u8> {
         let mut bytes = vec![
             0x03, 0xD9, 0xA2, 0x9A, 0x67, 0xFB, 0x4B, 0xB5, 0x00, 0x00, 0x04, 0x00,
         ];
-        bytes.push(0x0B);
-        bytes.extend_from_slice(&(dictionary.len() as u32).to_le_bytes());
-        bytes.extend_from_slice(&dictionary);
+        for dictionary in dictionaries {
+            bytes.push(0x0B);
+            bytes.extend_from_slice(&(dictionary.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(dictionary);
+        }
         bytes.push(0x00);
         bytes.extend_from_slice(&4u32.to_le_bytes());
         bytes.extend_from_slice(&[0x0D, 0x0A, 0x0D, 0x0A]);
         bytes
     }
 
+    fn aes_dictionary(uuid_type: u8, rounds: u64) -> Vec<u8> {
+        variant_dictionary(&[
+            variant_entry(uuid_type, b"$UUID", &UUID_AES),
+            u64_entry(b"R", rounds),
+        ])
+    }
+
     fn argon2_dictionary(
+        uuid_type: u8,
         uuid: [u8; 16],
         memory: u64,
         iterations: u64,
         parallelism: u32,
     ) -> Vec<u8> {
         variant_dictionary(&[
-            variant_entry(0x0C, b"$UUID", &uuid),
+            variant_entry(uuid_type, b"$UUID", &uuid),
             u64_entry(b"M", memory),
             u64_entry(b"I", iterations),
             u32_entry(b"P", parallelism),
         ])
+    }
+
+    fn fixture(name: &str) -> Vec<u8> {
+        std::fs::read(format!(
+            "{}/../../tests/fixtures/keepass-rs/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .expect("fixture")
+    }
+
+    /// Return the payload of KDBX 4 header field 11 from raw file bytes.
+    fn kdbx4_kdf_dictionary(bytes: &[u8]) -> &[u8] {
+        let mut offset = 12usize;
+        while offset < bytes.len() {
+            let field = bytes[offset];
+            if field == 0 {
+                break;
+            }
+            let length = u32::from_le_bytes(
+                bytes[offset + 1..offset + 5]
+                    .try_into()
+                    .expect("length checked"),
+            ) as usize;
+            let start = offset + 5;
+            let end = start + length;
+            if field == 11 {
+                return &bytes[start..end];
+            }
+            offset = end;
+        }
+        panic!("fixture has no KDF parameters field");
+    }
+
+    /// Overwrite the little-endian `u64` value of a key inside a dictionary.
+    fn set_dictionary_u64(dictionary: &mut [u8], key: &[u8], value: u64) {
+        let mut offset = 2usize;
+        while offset < dictionary.len() {
+            offset += 1; // value type
+            let key_length = u32::from_le_bytes(
+                dictionary[offset..offset + 4]
+                    .try_into()
+                    .expect("length checked"),
+            ) as usize;
+            offset += 4;
+            let key_end = offset + key_length;
+            let this_key = &dictionary[offset..key_end];
+            offset = key_end;
+            let value_length = u32::from_le_bytes(
+                dictionary[offset..offset + 4]
+                    .try_into()
+                    .expect("length checked"),
+            ) as usize;
+            offset += 4;
+            if this_key == key && value_length == 8 {
+                dictionary[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+                return;
+            }
+            offset += value_length;
+        }
+        panic!("key not found in dictionary");
     }
 
     #[test]
@@ -673,12 +791,26 @@ mod kdf_limit_tests {
     fn extreme_kdbx31_rounds_are_rejected() {
         let error = validate_kdf_cost(&kdbx3_header(MAX_AES_KDF_ROUNDS + 1), KdbxVersion::V3_1)
             .expect_err("an extreme round count must be rejected");
-        assert!(matches!(error, super::KdbxReadError::Unsupported(_)));
+        assert!(matches!(error, KdbxReadError::Unsupported(_)));
+    }
+
+    #[test]
+    fn duplicate_kdbx3_round_fields_are_rejected() {
+        let bytes = kdbx3_header_with_rounds(&[600_000, MAX_AES_KDF_ROUNDS + 1]);
+        let error = validate_kdf_cost(&bytes, KdbxVersion::V3_1)
+            .expect_err("duplicate KDF fields must not be validated selectively");
+        assert!(matches!(error, KdbxReadError::Header(_)));
     }
 
     #[test]
     fn normal_argon2id_parameters_pass() {
-        let bytes = kdbx4_header(argon2_dictionary(UUID_ARGON2ID, 128 * 1024 * 1024, 6, 4));
+        let bytes = kdbx4_header(argon2_dictionary(
+            VARIANT_BYTE_ARRAY,
+            UUID_ARGON2ID,
+            128 * 1024 * 1024,
+            6,
+            4,
+        ));
         assert!(validate_kdf_cost(&bytes, KdbxVersion::V4_0).is_ok());
     }
 
@@ -691,6 +823,7 @@ mod kdf_limit_tests {
             (2 * 1024 * 1024 * 1024, 8, 4), // within per-field caps, over the work cap
         ] {
             let bytes = kdbx4_header(argon2_dictionary(
+                VARIANT_BYTE_ARRAY,
                 UUID_ARGON2ID,
                 memory,
                 iterations,
@@ -705,16 +838,105 @@ mod kdf_limit_tests {
 
     #[test]
     fn normal_aes_kdf_in_kdbx4_passes() {
-        let dictionary = variant_dictionary(&[
-            variant_entry(0x0C, b"$UUID", &UUID_AES),
-            u64_entry(b"R", 600_000),
-        ]);
+        let dictionary = aes_dictionary(VARIANT_BYTE_ARRAY, 600_000);
         assert!(validate_kdf_cost(&kdbx4_header(dictionary), KdbxVersion::V4_0).is_ok());
     }
 
     #[test]
+    fn byte_array_kdf_with_extreme_aes_rounds_is_rejected() {
+        // Legal KDBX 4 stores `$UUID` as a ByteArray (0x42). Before the fix
+        // this file was not recognised and the AES-KDF limit was skipped.
+        let dictionary = aes_dictionary(VARIANT_BYTE_ARRAY, 30_000_000);
+        let error = validate_kdf_cost(&kdbx4_header(dictionary), KdbxVersion::V4_0)
+            .expect_err("a 30M-round ByteArray KDF must be rejected");
+        assert!(matches!(error, KdbxReadError::Unsupported(_)));
+    }
+
+    #[test]
+    fn legacy_int32_uuid_is_still_validated() {
+        let dictionary = aes_dictionary(VARIANT_INT32, 30_000_000);
+        let error = validate_kdf_cost(&kdbx4_header(dictionary), KdbxVersion::V4_0)
+            .expect_err("the legacy 0x0C shape must be validated too");
+        assert!(matches!(error, KdbxReadError::Unsupported(_)));
+    }
+
+    #[test]
+    fn duplicate_kdbx4_kdf_fields_are_rejected() {
+        let first = aes_dictionary(VARIANT_BYTE_ARRAY, 600_000);
+        let second = aes_dictionary(VARIANT_BYTE_ARRAY, 30_000_000);
+        let bytes = kdbx4_header_with_dictionaries(&[first, second]);
+        let error = validate_kdf_cost(&bytes, KdbxVersion::V4_0)
+            .expect_err("duplicate KDF-fields must not be validated selectively");
+        assert!(matches!(error, KdbxReadError::Header(_)));
+    }
+
+    #[test]
+    fn real_kdbx4_fixture_headers_pass_validation() {
+        for name in [
+            "test_db_kdbx4_with_password_aes.kdbx",
+            "test_db_kdbx4_with_password_argon2id.kdbx",
+            "test_db_kdbx41_with_password_aes.kdbx",
+        ] {
+            let bytes = fixture(name);
+            assert!(
+                validate_kdf_cost(&bytes, KdbxVersion::V4_0).is_ok(),
+                "{name} must pass the KDF safety limits"
+            );
+        }
+    }
+
+    #[test]
+    fn real_fixture_byte_array_uuid_is_seen_and_extremes_are_rejected() {
+        let bytes = fixture("test_db_kdbx4_with_password_aes.kdbx");
+        let dictionary = kdbx4_kdf_dictionary(&bytes);
+        // The real header uses 0x42; the validator must parse it (it had only
+        // accepted 0x0C, so every real database silently bypassed the limit).
+        validate_kdbx4_kdf_parameters(dictionary).expect("real fixture KDF is normal");
+        let mut mutated = dictionary.to_vec();
+        set_dictionary_u64(&mut mutated, b"R", 30_000_000);
+        let error = validate_kdbx4_kdf_parameters(&mutated)
+            .expect_err("an extreme round count in a real header shape must be rejected");
+        assert!(matches!(error, KdbxReadError::Unsupported(_)));
+    }
+
+    #[test]
     fn unknown_kdf_is_left_to_the_reader() {
-        let dictionary = variant_dictionary(&[variant_entry(0x0C, b"$UUID", &[0x42; 16])]);
+        let dictionary =
+            variant_dictionary(&[variant_entry(VARIANT_BYTE_ARRAY, b"$UUID", &[0x42; 16])]);
         assert!(validate_kdf_cost(&kdbx4_header(dictionary), KdbxVersion::V4_0).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod meta_default_tests {
+    use super::meta_from;
+    use crate::model::{DEFAULT_HISTORY_MAX_ITEMS, DEFAULT_HISTORY_MAX_SIZE};
+
+    #[test]
+    fn omitted_meta_elements_use_keepass_defaults() {
+        let meta = keepass::db::Meta {
+            recyclebin_enabled: None,
+            history_max_items: None,
+            history_max_size: None,
+            ..keepass::db::Meta::default()
+        };
+        let mapped = meta_from(&meta, &keepass::Database::new());
+        assert!(mapped.recycle_bin_enabled);
+        assert_eq!(mapped.history_max_items, DEFAULT_HISTORY_MAX_ITEMS);
+        assert_eq!(mapped.history_max_size, DEFAULT_HISTORY_MAX_SIZE);
+    }
+
+    #[test]
+    fn explicit_meta_limits_are_preserved() {
+        let meta = keepass::db::Meta {
+            recyclebin_enabled: Some(false),
+            history_max_items: Some(0),
+            history_max_size: Some(-1),
+            ..keepass::db::Meta::default()
+        };
+        let mapped = meta_from(&meta, &keepass::Database::new());
+        assert!(!mapped.recycle_bin_enabled);
+        assert_eq!(mapped.history_max_items, 0);
+        assert_eq!(mapped.history_max_size, -1);
     }
 }
