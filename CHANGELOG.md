@@ -5,6 +5,10 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Vault writes are serialized inside one process:** a `VaultWriteGate` now covers saves,
+  remote local-copy replacements and backup restores. Two async edit paths can no longer start
+  overlapping atomic replaces where a slower, older snapshot lands last; the first save keeps
+  its backup and the latest state wins.
 - **Save temporary files use the core protocol name and are cleaned on unlock:** `AtomicFile`
   now writes `<database>.keepassity-tmp-<nonce>` (the same infix as the core `save_atomic`
   protocol) and removes crash-left siblings/legacy dot-prefixed temps before a vault opens.

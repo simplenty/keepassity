@@ -73,6 +73,7 @@ public sealed partial class MainWindow : Window
     private string? _lastClipboardText;
     private string? _masterPassword;
     private VaultFileLock? _vaultLock;
+    private readonly VaultWriteGate _vaultWriteGate = new();
     private VaultFingerprint? _vaultFingerprint;
     private TrayIcon? _trayIcon;
     private bool _exitRequested;
@@ -223,6 +224,7 @@ public sealed partial class MainWindow : Window
             _singleInstanceRelay = null;
             _vaultLock?.Dispose();
             _vaultLock = null;
+            _vaultWriteGate.Dispose();
             _networkReplayTimer?.Stop();
             NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
             _trayIcon?.Dispose();
@@ -2112,6 +2114,7 @@ public sealed partial class MainWindow : Window
 
     private async Task WriteLocalBytesAsync(string path, byte[] bytes)
     {
+        using IDisposable vaultWrite = await _vaultWriteGate.EnterAsync();
         bool isLiveDatabase = _dbPath is not null &&
             string.Equals(Path.GetFullPath(path), Path.GetFullPath(_dbPath),
                 StringComparison.OrdinalIgnoreCase);
@@ -2194,9 +2197,12 @@ public sealed partial class MainWindow : Window
                 await probe.LockAsync();
             }
             await SaveAsync(silent: true, syncAfterSave: false);
-            BackupService.RestoreBytes(_dbPath, selectedBytes, Settings.BackupRetention);
-            await ReopenFromLocalAsync();
-            RememberVaultFingerprint();
+            using (IDisposable vaultWrite = await _vaultWriteGate.EnterAsync())
+            {
+                BackupService.RestoreBytes(_dbPath, selectedBytes, Settings.BackupRetention);
+                await ReopenFromLocalAsync();
+                RememberVaultFingerprint();
+            }
             MarkLocalDirty();
             ShowToast(Loc.T("Backup restored"), InfoBarSeverity.Success);
             if (IsSyncConfigured)
@@ -5775,6 +5781,7 @@ public sealed partial class MainWindow : Window
         {
             return false;
         }
+        using IDisposable vaultWrite = await _vaultWriteGate.EnterAsync();
         if (VaultChangedOnDisk())
         {
             AppLog.Warn("save refused: the database changed outside this window");

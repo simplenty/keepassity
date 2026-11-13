@@ -186,6 +186,7 @@ try
     BackupServiceTests.Run(Check, dataDirectory);
     AtomicFileTests.Run(Check, dataDirectory);
     VaultGuardTests.Run(Check, dataDirectory);
+    VaultWriteGateTests.Run(Check);
 
     // diagnostics archive contains a summary and no credential blobs
     string archive = DiagnosticsService.ExportAsync(reloaded.Current)
