@@ -1,5 +1,5 @@
 {
-  "\"{0}\" and everything inside it will be permanently deleted. This cannot be undone.": "“{0}”及其中的全部内容将被永久删除，此操作无法撤销。",
+  "\"{0}\" and everything inside it will be moved to the Recycle Bin when it is enabled, otherwise deleted permanently. This cannot be undone.": "“{0}”及其中的全部内容将在回收站启用时移入回收站，否则将被永久删除。此操作无法撤销。",
   "\"{0}\" is already at the top level — nothing to move.": "“{0}”已在顶层，无需移动。",
   "\"{0}\" is already in {1} — nothing to move.": "“{0}”已在 {1} 中，无需移动。",
   "\"{0}\" will be moved to the recycle bin.": "“{0}”将被移到回收站。",
@@ -84,6 +84,7 @@
   "Group": "分组",
   "Group \"{0}\" created": "分组“{0}”已创建",
   "Group deleted": "分组已删除",
+  "Group moved to the Recycle Bin": "分组已移入回收站",
   "Group name": "分组名称",
   "Group renamed": "分组已重命名",
   "Import QR image…": "导入二维码图片…",

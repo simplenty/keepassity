@@ -400,21 +400,49 @@ fn dispatch(state: &mut HandleState, command: &Value) -> Result<String, FfiError
             if database.meta.recycle_bin_uuid == Some(uuid) {
                 return Err(FfiError::invalid("the recycle bin group cannot be deleted"));
             }
-            let group = find_group(database, uuid).ok_or_else(FfiError::not_found)?;
-            let mut tombstones = Vec::new();
-            collect_group_tombstones(group, &mut tombstones);
-            remove_group(&mut database.root, uuid).ok_or_else(FfiError::not_found)?;
+            let permanent = command
+                .get("permanent")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
 
-            // Record the group and every removed descendant/entry. Without
-            // tombstones a later remote merge would resurrect the subtree.
-            let deletion_time = xml_datetime_from_unix(now_unix());
-            for deleted_uuid in tombstones {
-                database.deleted_objects.push(DeletedObject {
-                    uuid: deleted_uuid,
-                    deletion_time: deletion_time.clone(),
-                });
+            // A group is recycled like an entry: move the whole subtree under
+            // the recycle bin instead of destroying it. If the recycle bin is
+            // disabled (or would end up inside the removed subtree), fall back
+            // to a permanent delete with tombstones so a remote merge does not
+            // resurrect the group.
+            let recycle_target = if permanent {
+                None
+            } else {
+                ensure_recycle_bin(database)
+            };
+            let can_recycle = recycle_target.is_some_and(|target| {
+                find_group(database, uuid).is_some_and(|group| !group_contains_uuid(group, target))
+            });
+            let mut tombstones = Vec::new();
+            if !can_recycle {
+                let group = find_group(database, uuid).ok_or_else(FfiError::not_found)?;
+                collect_group_tombstones(group, &mut tombstones);
             }
-            Ok(json!({"deleted": true}).to_string())
+            let mut removed =
+                remove_group(&mut database.root, uuid).ok_or_else(FfiError::not_found)?;
+            let recycled = can_recycle && recycle_target.is_some();
+            if recycled {
+                let target = recycle_target.expect("checked above");
+                removed.times.location_changed = xml_datetime_from_unix(now_unix());
+                find_group_mut(database, target)
+                    .expect("recycle bin checked above")
+                    .groups
+                    .push(removed);
+            } else {
+                let deletion_time = xml_datetime_from_unix(now_unix());
+                for deleted_uuid in tombstones {
+                    database.deleted_objects.push(DeletedObject {
+                        uuid: deleted_uuid,
+                        deletion_time: deletion_time.clone(),
+                    });
+                }
+            }
+            Ok(json!({"deleted": true, "recycled": recycled}).to_string())
         }),
         "list_entries" => with_database(state, |database| {
             let entries = select_entries(
@@ -672,6 +700,10 @@ pub extern "C" fn kp_save(
             let database = state.database.as_ref().ok_or_else(FfiError::locked)?;
             let (bytes, cache) = writer::write_model_cached(database, &password, cache.as_ref())
                 .map_err(|_| FfiError::new("IoError", "cannot serialize the database"))?;
+            // Verify the ciphertext before the caller can write it. The cache
+            // makes this a decrypt/parse, not a second KDF run.
+            writer::verify_written_with_cache(&bytes, &password, &cache)
+                .map_err(|_| FfiError::new("IoError", "the saved database failed verification"))?;
             state.kdf_cache = Some(cache);
             set_buffer(out_bytes, out_len, bytes);
             Ok(())
@@ -824,6 +856,8 @@ pub extern "C" fn kp_sync_merge(
             let (bytes, cache) =
                 writer::write_model_cached(&merged.database, &password, cache.as_ref())
                     .map_err(|_| FfiError::new("IoError", "cannot serialize merged database"))?;
+            writer::verify_written_with_cache(&bytes, &password, &cache)
+                .map_err(|_| FfiError::new("IoError", "the merged database failed verification"))?;
             let conflicts: Vec<ConflictItem> =
                 merged.conflicts.iter().map(ConflictItem::from).collect();
             let conflicts_text = serde_json::to_string(&conflicts)
@@ -1212,6 +1246,15 @@ fn collect_group_tombstones(group: &Group, out: &mut Vec<Uuid>) {
     for child in &group.groups {
         collect_group_tombstones(child, out);
     }
+}
+
+/// True when `uuid` is `group` itself or somewhere in its subtree.
+fn group_contains_uuid(group: &Group, uuid: Uuid) -> bool {
+    group.uuid == uuid
+        || group
+            .groups
+            .iter()
+            .any(|child| group_contains_uuid(child, uuid))
 }
 
 /// Return the recycle-bin group, creating it when the database enables the
@@ -2049,6 +2092,87 @@ mod tests {
             &format!(r#"{{"command":"get_entry","uuid":"{uuid}"}}"#),
         );
         assert!(full.contains("NotFound"), "unexpected error: {full}");
+        assert_eq!(kp_close(handle), 0);
+    }
+
+    #[test]
+    fn deleting_a_group_recycles_the_whole_subtree() {
+        let handle = open_fixture();
+        let groups: Value =
+            serde_json::from_str(&call(handle, r#"{"command":"list_groups"}"#)).unwrap();
+        let root = groups[0]["uuid"].as_str().unwrap();
+        let created: Value = serde_json::from_str(&call(
+            handle,
+            &format!(r#"{{"command":"create_group","parent_uuid":"{root}","name":"team"}}"#),
+        ))
+        .unwrap();
+        let group_uuid = created["uuid"].as_str().unwrap();
+        let entry_uuid =
+            create_entry_in(handle, group_uuid, r#"{"Title":"inside","Password":"p"}"#);
+
+        let deleted: Value = serde_json::from_str(&call(
+            handle,
+            &format!(r#"{{"command":"delete_group","uuid":"{group_uuid}"}}"#),
+        ))
+        .unwrap();
+        assert_eq!(deleted["recycled"], true);
+
+        let groups: Value =
+            serde_json::from_str(&call(handle, r#"{"command":"list_groups"}"#)).unwrap();
+        let recycle = groups
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|group| group["name"] == "Recycle Bin")
+            .expect("a recycle-bin group must be created");
+        let recycle_uuid = recycle["uuid"].as_str().unwrap();
+        let recycled = groups
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|group| group["name"] == "team")
+            .expect("the deleted group must still exist");
+        assert_eq!(recycled["parent_uuid"].as_str(), Some(recycle_uuid));
+        let recycled_uuid = recycled["uuid"].as_str().unwrap();
+        let entries: Value = serde_json::from_str(&call(
+            handle,
+            &format!(
+                r#"{{"command":"list_entries","group_uuid":"{recycled_uuid}","include_subgroups":true}}"#
+            ),
+        ))
+        .unwrap();
+        assert!(entries
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["uuid"] == entry_uuid.as_str()));
+        assert_eq!(kp_close(handle), 0);
+    }
+
+    #[test]
+    fn permanent_group_deletion_removes_the_subtree() {
+        let handle = open_fixture();
+        let groups: Value =
+            serde_json::from_str(&call(handle, r#"{"command":"list_groups"}"#)).unwrap();
+        let root = groups[0]["uuid"].as_str().unwrap();
+        let created: Value = serde_json::from_str(&call(
+            handle,
+            &format!(r#"{{"command":"create_group","parent_uuid":"{root}","name":"gone"}}"#),
+        ))
+        .unwrap();
+        let group_uuid = created["uuid"].as_str().unwrap();
+        let entry_uuid = create_entry_in(handle, group_uuid, r#"{"Title":"gone","Password":"p"}"#);
+        let deleted: Value = serde_json::from_str(&call(
+            handle,
+            &format!(r#"{{"command":"delete_group","uuid":"{group_uuid}","permanent":true}}"#),
+        ))
+        .unwrap();
+        assert_eq!(deleted["recycled"], false);
+        let error = call_error(
+            handle,
+            &format!(r#"{{"command":"get_entry","uuid":"{entry_uuid}"}}"#),
+        );
+        assert!(error.contains("NotFound"), "unexpected error: {error}");
         assert_eq!(kp_close(handle), 0);
     }
 

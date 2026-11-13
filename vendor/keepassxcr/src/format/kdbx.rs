@@ -350,6 +350,18 @@ fn write_atomic(path: &Path, data: &[u8]) -> AppResult<()> {
 }
 
 pub fn read_kdbx_bytes(data: &[u8], credentials: &Credentials) -> AppResult<KdbxFile> {
+    read_kdbx_bytes_with_cache(data, credentials, None)
+}
+
+/// Read a database, optionally reusing a transformed KDF key. The cache is only
+/// used for KDBX 4 when its KDF configuration (including salt) matches the
+/// header; otherwise the reader falls back to the normal derivation. This is
+/// what lets a save verify its own output without paying the KDF a second time.
+pub fn read_kdbx_bytes_with_cache(
+    data: &[u8],
+    credentials: &Credentials,
+    cache: Option<&KdfCache>,
+) -> AppResult<KdbxFile> {
     let mut cursor = Cursor::new(data);
 
     let sig1 = read_u32_le(&mut cursor)?;
@@ -387,23 +399,32 @@ pub fn read_kdbx_bytes(data: &[u8], credentials: &Credentials) -> AppResult<Kdbx
         ));
     }
 
-    let keys = credentials.derive_keys(version, &header.kdf, &header.master_seed)?;
+    let cache = cache.filter(|cache| version.is_kdbx4() && cache.kdf == header.kdf);
+    let derived = if cache.is_some() {
+        None
+    } else {
+        Some(credentials.derive_keys(version, &header.kdf, &header.master_seed)?)
+    };
+    let transformed = match &derived {
+        Some(keys) => keys.transformed.clone(),
+        None => Zeroizing::new(cache.expect("cache checked").transformed.to_vec()),
+    };
+    let final_key = match &derived {
+        Some(keys) => keys.final_key.clone(),
+        None => build_final_key(&header.master_seed, None, &transformed),
+    };
 
     let (payload, header_hash) = if version.is_kdbx4() {
-        let payload = read_kdbx4_payload(
-            body,
-            &header,
-            header_data,
-            &keys.final_key[..],
-            &keys.transformed,
-        )?;
+        let payload = read_kdbx4_payload(body, &header, header_data, &final_key[..], &transformed)?;
         (payload, None)
     } else {
-        let payload = read_kdbx3_payload(body, &header, &keys.final_key[..])?;
+        let payload = read_kdbx3_payload(body, &header, &final_key[..])?;
         (payload, Some(crate::crypto::sha256(header_data)))
     };
     // Only a result that decrypted the file is worth remembering.
-    credentials.keep(&keys)?;
+    if let Some(keys) = &derived {
+        credentials.keep(keys)?;
+    }
 
     let database = read_database(
         &payload.xml,

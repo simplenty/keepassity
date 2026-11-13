@@ -5,6 +5,14 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Deleting a group is recoverable:** a group and everything inside it is moved to the Recycle
+  Bin (the whole subtree stays intact) instead of being permanently removed; when the Recycle
+  Bin is disabled the old tombstone-based permanent path is used. The confirmation dialog and
+  toast now say which happened.
+- **Every save is verified before it can reach disk:** after serializing, the core decrypts and
+  parses the new ciphertext with the cached KDF key; `kp_save` and `kp_sync_merge` return an
+  error instead of bytes if the output is not a readable database. The check costs a decrypt,
+  not another KDF run, and the live file is only replaced after it succeeds.
 - **Saving reuses the transformed KDF key:** after the first save of an unlocked vault, later
   saves reuse the KDF salt and transformed key and only draw a fresh master seed, IV and
   protected-stream key. The KDF cost/type and format version still match the source file, so the

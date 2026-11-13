@@ -68,7 +68,7 @@ impl KdfType {
 }
 
 /// Key derivation configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum KdfConfig {
     /// AES-KDF configuration.
     Aes {

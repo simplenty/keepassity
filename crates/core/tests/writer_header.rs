@@ -7,7 +7,7 @@
 
 use keepassity_core::kdbx::reader::parse;
 use keepassity_core::kdbx::save::verify_rewritten;
-use keepassity_core::kdbx::writer::{write_model, write_model_cached};
+use keepassity_core::kdbx::writer::{verify_written_with_cache, write_model, write_model_cached};
 use keepassity_core::merge::merge;
 use keepassxcr::format::read_kdbx_bytes;
 use keepassxcr::Credentials;
@@ -89,4 +89,10 @@ fn cached_saves_reuse_the_kdf_salt() {
     let second_file = read_kdbx_bytes(&second, &credentials).expect("read second");
     assert_eq!(first_file.kdf.seed(), second_file.kdf.seed());
     assert!(parse(&second, "demopass").is_ok());
+
+    verify_written_with_cache(&second, "demopass", &cache).expect("verify cached save");
+    let mut damaged = second.clone();
+    let last = damaged.len() - 1;
+    damaged[last] ^= 0xff;
+    assert!(verify_written_with_cache(&damaged, "demopass", &cache).is_err());
 }

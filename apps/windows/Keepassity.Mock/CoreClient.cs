@@ -186,12 +186,16 @@ public sealed class CoreClient : ICoreClient
             name,
         })).ConfigureAwait(false);
 
-    public async Task DeleteGroupAsync(string uuid)
-        => _ = await CallAsync<JsonElement>(JsonSerializer.Serialize(new
+    public async Task<bool> DeleteGroupAsync(string uuid)
+    {
+        JsonElement result = await CallAsync<JsonElement>(JsonSerializer.Serialize(new
         {
             command = "delete_group",
             uuid,
         })).ConfigureAwait(false);
+        return result.TryGetProperty("recycled", out JsonElement recycled) &&
+               recycled.ValueKind == JsonValueKind.True;
+    }
 
     public async Task<List<EntrySummaryDto>> ListEntriesAsync(string? groupUuid = null)
     {

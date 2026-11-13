@@ -116,6 +116,20 @@ pub fn write_model_cached(
         .map_err(|error| KdbxWriteError::Write(format!("{error:?}")))
 }
 
+/// Verify that freshly written bytes decrypt and parse. With the save's KDF
+/// cache this costs a decrypt, not another Argon2/AES-KDF run, so the save path
+/// can refuse to hand corrupt bytes to the file writer.
+pub fn verify_written_with_cache(
+    bytes: &[u8],
+    password: &str,
+    cache: &KdfCache,
+) -> Result<(), KdbxWriteError> {
+    let credentials = Credentials::password(password);
+    keepassxcr::format::read_kdbx_bytes_with_cache(bytes, &credentials, Some(cache))
+        .map(|_| ())
+        .map_err(|error| KdbxWriteError::Read(format!("{error:?}")))
+}
+
 /// Carry the source file's outer format settings into the writer. Without this
 /// every save rewrote a 4.1 database as 4.0 and replaced the KDF the user (or
 /// KeePass) chose with the writer's Argon2id default. Only KDBX4 headers are

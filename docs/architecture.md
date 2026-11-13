@@ -58,7 +58,8 @@ planned for v1.x and is expected to consume the same core directly.
   clean.
 - One process writes a vault: opening it takes a cross-process lock, and a save compares the
   file's SHA-256 with the bytes the in-memory model came from. An external change blocks the
-  save instead of being overwritten.
+  save instead of being overwritten. The new ciphertext is decrypted and parsed with the cached
+  KDF key before it can replace the file.
 - The real database, credentials and WebDAV working copies never enter a git repository.
 - Test fixtures are synthetic or public samples; see `tests/fixtures/README.md`.
 

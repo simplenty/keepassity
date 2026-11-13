@@ -3564,8 +3564,9 @@ public sealed partial class MainWindow : Window
                 ? Loc.T("Delete group and contents?")
                 : Loc.T("Delete group?"),
             Content = hasEntries
-                ? Loc.T("\"{0}\" and everything inside it will be permanently " +
-                        "deleted. This cannot be undone.", group.Name)
+                ? Loc.T("\"{0}\" and everything inside it will be moved to the " +
+                        "Recycle Bin when it is enabled, otherwise deleted " +
+                        "permanently. This cannot be undone.", group.Name)
                 : Loc.T("The empty group \"{0}\" will be removed.", group.Name),
             PrimaryButtonText = Loc.T("Delete"),
             CloseButtonText = Loc.T("Cancel"),
@@ -3576,14 +3577,17 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        await _core.DeleteGroupAsync(group.Uuid);
+        bool recycled = await _core.DeleteGroupAsync(group.Uuid);
         if (_selectedGroupUuid == group.Uuid)
         {
             _selectedGroupUuid = null;
         }
         await SaveAsync();
         await ReloadVaultAsync(null, preserveScroll: false);
-        ShowToast(Loc.T("Group deleted"), InfoBarSeverity.Success);
+        ShowToast(recycled
+                ? Loc.T("Group moved to the Recycle Bin")
+                : Loc.T("Group deleted"),
+            InfoBarSeverity.Success);
     }
 
     private async Task<string?> PromptForNameAsync(string title, string label,
