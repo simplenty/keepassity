@@ -2177,6 +2177,87 @@ mod tests {
     }
 
     #[test]
+    fn recycled_group_stays_in_the_recycle_bin_through_a_merge() {
+        let handle = open_fixture();
+        let groups: Value =
+            serde_json::from_str(&call(handle, r#"{"command":"list_groups"}"#)).unwrap();
+        let root = groups[0]["uuid"].as_str().unwrap();
+        let created: Value = serde_json::from_str(&call(
+            handle,
+            &format!(r#"{{"command":"create_group","parent_uuid":"{root}","name":"merge-team"}}"#),
+        ))
+        .unwrap();
+        let group_uuid: Uuid = created["uuid"].as_str().unwrap().parse().unwrap();
+        let entry_uuid = create_entry_in(
+            handle,
+            created["uuid"].as_str().unwrap(),
+            r#"{"Title":"merged-inside","Password":"p"}"#,
+        );
+        let entry_uuid: Uuid = entry_uuid.parse().unwrap();
+
+        // The remote copy still has the group at its original place; the local
+        // copy moved it into the recycle bin. A merge must keep the newer
+        // location instead of resurrecting the old parent.
+        let remote = save_to_vec(handle);
+        let deleted: Value = serde_json::from_str(&call(
+            handle,
+            &format!(
+                r#"{{"command":"delete_group","uuid":"{}"}}"#,
+                group_uuid.to_hex()
+            ),
+        ))
+        .unwrap();
+        assert_eq!(deleted["recycled"], true);
+
+        let merged = sync_merge_to_vec(handle, &remote);
+        let database =
+            keepassity_core::kdbx::reader::parse(&merged, "demopass").expect("merged reads");
+        let recycle_uuid = database
+            .meta
+            .recycle_bin_uuid
+            .expect("merged database keeps a recycle bin");
+        let recycle = find_group(&database, recycle_uuid).expect("recycle bin exists");
+        assert!(
+            recycle.groups.iter().any(|group| group.uuid == group_uuid),
+            "the deleted group must stay under the recycle bin"
+        );
+        let (entry, parent) = find_entry(&database, entry_uuid).expect("entry survives merge");
+        assert_eq!(
+            entry
+                .strings
+                .iter()
+                .find(|field| field.key == "Title")
+                .map(|field| field.value.as_str()),
+            Some("merged-inside")
+        );
+        assert_eq!(parent, group_uuid);
+        assert_eq!(kp_close(handle), 0);
+    }
+
+    fn sync_merge_to_vec(handle: *mut KpHandle, remote: &[u8]) -> Vec<u8> {
+        let mut bytes = std::ptr::null_mut();
+        let mut len = 0usize;
+        let mut conflicts = std::ptr::null_mut();
+        assert_eq!(
+            kp_sync_merge(
+                handle,
+                remote.as_ptr(),
+                remote.len(),
+                &mut bytes,
+                &mut len,
+                &mut conflicts
+            ),
+            0
+        );
+        if !conflicts.is_null() {
+            kp_string_free(conflicts);
+        }
+        let copy = unsafe { std::slice::from_raw_parts(bytes, len) }.to_vec();
+        kp_buffer_free(bytes, len);
+        copy
+    }
+
+    #[test]
     fn save_keeps_the_source_kdbx_header() {
         let direct = keepassity_core::kdbx::reader::parse(&fixture(), "demopass").unwrap();
         let source_version = direct.format_version.clone();
