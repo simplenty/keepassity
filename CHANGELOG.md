@@ -5,6 +5,10 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **TOTP countdown rules moved into a view model:** `TotpTiming` owns the remaining-second
+  clamp, 6/8-digit grouping, the "request a new code" decision, the three-second pre-fetch
+  window and the near-boundary timer interval. The shell keeps the timer and core calls; the
+  off-by-one window behavior now has headless tests.
 - **Group navigation ordering moved into a projection:** `GroupNavigationProjection` now builds
   the "All entries / normal groups / Templates / Recycle Bin" order outside the shell, with
   counts and root/blank filtering, and is covered by headless tests.

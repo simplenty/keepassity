@@ -55,6 +55,7 @@ try
     EntryDetailViewModelTests.Run(Check);
     EntryEditorViewModelTests.Run(Check);
     GroupNavigationTests.Run(Check);
+    TotpTimingTests.Run(Check);
 
     // sync state round trip
     var syncStates = new SyncStateStore();

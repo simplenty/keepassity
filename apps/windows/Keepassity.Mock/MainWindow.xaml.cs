@@ -4549,8 +4549,8 @@ public sealed partial class MainWindow : Window
         TotpProgress.Visibility = Visibility.Visible;
         DateTimeOffset now = DateTimeOffset.UtcNow;
         long nowUnix = now.ToUnixTimeSeconds();
-        if (_totpDisplayedCode is null || _totpDisplayedUuid != full.Uuid ||
-            nowUnix >= _totpWindowEndUnix)
+        if (TotpTiming.ShouldRequestCode(nowUnix, _totpDisplayedCode is not null,
+                _totpDisplayedUuid, full.Uuid, _totpWindowEndUnix))
         {
             TotpCodeDto? prefetched = _totpPrefetchedCode;
             long prefetchedTarget = _totpPrefetchTargetUnix;
@@ -4594,8 +4594,8 @@ public sealed partial class MainWindow : Window
         }
         int period = Math.Max(1, _totpDisplayedCode.Period);
         int remaining = (int)Math.Clamp(_totpWindowEndUnix - nowUnix, 0, period);
-        if (remaining < 3 && _totpWindowEndUnix != long.MaxValue &&
-            _totpPrefetchedCode is null && !_totpPrefetchInFlight)
+        if (TotpTiming.ShouldPrefetch(remaining, _totpWindowEndUnix,
+                _totpPrefetchedCode is not null, _totpPrefetchInFlight))
         {
             // Pre-fetch the next window now; the timer tick scheduled at the
             // boundary will swap it in immediately.
@@ -4623,7 +4623,7 @@ public sealed partial class MainWindow : Window
                 _totpPrefetchedUuid = uuid;
                 _totpPrefetchTargetUnix = targetUnix;
             }
-            else if (nowUnix < targetUnix + Math.Max(1, period) &&
+            else if (TotpTiming.IsPrefetchUsable(targetUnix, period, nowUnix) &&
                      _totpWindowEndUnix <= nowUnix)
             {
                 // The boundary arrived while this request was in flight; the
@@ -4658,9 +4658,9 @@ public sealed partial class MainWindow : Window
             return;
         }
         int period = Math.Max(1, code.Period);
-        int remaining = (int)Math.Clamp(_totpWindowEndUnix - nowUnix, 0, period);
+        int remaining = TotpTiming.Remaining(_totpWindowEndUnix, nowUnix, period);
         int digits = code.Digits > 0 ? code.Digits : 6;
-        TotpCode.Text = FormatTotp(code.Code, digits);
+        TotpCode.Text = TotpTiming.FormatCode(code.Code, digits);
         TotpRemainingText.Text = Loc.T("Refreshes in {0}s", remaining);
         TotpProgress.Maximum = period;
         TotpProgress.Value = period - remaining;
@@ -4675,10 +4675,7 @@ public sealed partial class MainWindow : Window
         }
         DateTimeOffset boundary = DateTimeOffset.FromUnixTimeSeconds(_totpWindowEndUnix);
         TimeSpan untilBoundary = boundary - now;
-        TimeSpan interval = untilBoundary > TimeSpan.Zero &&
-                            untilBoundary < TimeSpan.FromSeconds(1)
-            ? untilBoundary + TimeSpan.FromMilliseconds(15)
-            : TimeSpan.FromSeconds(1);
+        TimeSpan interval = TotpTiming.NextTick(untilBoundary);
         if (Math.Abs((_totpTimer.Interval - interval).TotalMilliseconds) >= 10)
         {
             // Changing the interval restarts the timer, so the next tick lands
@@ -4712,19 +4709,6 @@ public sealed partial class MainWindow : Window
         {
             _totpTimer.Interval = TimeSpan.FromSeconds(1);
         }
-    }
-
-    private static string FormatTotp(string code, int digits)
-    {
-        if (digits == 8 && code.Length == 8)
-        {
-            return $"{code[..4]} {code[4..]}";
-        }
-        if (code.Length == 6)
-        {
-            return $"{code[..3]} {code[3..]}";
-        }
-        return code;
     }
 
     private static bool IsTotpField(string key)
