@@ -39,6 +39,9 @@ public sealed partial class MainWindow : Window
     /// <summary>State and display strings for the detail panel (MVVM boundary).</summary>
     public EntryDetailViewModel Detail { get; }
 
+    /// <summary>TOTP display state machine (MVVM boundary).</summary>
+    public TotpDisplayViewModel Totp { get; }
+
     /// <summary>Localized sync status shown in the navigation pane.</summary>
     public SyncStatusViewModel SyncStatus { get; }
 
@@ -69,7 +72,6 @@ public sealed partial class MainWindow : Window
     private string? _rootGroupUuid;
     private EntryFullDto? _currentFull;
     private EntryRowPresenter? _currentSummary;
-    private string? _currentTotpCode;
     private string? _lastClipboardText;
     private string? _masterPassword;
     private VaultFileLock? _vaultLock;
@@ -107,13 +109,6 @@ public sealed partial class MainWindow : Window
     private SingleInstanceRelay? _singleInstanceRelay;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _networkReplayTimer;
     private bool _sessionLockPending;
-    private TotpCodeDto? _totpDisplayedCode;
-    private string? _totpDisplayedUuid;
-    private TotpCodeDto? _totpPrefetchedCode;
-    private string? _totpPrefetchedUuid;
-    private long _totpWindowEndUnix = long.MaxValue;
-    private long _totpPrefetchTargetUnix = long.MinValue;
-    private bool _totpPrefetchInFlight;
     private bool _announcePeerWarningLogged;
     // Drag-move state: which row is being dragged and which group it already
     // lives in, so a drop onto that same group is refused with a hint instead of
@@ -150,6 +145,8 @@ public sealed partial class MainWindow : Window
         SyncStatus = new SyncStatusViewModel(LocText.Instance);
         Detail = new EntryDetailViewModel();
         Detail.Clear(Loc.T("Select an entry"));
+        Totp = new TotpDisplayViewModel(new CoreTotpSource(_core),
+            () => DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         InitializeComponent();
         ApplyThemePreference(Settings.Theme);
         Title = "Keepassity";
@@ -193,7 +190,7 @@ public sealed partial class MainWindow : Window
         InitializeSingleInstanceRelay();
 
         _totpTimer.Interval = TimeSpan.FromSeconds(1);
-        _totpTimer.Tick += async (_, _) => await UpdateTotpAsync(_showGeneration);
+        _totpTimer.Tick += async (_, _) => await TickTotpAsync();
         _toastTimer.Interval = TimeSpan.FromSeconds(4);
         _toastTimer.Tick += (_, _) =>
         {
@@ -4508,27 +4505,16 @@ public sealed partial class MainWindow : Window
             custom?.Key,
             custom?.Value,
             full.Totp is not null));
-        TotpSection.Visibility = ToVisibility(Detail.HasTotp);
-        TotpDivider.Visibility = TotpSection.Visibility;
         if (Detail.HasTotp)
         {
-            TotpCode.FontSize = 24;
-            TotpRemainingText.Visibility = Visibility.Visible;
-            TotpProgress.Visibility = Visibility.Visible;
-            // Never show or copy a code that belongs to the previously selected
-            // entry while the first code for this entry is being fetched.
-            ResetTotpDisplayState();
-            await UpdateTotpAsync(generation);
+            Totp.SelectEntry(full.Uuid);
+            await Totp.TickAsync();
+            UpdateTotpPresentation();
         }
         else
         {
-            TotpCode.FontSize = 13;
-            TotpCode.Text = string.Empty;
-            TotpRemainingText.Text = string.Empty;
-            TotpRemainingText.Visibility = Visibility.Collapsed;
-            TotpProgress.Value = 0;
-            TotpProgress.Visibility = Visibility.Collapsed;
-            ResetTotpDisplayState();
+            Totp.SelectEntry(null);
+            UpdateTotpPresentation();
         }
         if (animate)
         {
@@ -4540,151 +4526,53 @@ public sealed partial class MainWindow : Window
     {
         _currentFull = null;
         _currentSummary = null;
-        ResetTotpDisplayState();
         Detail.Clear(Loc.T("Select an entry"));
-        TotpProgress.Value = 0;
-        TotpRemainingText.Text = string.Empty;
-        TotpCode.Text = "—";
+        Totp.Reset();
+        UpdateTotpPresentation();
     }
 
-    private async Task UpdateTotpAsync(int generation)
+    private async Task TickTotpAsync()
     {
-        EntryFullDto? full = _currentFull;
-        if (full is null || full.Totp is null)
+        await Totp.TickAsync();
+        UpdateTotpPresentation();
+        if (Detail.HasTotp)
         {
-            SetTotpUnavailable();
-            return;
-        }
-        TotpCode.FontSize = 24;
-        TotpRemainingText.Visibility = Visibility.Visible;
-        TotpProgress.Visibility = Visibility.Visible;
-        DateTimeOffset now = DateTimeOffset.UtcNow;
-        long nowUnix = now.ToUnixTimeSeconds();
-        if (TotpTiming.ShouldRequestCode(nowUnix, _totpDisplayedCode is not null,
-                _totpDisplayedUuid, full.Uuid, _totpWindowEndUnix))
-        {
-            TotpCodeDto? prefetched = _totpPrefetchedCode;
-            long prefetchedTarget = _totpPrefetchTargetUnix;
-            int prefetchedPeriod = prefetched is null ? 0 : Math.Max(1, prefetched.Period);
-            if (prefetched is not null && _totpPrefetchedUuid == full.Uuid &&
-                prefetchedTarget <= nowUnix && nowUnix < prefetchedTarget + prefetchedPeriod)
-            {
-                // The next window was already pre-fetched while fewer than 3s
-                // remained: switch exactly at the boundary without a core round
-                // trip, so the old code never shows one tick too long.
-                ActivateTotpCode(prefetched,
-                    prefetchedTarget + Math.Max(1, prefetched.Period));
-                _totpPrefetchedCode = null;
-                _totpPrefetchedUuid = null;
-                _totpPrefetchInFlight = false;
-            }
-            else
-            {
-                _totpPrefetchedCode = null;
-                _totpPrefetchedUuid = null;
-                _totpPrefetchInFlight = false;
-                long requestedAtUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-                TotpCodeDto? code = await _core.TotpCodeAsync(full.Uuid);
-                if (generation != _showGeneration || _currentFull?.Uuid != full.Uuid)
-                {
-                    return;
-                }
-                if (code is null)
-                {
-                    SetTotpUnavailable();
-                    return;
-                }
-                ActivateTotpCode(code, requestedAtUnix + Math.Max(1, code.Remaining));
-            }
-        }
-        nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        UpdateTotpCountdown(nowUnix);
-        if (_totpDisplayedCode is null || _totpDisplayedUuid != full.Uuid)
-        {
-            return;
-        }
-        int period = Math.Max(1, _totpDisplayedCode.Period);
-        int remaining = (int)Math.Clamp(_totpWindowEndUnix - nowUnix, 0, period);
-        if (TotpTiming.ShouldPrefetch(remaining, _totpWindowEndUnix,
-                _totpPrefetchedCode is not null, _totpPrefetchInFlight))
-        {
-            // Pre-fetch the next window now; the timer tick scheduled at the
-            // boundary will swap it in immediately.
-            _totpPrefetchInFlight = true;
-            _ = PrefetchTotpAsync(full.Uuid, _totpWindowEndUnix, period, generation);
-        }
-        ScheduleTotpTimerTick(DateTimeOffset.UtcNow);
-    }
-
-    private async Task PrefetchTotpAsync(string uuid, long targetUnix, int period,
-        int generation)
-    {
-        try
-        {
-            TotpCodeDto? next = await _core.TotpCodeAsync(uuid, targetUnix);
-            if (next is null || generation != _showGeneration ||
-                _currentFull?.Uuid != uuid)
-            {
-                return;
-            }
-            long nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            if (nowUnix < targetUnix)
-            {
-                _totpPrefetchedCode = next;
-                _totpPrefetchedUuid = uuid;
-                _totpPrefetchTargetUnix = targetUnix;
-            }
-            else if (TotpTiming.IsPrefetchUsable(targetUnix, period, nowUnix) &&
-                     _totpWindowEndUnix <= nowUnix)
-            {
-                // The boundary arrived while this request was in flight; the
-                // prefetched code is still the live window, adopt it now.
-                ActivateTotpCode(next, targetUnix + Math.Max(1, period));
-            }
-        }
-        catch (Exception ex)
-        {
-            AppLog.Warn($"TOTP prefetch failed: {ex.Message}");
-        }
-        finally
-        {
-            _totpPrefetchInFlight = false;
+            ScheduleTotpTimerTick(DateTimeOffset.UtcNow);
         }
     }
 
-    private void ActivateTotpCode(TotpCodeDto code, long windowEndUnix)
+    private void UpdateTotpPresentation()
     {
-        _totpDisplayedCode = code;
-        _totpDisplayedUuid = _currentFull?.Uuid;
-        _currentTotpCode = code.Code;
-        _totpWindowEndUnix = windowEndUnix;
-        UpdateTotpCountdown(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-    }
-
-    private void UpdateTotpCountdown(long nowUnix)
-    {
-        TotpCodeDto? code = _totpDisplayedCode;
-        if (code is null)
+        bool sectionVisible = Detail.HasTotp;
+        TotpSection.Visibility = ToVisibility(sectionVisible);
+        TotpDivider.Visibility = TotpSection.Visibility;
+        bool codeVisible = sectionVisible && Totp.HasCode;
+        TotpRemainingText.Visibility = ToVisibility(codeVisible);
+        TotpProgress.Visibility = ToVisibility(codeVisible);
+        TotpCode.FontSize = codeVisible ? 24 : 13;
+        if (sectionVisible && !Totp.HasCode)
         {
-            return;
+            TotpCode.Text = Loc.T("No TOTP configured");
         }
-        int period = Math.Max(1, code.Period);
-        int remaining = TotpTiming.Remaining(_totpWindowEndUnix, nowUnix, period);
-        int digits = code.Digits > 0 ? code.Digits : 6;
-        TotpCode.Text = TotpTiming.FormatCode(code.Code, digits);
-        TotpRemainingText.Text = Loc.T("Refreshes in {0}s", remaining);
-        TotpProgress.Maximum = period;
-        TotpProgress.Value = period - remaining;
+        else if (!sectionVisible)
+        {
+            TotpCode.Text = string.Empty;
+        }
+        TotpProgress.Value = Totp.ProgressValue;
+        TotpProgress.Maximum = Math.Max(1, Totp.Period);
+        TotpRemainingText.Text = codeVisible
+            ? Loc.T("Refreshes in {0}s", Totp.RemainingSeconds)
+            : string.Empty;
     }
 
     private void ScheduleTotpTimerTick(DateTimeOffset now)
     {
-        if (_totpWindowEndUnix == long.MaxValue)
+        if (Totp.WindowEndUnix == long.MaxValue)
         {
             _totpTimer.Interval = TimeSpan.FromSeconds(1);
             return;
         }
-        DateTimeOffset boundary = DateTimeOffset.FromUnixTimeSeconds(_totpWindowEndUnix);
+        DateTimeOffset boundary = DateTimeOffset.FromUnixTimeSeconds(Totp.WindowEndUnix);
         TimeSpan untilBoundary = boundary - now;
         TimeSpan interval = TotpTiming.NextTick(untilBoundary);
         if (Math.Abs((_totpTimer.Interval - interval).TotalMilliseconds) >= 10)
@@ -4694,34 +4582,6 @@ public sealed partial class MainWindow : Window
             _totpTimer.Interval = interval;
         }
     }
-
-    private void SetTotpUnavailable()
-    {
-        ResetTotpDisplayState();
-        TotpCode.FontSize = 13;
-        TotpCode.Text = Loc.T("No TOTP configured");
-        TotpRemainingText.Text = string.Empty;
-        TotpRemainingText.Visibility = Visibility.Collapsed;
-        TotpProgress.Value = 0;
-        TotpProgress.Visibility = Visibility.Collapsed;
-    }
-
-    private void ResetTotpDisplayState()
-    {
-        _totpDisplayedCode = null;
-        _totpDisplayedUuid = null;
-        _totpPrefetchedCode = null;
-        _totpPrefetchedUuid = null;
-        _totpWindowEndUnix = long.MaxValue;
-        _totpPrefetchTargetUnix = long.MinValue;
-        _totpPrefetchInFlight = false;
-        _currentTotpCode = null;
-        if (_totpTimer.IsEnabled && _totpTimer.Interval != TimeSpan.FromSeconds(1))
-        {
-            _totpTimer.Interval = TimeSpan.FromSeconds(1);
-        }
-    }
-
     private static bool IsTotpField(string key)
         => key == "otp"
            || key == "TOTP Seed"
@@ -4764,9 +4624,10 @@ public sealed partial class MainWindow : Window
 
     private void CopyTotpButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!string.IsNullOrEmpty(_currentTotpCode))
+        string? code = Totp.CurrentCode;
+        if (!string.IsNullOrEmpty(code))
         {
-            CopyText(_currentTotpCode, Loc.T("One-time code copied"));
+            CopyText(code, Loc.T("One-time code copied"));
         }
     }
 
@@ -5854,7 +5715,6 @@ public sealed partial class MainWindow : Window
         Announce(Loc.T("Vault locked"));
         _currentFull = null;
         _currentSummary = null;
-        ResetTotpDisplayState();
         Entries.Clear();
         Groups.Clear();
         NavView.MenuItems.Clear();

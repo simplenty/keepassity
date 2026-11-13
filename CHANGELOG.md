@@ -5,6 +5,11 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **TOTP display is a view-model state machine:** `TotpDisplayViewModel` owns the selected entry,
+  generation guard, displayed code, countdown, window rollover and the three-second pre-fetch
+  (including adopting a pre-fetched code at the boundary). The shell passes a `TotpCodeSnapshot`
+  source and clock, keeps only the DispatcherTimer and maps the result to controls. Entry
+  switches cancel stale requests without showing the previous code.
 - **Recent-database list is platform-neutral and corruption-safe:** `RecentDatabaseStore` moved
   from the shell to `Keepassity.Core`, gained a testable explicit path, and preserves an
   unreadable `recent-databases.json` as `.corrupt-<timestamp>` instead of silently discarding
