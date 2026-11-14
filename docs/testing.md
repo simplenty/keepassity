@@ -35,8 +35,9 @@ manifest, Windows build, headless service tests; `-Full` adds the application se
   promoted after the master password opens them; one end-to-end case runs with the real core
   and the loopback WebDAV server), the vault session's single-writer rules (lock ownership,
   external-change refusal, save serialization, replacement/restore with backups, write-idle
-  tracking used by the shutdown drain, a failed save leaving the session usable for a retry),
-  new-database
+  tracking used by the shutdown drain, a failed save leaving the session usable for a retry), the
+  TOTP display state machine (window countdown, pre-fetch, entry switch, a failing source shown as
+  unavailable rather than throwing), new-database
   preparation (create-only local write, WebDAV working copy with a clean baseline), DPAPI
   credential round-trip (Windows), backups (retention/restore, corrupted-backup rejection),
   diagnostics archive and logging.

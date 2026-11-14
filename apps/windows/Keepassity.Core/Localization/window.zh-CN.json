@@ -171,6 +171,7 @@
   "Sync needs baseline": "同步基线不完整，请重新同步。",
   "Sync paused. Local and remote are unchanged; conflict copies were saved.": "同步已暂停。本地和远程均未更改，冲突副本已保存。",
   "Sync skipped: {0}": "已跳过同步：{0}",
+  "TOTP code unavailable": "TOTP 验证码暂时不可用",
   "TOTP removed": "TOTP 已移除",
   "TOTP saved": "TOTP 已保存",
   "Tags (comma-separated)": "标签（逗号分隔）",

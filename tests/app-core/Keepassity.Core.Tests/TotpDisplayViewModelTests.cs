@@ -27,6 +27,7 @@ internal static class TotpDisplayViewModelTests
         RunBasicWindow(check);
         RunPrefetch(check);
         RunUnavailableAndReset(check);
+        RunSourceFailure(check);
     }
 
     private static void RunBasicWindow(TestCheck check)
@@ -82,6 +83,34 @@ internal static class TotpDisplayViewModelTests
             source.Calls.Count == callsBeforeBoundary, source.Calls.Count.ToString());
     }
 
+    private static void RunSourceFailure(TestCheck check)
+    {
+        long now = 4_000;
+        var source = new FakeSource();
+        var totp = new TotpDisplayViewModel(source, () => now);
+        totp.SelectEntry("entry-fail");
+        source.Handler = (_, _) => throw new InvalidOperationException("the core is locked");
+        bool escaped = false;
+        try
+        {
+            totp.TickAsync().GetAwaiter().GetResult();
+        }
+        catch
+        {
+            escaped = true;
+        }
+        check("totp display: a failing source does not escape the tick", !escaped);
+        check("totp display: a failing source is shown as unavailable",
+            !totp.HasCode && totp.SourceFailed);
+
+        source.Handler = (_, _) => new TotpCodeSnapshot("777777", 30, 30, 6);
+        now += 1;
+        totp.TickAsync().GetAwaiter().GetResult();
+        check("totp display: the next successful tick clears the failure",
+            totp.HasCode && !totp.SourceFailed && totp.CodeText == "777 777",
+            totp.CodeText);
+    }
+
     private static void RunUnavailableAndReset(TestCheck check)
     {
         long now = 3_000;
@@ -91,6 +120,8 @@ internal static class TotpDisplayViewModelTests
         totp.TickAsync().GetAwaiter().GetResult();
         check("totp display: missing code is unavailable",
             !totp.HasCode && totp.CodeText.Length == 0);
+        check("totp display: a missing code is not a source failure",
+            !totp.SourceFailed);
         totp.Reset();
         check("totp display: reset clears state", !totp.HasCode &&
             totp.RemainingSeconds == 0 && totp.CurrentCode is null);

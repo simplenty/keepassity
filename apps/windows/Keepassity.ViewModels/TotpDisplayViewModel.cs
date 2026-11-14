@@ -33,6 +33,7 @@ public sealed class TotpDisplayViewModel : ObservableObject
     private long _prefetchTargetUnix = long.MinValue;
     private bool _prefetchInFlight;
     private bool _hasCode;
+    private bool _sourceFailed;
     private string _codeText = string.Empty;
     private int _remainingSeconds;
     private int _period;
@@ -45,6 +46,14 @@ public sealed class TotpDisplayViewModel : ObservableObject
     }
 
     public bool HasCode => _hasCode;
+
+    /// <summary>
+    /// True when the last code request failed (the core was locked, the entry
+    /// vanished, the secret was rejected). The shell shows "unavailable" instead
+    /// of claiming that no TOTP is configured.
+    /// </summary>
+    public bool SourceFailed => _sourceFailed;
+
     public string CodeText => _codeText;
     public int RemainingSeconds => _remainingSeconds;
     public int Period => _period;
@@ -106,8 +115,22 @@ public sealed class TotpDisplayViewModel : ObservableObject
                 {
                     ClearPrefetch();
                     int generation = _generation;
-                    TotpCodeSnapshot? code = await _source.GetAsync(uuid, null)
-                        .ConfigureAwait(false);
+                    TotpCodeSnapshot? code;
+                    try
+                    {
+                        code = await _source.GetAsync(uuid, null).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // A core failure must not escape the timer callback and
+                        // take the application down; hide the code and let the
+                        // next tick retry.
+                        if (generation == _generation && _entryUuid == uuid)
+                        {
+                            SetUnavailable(sourceFailed: true);
+                        }
+                        return;
+                    }
                     if (generation != _generation || _entryUuid != uuid)
                     {
                         return;
@@ -196,7 +219,9 @@ public sealed class TotpDisplayViewModel : ObservableObject
         _displayed = code;
         _displayedUuid = uuid;
         _windowEndUnix = windowEndUnix;
+        _sourceFailed = false;
         SetCode(code.Code, code.Digits);
+        OnPropertyChanged(nameof(SourceFailed));
     }
 
     private void SetCode(string code, int digits)
@@ -218,15 +243,17 @@ public sealed class TotpDisplayViewModel : ObservableObject
         OnPropertyChanged(nameof(ProgressValue));
     }
 
-    private void SetUnavailable()
+    private void SetUnavailable(bool sourceFailed = false)
     {
         _windowEndUnix = long.MaxValue;
         _hasCode = false;
+        _sourceFailed = sourceFailed;
         _codeText = string.Empty;
         _remainingSeconds = 0;
         _period = 0;
         _progressValue = 0;
         OnPropertyChanged(nameof(HasCode));
+        OnPropertyChanged(nameof(SourceFailed));
         OnPropertyChanged(nameof(CodeText));
         OnPropertyChanged(nameof(CurrentCode));
         OnPropertyChanged(nameof(Period));

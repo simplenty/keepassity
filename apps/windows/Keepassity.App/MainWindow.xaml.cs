@@ -4341,7 +4341,16 @@ public sealed partial class MainWindow : Window
 
     private async Task TickTotpAsync()
     {
-        await Totp.TickAsync();
+        try
+        {
+            await Totp.TickAsync();
+        }
+        catch (Exception ex)
+        {
+            // Last-resort guard: a code refresh is cosmetic and must never take
+            // down the window from a timer callback.
+            AppLog.Warn($"TOTP refresh failed: {ex.Message}");
+        }
         UpdateTotpPresentation();
         if (Detail.HasTotp)
         {
@@ -4360,7 +4369,9 @@ public sealed partial class MainWindow : Window
         TotpCode.FontSize = codeVisible ? 24 : 13;
         if (sectionVisible && !Totp.HasCode)
         {
-            TotpCode.Text = Loc.T("No TOTP configured");
+            TotpCode.Text = Totp.SourceFailed
+                ? Loc.T("TOTP code unavailable")
+                : Loc.T("No TOTP configured");
         }
         else if (!sectionVisible)
         {

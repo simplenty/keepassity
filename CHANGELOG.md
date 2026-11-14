@@ -17,6 +17,11 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **A failing TOTP refresh cannot crash the window:** the display timer pulls the code from the
+  core, and a locked vault, a deleted entry or a rejected secret could throw out of the async
+  timer callback. The view model now catches the failed request, marks the code as unavailable
+  (the shell shows `TOTP code unavailable` instead of claiming no TOTP is configured) and lets the
+  next tick retry; the timer callback is also guarded as a last resort.
 - **Locking waits for an in-flight save:** lock (manual button, tray menu, inactivity timer or a
   Windows session event) used to lock the core immediately; a save that was already queued or
   running then failed, leaving the previous complete file and losing the edit being written. Lock
