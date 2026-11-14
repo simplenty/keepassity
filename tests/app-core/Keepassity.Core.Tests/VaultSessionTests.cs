@@ -21,6 +21,7 @@ internal static class VaultSessionTests
         RestoreBacksUpOldBytes(check, dataDirectory);
         WriteTrackingDrainsBeforeExit(check, dataDirectory);
         FailedSaveLeavesTheSessionUsable(check, dataDirectory);
+        ReadWaitsForInFlightWrite(check, dataDirectory);
         ReleaseForgetsTheFingerprint(check, dataDirectory);
     }
 
@@ -330,6 +331,47 @@ internal static class VaultSessionTests
         session.SaveAsync(core).GetAwaiter().GetResult();
         check("a retry after a failed save succeeds", !session.IsWriting &&
             File.ReadAllBytes(path).SequenceEqual(Bytes(3, 3)));
+    }
+
+    private static void ReadWaitsForInFlightWrite(TestCheck check, string dataDirectory)
+    {
+        (_, string path) = NewVault(dataDirectory, "read-gate", Bytes(1));
+        using var session = new VaultSession();
+        _ = session.TryAcquire(path, out _);
+        session.CaptureFingerprint();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var core = new FakeCore
+        {
+            ModelBytes = Bytes(8, 8, 8),
+            OnSave = async () =>
+            {
+                entered.TrySetResult();
+                await release.Task.ConfigureAwait(false);
+            },
+        };
+        Task save = session.SaveAsync(core);
+        entered.Task.GetAwaiter().GetResult();
+        Task<byte[]> read = session.ReadBytesAsync();
+        check("a sync read waits for the in-flight save", !read.IsCompleted);
+        release.SetResult();
+        save.GetAwaiter().GetResult();
+        byte[] bytes = read.GetAwaiter().GetResult();
+        check("a sync read returns the saved bytes",
+            bytes.SequenceEqual(Bytes(8, 8, 8)) && !session.IsWriting);
+        session.WaitForIdleAsync(TimeSpan.FromMilliseconds(30)).GetAwaiter().GetResult();
+
+        session.Release();
+        bool refused = false;
+        try
+        {
+            session.ReadBytesAsync().GetAwaiter().GetResult();
+        }
+        catch (InvalidOperationException)
+        {
+            refused = true;
+        }
+        check("a released session refuses to read", refused);
     }
 
     private static void ReleaseForgetsTheFingerprint(TestCheck check, string dataDirectory)

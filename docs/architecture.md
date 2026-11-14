@@ -87,8 +87,9 @@ planned for v1.x and is expected to consume the same core directly.
   serializes save, sync-copy and restore replacements so an older async snapshot cannot land
   last. `VaultSession` also reports whether a write is queued or running; the window drains that
   work (bounded) before it disposes the session and core on close, and locks the core only after a
-  running save finished. A sync that arrives at its local replace phase after the vault locked is
-  refused instead of replacing the database under a locked core.
+  running save finished. Sync reads the live database through the same gate (`ReadBytesAsync`), so a
+  read cannot collide with a replace. A sync that arrives at its local replace phase after the
+  vault locked is refused instead of replacing the database under a locked core.
 - The real database, credentials and WebDAV working copies never enter a git repository.
 - Test fixtures are synthetic or public samples; see `tests/fixtures/README.md`.
 

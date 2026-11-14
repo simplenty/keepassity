@@ -1873,6 +1873,23 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Durable, gated read of the open database bytes for the sync coordinator.
+    /// The read holds the same gate as saves, so a concurrent replace cannot hit
+    /// a sharing violation and sync always hashes a complete database.
+    /// </summary>
+    internal async Task<byte[]> ReadLocalBytesAsync(string path)
+    {
+        if (_dbPath is null ||
+            !string.Equals(Path.GetFullPath(path), Path.GetFullPath(_dbPath),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "a sync read may only read the database that is currently open");
+        }
+        return await _vault.ReadBytesAsync();
+    }
+
+    /// <summary>
     /// Durable, gated write of database bytes (sync merge/download). The sync
     /// coordinator's <see cref="IVaultDocument.ReplaceAsync"/> adapter calls this;
     /// it only accepts the open vault and refuses when the file changed outside

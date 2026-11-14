@@ -185,6 +185,29 @@ public sealed class VaultSession : IDisposable
     }
 
     /// <summary>
+    /// Read the database bytes through the same gate that serializes writes.
+    /// Without this a sync can hold the file open exactly while a save replaces
+    /// it, and Windows then fails the replace with a sharing violation; reading
+    /// under the gate means sync always sees a complete database and the save
+    /// never collides with it. Counted as an operation for the shutdown drain.
+    /// </summary>
+    public async Task<byte[]> ReadBytesAsync(CancellationToken cancellationToken = default)
+    {
+        BeginWrite();
+        try
+        {
+            string path = AcquiredPath();
+            using IDisposable read = await _writes.EnterAsync().ConfigureAwait(false);
+            return await File.ReadAllBytesAsync(path, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            EndWrite();
+        }
+    }
+
+    /// <summary>
     /// Save the open model through <paramref name="core"/>: wait for the write
     /// gate, refuse when the file changed outside the application (checked once
     /// here and once more after serialization by the core), then remember the

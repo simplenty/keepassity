@@ -18,7 +18,7 @@ internal sealed class LiveVaultDocument : IVaultDocument
 
     public string Path { get; }
 
-    public Task<byte[]> ReadBytesAsync() => File.ReadAllBytesAsync(Path);
+    public Task<byte[]> ReadBytesAsync() => _window.ReadLocalBytesAsync(Path);
 
     public Task ReplaceAsync(byte[] bytes) => _window.WriteLocalBytesAsync(Path, bytes);
 

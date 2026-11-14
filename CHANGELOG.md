@@ -17,6 +17,11 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **A sync read can no longer make a save fail:** the sync coordinator read the live database file
+  directly, so its read handle could collide with a concurrent atomic replace and make the save
+  fail with a sharing violation. Reads now go through the vault session's write gate
+  (`ReadBytesAsync`), so a sync always hashes a complete database, a save never races the reader,
+  and the shutdown drain counts the read like any other in-flight operation.
 - **A failing TOTP refresh cannot crash the window:** the display timer pulls the code from the
   core, and a locked vault, a deleted entry or a rejected secret could throw out of the async
   timer callback. The view model now catches the failed request, marks the code as unavailable
