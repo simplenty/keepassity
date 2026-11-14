@@ -17,6 +17,34 @@ public static class AtomicFile
     public const string TempInfix = ".keepassity-tmp-";
 
     /// <summary>
+    /// Place an already flushed temporary sibling at its destination.
+    /// <see cref="File.Replace(string, string, string?, bool)"/> gives the best
+    /// semantics (metadata and backup handling) but is unavailable on FAT/exFAT
+    /// and some network shares, where it fails with an IO error. The fallback is
+    /// a same-volume <see cref="File.Move(string, string, bool)"/>, which is also
+    /// a rename: a crash leaves either the old or the new file, and the caller has
+    /// already taken a backup.
+    /// </summary>
+    internal static void ReplaceFlushedTemp(string tempPath, string destinationPath,
+        bool allowFileReplace = true)
+    {
+        if (allowFileReplace)
+        {
+            try
+            {
+                File.Replace(tempPath, destinationPath, null, ignoreMetadataErrors: true);
+                return;
+            }
+            catch (Exception ex) when (ex is PlatformNotSupportedException or IOException)
+            {
+                AppLog.Warn($"File.Replace unavailable ({ex.Message}); falling back to a " +
+                            "same-volume rename");
+            }
+        }
+        File.Move(tempPath, destinationPath, overwrite: true);
+    }
+
+    /// <summary>
     /// Replace <paramref name="path"/> with <paramref name="content"/>, keeping
     /// a backup of the previous file when it exists.
     /// </summary>
@@ -43,7 +71,7 @@ public static class AtomicFile
             if (File.Exists(fullPath))
             {
                 BackupService.CreateBackup(fullPath, backupRetention, reason);
-                File.Replace(temp, fullPath, null, true);
+                ReplaceFlushedTemp(temp, fullPath);
             }
             else
             {

@@ -128,7 +128,7 @@ public static class BackupService
             {
                 // The pre-restore backup above is the recovery point; a second
                 // ".bak" file next to the database would only be clutter.
-                File.Replace(temp, databasePath, null, true);
+                AtomicFile.ReplaceFlushedTemp(temp, databasePath);
             }
             else
             {

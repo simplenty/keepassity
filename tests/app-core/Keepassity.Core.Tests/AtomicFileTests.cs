@@ -110,5 +110,26 @@ internal static class AtomicFileTests
             File.ReadAllBytes(copyTarget).SequenceEqual("conflict-copy"u8.ToArray()));
         check("atomic copy leaves no temporary file",
             Directory.GetFiles(directory, "copy-target.bin.keepassity-tmp-*").Length == 0);
+
+        // File.Replace is unavailable on FAT/exFAT and some network shares; the
+        // same-volume rename fallback must still place the bytes and leave no
+        // temporary file behind.
+        string fallbackTarget = Path.Combine(directory, "fallback.kdbx");
+        byte[] fallbackOld = "old-bytes"u8.ToArray();
+        byte[] fallbackNew = "new-bytes"u8.ToArray();
+        File.WriteAllBytes(fallbackTarget, fallbackOld);
+        string fallbackTemp = fallbackTarget + AtomicFile.TempInfix + "fallback";
+        File.WriteAllBytes(fallbackTemp, fallbackNew);
+        AtomicFile.ReplaceFlushedTemp(fallbackTemp, fallbackTarget, allowFileReplace: false);
+        check("replace fallback writes the new bytes",
+            File.ReadAllBytes(fallbackTarget).SequenceEqual(fallbackNew));
+        check("replace fallback leaves no temporary file", !File.Exists(fallbackTemp));
+        string createdTarget = Path.Combine(directory, "fallback-created.kdbx");
+        string createdTemp = createdTarget + AtomicFile.TempInfix + "created";
+        File.WriteAllBytes(createdTemp, fallbackNew);
+        AtomicFile.ReplaceFlushedTemp(createdTemp, createdTarget, allowFileReplace: false);
+        check("replace fallback creates a missing destination",
+            File.ReadAllBytes(createdTarget).SequenceEqual(fallbackNew) &&
+            !File.Exists(createdTemp));
     }
 }

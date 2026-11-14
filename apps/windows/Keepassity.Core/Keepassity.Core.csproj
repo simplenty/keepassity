@@ -14,4 +14,9 @@
   <ItemGroup>
     <EmbeddedResource Include="Localization\*.zh-CN.json" WithCulture="false" />
   </ItemGroup>
+  <!-- The headless tests exercise the filesystem fallbacks (for example the
+       replace path used on volumes without File.Replace) directly. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Keepassity.Core.Tests" />
+  </ItemGroup>
 </Project>

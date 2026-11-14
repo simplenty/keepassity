@@ -17,6 +17,11 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **Saves work on FAT/exFAT and network shares:** the atomic replace used `File.Replace`, which
+  is unavailable on volumes without that primitive, so every save of a vault on such a volume
+  failed. The placement now falls back to a same-volume rename (still a rename, so a crash leaves
+  either the old or the new complete database) with the backup taken just before as the recovery
+  point; the backup-restore path uses the same fallback.
 - **Shared-folder vaults coordinate across machines and Windows accounts:** the lock lived only
   under the per-account application data folder, so two machines or two Windows users opening the
   same database on a network share could both hold it and silently overwrite each other's saves.

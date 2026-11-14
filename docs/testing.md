@@ -42,6 +42,7 @@ manifest, Windows build, headless service tests; `-Full` adds the application se
   switch, a failing source shown as unavailable rather than throwing), new-database
   preparation (create-only local write, WebDAV working copy with a clean baseline), DPAPI
   credential round-trip (Windows), backups (retention/restore, corrupted-backup rejection,
+  the same-volume rename fallback for volumes without `File.Replace`,
   recovery candidate selection: newest decryptable backup wins while corrupt, unreadable and
   wrong-password candidates are skipped, verified against the real core as well),
   diagnostics archive and logging.
