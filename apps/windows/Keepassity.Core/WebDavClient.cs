@@ -254,10 +254,27 @@ public sealed class WebDavClient : IDisposable, ISyncRemote
                 conflict: true);
         }
         await EnsureSuccessAsync(response, token);
-        return response.Headers.ETag?.Tag
+        string? uploadedEtag = response.Headers.ETag?.Tag
                ?? (response.Headers.TryGetValues("ETag", out IEnumerable<string>? values)
                    ? values.FirstOrDefault()?.Trim()
                    : null);
+        // A proxy or a server that cuts the request short can answer 2xx while
+        // storing fewer bytes. Confirm the size before this upload can become the
+        // recorded baseline; a truncated remote is then caught here instead of on
+        // the next download.
+        WebDavFileInfo? stored = await GetMetadataAsync(token);
+        if (stored is null)
+        {
+            throw new WebDavException(
+                "The WebDAV server did not keep the uploaded file.");
+        }
+        if (stored.Size != bytes.LongLength)
+        {
+            throw new WebDavException(
+                $"The WebDAV server stored {stored.Size} byte(s) instead of " +
+                $"{bytes.LongLength}; the upload was incomplete.");
+        }
+        return uploadedEtag ?? stored.ETag;
         }
     }
 

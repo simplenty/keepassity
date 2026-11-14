@@ -54,6 +54,8 @@ manifest, Windows build, headless service tests; `-Full` adds the application se
   paths/URLs/usernames, newest ten retained, crash-left temporaries removed),
   WebDAV per-request timeouts (short metadata bound, long transfer bound, stalled transfers fail
   with a clear message, caller cancellation preserved),
+  upload size verification (a loopback server that stores fewer bytes but answers 2xx is reported
+  as an incomplete upload),
   unreadable-remote handling (the default pause keeps the local vault untouched and dirty and
   preserves the unreadable bytes next to it, the explicit repair uploads the verified local copy
   and records a clean baseline),

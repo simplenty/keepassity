@@ -93,5 +93,32 @@ internal static class WebDavSafetyTests
             loopbackAccepted = false;
         }
         check("webdav allows loopback http for tests", loopbackAccepted, string.Empty);
+
+        // A server or proxy that answers 2xx but stores fewer bytes must be
+        // reported, not recorded as a successful upload.
+        using (var truncating = new WebDavMockServer())
+        {
+            byte[] body = Encoding.UTF8.GetBytes("complete-database-bytes");
+            truncating.PutResource("/dav/vault.kdbx", body, "\"etag-1\"", modified);
+            truncating.StoreTruncatedTo = 4;
+            using var client = new WebDavClient(
+                $"http://127.0.0.1:{truncating.Port}/dav/vault.kdbx", "user", "password");
+            WebDavException? failure = null;
+            try
+            {
+                _ = client.UploadAsync(body, "\"etag-1\"").GetAwaiter().GetResult();
+            }
+            catch (WebDavException ex)
+            {
+                failure = ex;
+            }
+            check("webdav upload reports a server that stored fewer bytes",
+                failure is not null &&
+                failure.Message.Contains("incomplete", StringComparison.OrdinalIgnoreCase),
+                failure?.Message ?? "no exception");
+            check("webdav truncated upload is visible in the mock store",
+                truncating.ContentOf("/dav/vault.kdbx").Length == 4,
+                truncating.ContentOf("/dav/vault.kdbx").Length.ToString());
+        }
     }
 }

@@ -121,6 +121,12 @@ internal static class WebDavNonAsciiPathTests
             check("webdav PUT replaced the remote content",
                 server.ContentOf(DatabasePath).SequenceEqual(secondPayload));
 
+            // The upload verifies what the server stored before reporting success.
+            request = server.TakeRequest();
+            check("webdav upload reads back the stored size",
+                request.Method == "PROPFIND" && request.Target == DatabasePath,
+                request.Method + " " + request.Target);
+
             WebDavFileInfo? refreshed = client.GetMetadataAsync().GetAwaiter().GetResult();
             check("webdav metadata reflects the uploaded etag",
                 refreshed?.ETag == "\"etag-2\"", refreshed?.ETag ?? "null");
@@ -165,6 +171,7 @@ internal static class WebDavNonAsciiPathTests
                 request.Header("If-None-Match") ?? "(missing)");
             check("webdav create PUT stored the new remote file",
                 server.ContentOf(NewDatabasePath).SequenceEqual(firstPayload));
+            _ = server.TakeRequest();
 
             // A second unconditional create must not overwrite.
             bool createConflict = false;
@@ -256,6 +263,9 @@ internal sealed class WebDavMockServer : IDisposable
 
     /// <summary>Delay every response by this much; used by the timeout checks.</summary>
     public TimeSpan ResponseDelay { get; set; } = TimeSpan.Zero;
+
+    /// <summary>When set, PUT stores only this many bytes but still answers 2xx.</summary>
+    public int? StoreTruncatedTo { get; set; }
 
     public int PendingRequests
     {
@@ -482,7 +492,13 @@ internal sealed class WebDavMockServer : IDisposable
             return new Response(412, "Precondition Failed", Array.Empty<byte>(), null, null);
         }
         string etag = $"\"etag-{++_etagCounter}\"";
-        _resources[request.Target] = new Resource(request.Body, etag, DateTimeOffset.UtcNow);
+        byte[] storedBody = request.Body;
+        if (StoreTruncatedTo is int limit && limit >= 0 && limit < storedBody.Length)
+        {
+            // Simulate a server/proxy that reports success but keeps fewer bytes.
+            storedBody = storedBody[..limit];
+        }
+        _resources[request.Target] = new Resource(storedBody, etag, DateTimeOffset.UtcNow);
         return new Response(exists ? 200 : 201, exists ? "OK" : "Created",
             Array.Empty<byte>(), etag, null);
     }

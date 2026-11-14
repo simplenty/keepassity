@@ -64,7 +64,10 @@ planned for v1.x and is expected to consume the same core directly.
   untouched, and only an explicit user confirmation replaces the remote with the verified local
   copy (the sync coordinator's one-shot `OverwriteUnreadableRemote` option). The unreadable bytes
   are first preserved next to the local database under a hash-derived name, so the repair never
-  destroys the only copy of a valid database that happens to use another master password.
+  destroys the only copy of a valid database that happens to use another master password. Before
+  an upload is reported as successful, its stored size is read back with a PROPFIND; a server that
+  answered 2xx but kept fewer bytes raises an incomplete-upload error instead of becoming the
+  baseline.
 
 ## Data safety
 

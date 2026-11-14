@@ -17,6 +17,12 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **An incomplete upload is detected before it becomes the baseline:** a WebDAV server or proxy
+  can answer 2xx while storing fewer bytes than were sent (a cut stream, a size-limited proxy).
+  The client now reads back the stored size with a PROPFIND before reporting success; a short or
+  missing file raises an upload error, so the sync never records a clean baseline for a remote copy
+  that is already truncated. If a truncated remote is met later, the unreadable-remote recovery
+  path preserves and repairs it.
 - **An unreadable remote copy can be repaired:** when the server-side database cannot be opened
   with the master password (a failed upload from another client, a server-side truncation, a
   different encryption), a sync used to fail and every later sync failed at the same point — the
