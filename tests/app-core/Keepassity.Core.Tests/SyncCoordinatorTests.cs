@@ -389,6 +389,16 @@ internal static class SyncCoordinatorTests
             harness.Context?.RemoteCopy == firstRemote &&
             Directory.GetFiles(harness.Folder).Length == 3,
             string.Join("; ", ConflictCopyPaths(harness)));
+
+        // A new coordinator has no in-memory state: the deterministic names must
+        // still let it find the same pair after a restart.
+        harness.RunWithFreshCoordinatorAsync().GetAwaiter().GetResult();
+        check("conflict copies are reused after a restart",
+            ConflictCopyPaths(harness).Count == 2 &&
+            harness.Context?.LocalCopy == firstLocal &&
+            harness.Context?.RemoteCopy == firstRemote &&
+            Directory.GetFiles(harness.Folder).Length == 3,
+            string.Join("; ", ConflictCopyPaths(harness)));
     }
 
     private static void LocalEditDuringSync(TestCheck check, string dataDirectory)
@@ -581,6 +591,26 @@ internal static class SyncCoordinatorTests
                     MasterPassword = Password,
                 },
                 update => Statuses.Add(update));
+
+        /// <summary>Run once with a coordinator that has no in-memory state.</summary>
+        public Task<SyncReport> RunWithFreshCoordinatorAsync()
+        {
+            var coordinator = new SyncCoordinator(States, Time.DelayAsync)
+            {
+                ConflictChoice = AnswerConflict,
+            };
+            return coordinator.RunAsync(
+                Remote,
+                Document,
+                Core,
+                new SyncOptions
+                {
+                    RemoteUrl = Url,
+                    Username = User,
+                    MasterPassword = Password,
+                },
+                update => Statuses.Add(update));
+        }
 
         public void SaveCleanState(byte[] remoteBytes, string etag)
             => States.Save(Url, User, Document.Path, new SyncState

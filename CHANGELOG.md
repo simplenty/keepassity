@@ -17,6 +17,13 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **Conflict copies no longer pile up across restarts:** the local/remote copies for an unresolved
+  conflict were named with the current timestamp, so every sync against the same unresolved pair
+  (or every launch after a cancelled dialog) wrote another pair into the vault folder, and a new
+  process could never match the older ones. Names now derive from the local and remote content
+  hashes and a sync locates and reuses the matching pair, including in a fresh process with no
+  in-memory state. A same-named file with different bytes is never overwritten; the new copy gets
+  a numeric suffix.
 - **The last write is guarded too:** a save, sync replacement or backup restore checked that
   the file had not changed outside Keepassity, then wrote it; another program changing the file in
   the gap (core serialization, KDF, temporary write, backup copy — seconds for a large vault) could

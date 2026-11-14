@@ -32,7 +32,8 @@ manifest, Windows build, headless service tests; `-Full` adds the application se
   paths, the WebDAV client against an in-process mock server (PROPFIND, GET, conditional
   PUT, 412, non-ASCII/percent-encoded paths), the sync coordinator's ordering and conflict
   rules with fake remote/vault/core ports (including a local save landing during a download,
-  merge or upload snapshot, which must pause instead of being overwritten), the WebDAV open ordering (pending bytes are only
+  merge or upload snapshot, which must pause instead of being overwritten, and conflict copies
+  reused by hash-derived names even after a restart), the WebDAV open ordering (pending bytes are only
   promoted after the master password opens them; one end-to-end case runs with the real core
   and the loopback WebDAV server), the vault session's single-writer rules (lock ownership,
   external-change refusal, save serialization, replacement/restore with backups, write-idle

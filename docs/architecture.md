@@ -55,7 +55,9 @@ planned for v1.x and is expected to consume the same core directly.
   6k-line window. The coordinator records the local file hash for the run (updated whenever it
   writes the file itself) and checks it before every replace and before writing an upload
   snapshot; when the file changed in the meantime a save during a download, merge or upload is
-  merged later instead of being undone.
+  merged later instead of being undone. Conflict copies are named from the local and remote
+  content hashes, so an unresolved pair is reused across syncs and restarts instead of accumulating
+  timestamped duplicates in the vault folder.
 
 ## Data safety
 

@@ -108,7 +108,6 @@ public sealed class SyncCoordinator
 
     // One local/remote copy pair per unresolved conflict: a repeated attempt for
     // the same pair reuses the copies instead of writing another pair each time.
-    private string? _conflictSignature;
     private string? _conflictLocalCopy;
     private string? _conflictRemoteCopy;
 
@@ -514,33 +513,50 @@ public sealed class SyncCoordinator
     }
 
     /// <summary>
-    /// Keep one local/remote copy pair for an unresolved conflict. A sync that
-    /// runs again against the same pair (the user cancelled the dialog, or every
-    /// later save retries the merge) reuses the existing copies instead of
-    /// writing another pair into the vault folder.
+    /// Keep one local/remote copy pair for an unresolved conflict. The names are
+    /// derived from the two content hashes, so the same unresolved pair is reused
+    /// even after a restart instead of writing another timestamped pair into the
+    /// vault folder on every launch.
     /// </summary>
     private async Task<(string? LocalCopy, string? RemoteCopy)> PrepareConflictCopiesAsync(
         SyncRun run, byte[] remote)
     {
-        string? signature = await ConflictSignatureAsync(run, remote);
-        if (signature is not null && signature == _conflictSignature &&
-            _conflictLocalCopy is not null && File.Exists(_conflictLocalCopy) &&
-            _conflictRemoteCopy is not null && File.Exists(_conflictRemoteCopy))
+        ConflictIdentity? identity = await ConflictIdentityAsync(run, remote);
+        if (identity is null)
         {
-            return (_conflictLocalCopy, _conflictRemoteCopy);
+            return (null, null);
         }
-        _conflictSignature = signature;
-        _conflictLocalCopy = CreateLocalConflictCopy(run.Document.Path);
-        _conflictRemoteCopy = CreateRemoteConflictCopy(run.Document.Path, remote);
+        (string expectedLocal, string expectedRemote) =
+            ConflictCopyPaths(run.Document.Path, identity.Signature);
+        if (await FileHasHashAsync(expectedLocal, identity.LocalSha) &&
+            await FileHasHashAsync(expectedRemote, identity.RemoteSha))
+        {
+            _conflictLocalCopy = expectedLocal;
+            _conflictRemoteCopy = expectedRemote;
+            return (expectedLocal, expectedRemote);
+        }
+        _conflictLocalCopy = CreateConflictCopy(run.Document.Path,
+            "conflict", identity.ShortSignature, copySource: true, content: null);
+        _conflictRemoteCopy = CreateConflictCopy(run.Document.Path,
+            "remote conflict", identity.ShortSignature, copySource: false, content: remote);
         return (_conflictLocalCopy, _conflictRemoteCopy);
     }
 
-    private async Task<string?> ConflictSignatureAsync(SyncRun run, byte[] remote)
+    private sealed record ConflictIdentity(string Signature, string LocalSha,
+        string RemoteSha)
+    {
+        /// <summary>Compact name-safe form used in the copy file names.</summary>
+        public string ShortSignature => LocalSha[..8] + "-" + RemoteSha[..8];
+    }
+
+    private async Task<ConflictIdentity?> ConflictIdentityAsync(SyncRun run, byte[] remote)
     {
         try
         {
             byte[] local = await run.Document.ReadBytesAsync();
-            return Sha256Hex(local) + ":" + Sha256Hex(remote);
+            string localSha = Sha256Hex(local);
+            string remoteSha = Sha256Hex(remote);
+            return new ConflictIdentity(localSha + ":" + remoteSha, localSha, remoteSha);
         }
         catch (IOException)
         {
@@ -552,36 +568,67 @@ public sealed class SyncCoordinator
         }
     }
 
-    private static string? CreateLocalConflictCopy(string databasePath)
+    private static (string Local, string Remote) ConflictCopyPaths(string databasePath,
+        string signature)
     {
         string directory = Path.GetDirectoryName(databasePath)!;
         string stem = Path.GetFileNameWithoutExtension(databasePath);
         string extension = Path.GetExtension(databasePath);
-        string stamp = DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss");
-        string path = Path.Combine(directory, $"{stem} (conflict {stamp}){extension}");
-        int suffix = 1;
-        while (File.Exists(path))
-        {
-            path = Path.Combine(directory, $"{stem} (conflict {stamp}-{suffix++}){extension}");
-        }
-        AtomicFile.Copy(databasePath, path);
-        return path;
+        string[] parts = signature.Split(':');
+        string shortSignature = parts.Length == 2 && parts[0].Length >= 8 &&
+                                parts[1].Length >= 8
+            ? parts[0][..8] + "-" + parts[1][..8]
+            : signature.Replace(':', '-')[..Math.Min(16, signature.Length)];
+        return (
+            Path.Combine(directory, $"{stem} (conflict {shortSignature}){extension}"),
+            Path.Combine(directory, $"{stem} (remote conflict {shortSignature}){extension}"));
     }
 
-    private static string? CreateRemoteConflictCopy(string databasePath, byte[] remote)
+    private static Task<bool> FileHasHashAsync(string path, string expectedSha)
+    {
+        if (!File.Exists(path))
+        {
+            return Task.FromResult(false);
+        }
+        try
+        {
+            string actual = Sha256Hex(File.ReadAllBytes(path));
+            return Task.FromResult(string.Equals(actual, expectedSha,
+                StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Task.FromResult(false);
+        }
+    }
+
+    /// <summary>
+    /// Write a conflict copy under a deterministic name. An existing file with
+    /// the same name but different bytes (for example a user-edited conflict
+    /// copy) is never overwritten; the new copy gets a numeric suffix.
+    /// </summary>
+    private static string CreateConflictCopy(string databasePath, string label,
+        string shortSignature, bool copySource, byte[]? content)
     {
         string directory = Path.GetDirectoryName(databasePath)!;
         string stem = Path.GetFileNameWithoutExtension(databasePath);
         string extension = Path.GetExtension(databasePath);
-        string stamp = DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss");
-        string path = Path.Combine(directory, $"{stem} (remote conflict {stamp}){extension}");
+        string path = Path.Combine(directory,
+            $"{stem} ({label} {shortSignature}){extension}");
         int suffix = 1;
         while (File.Exists(path))
         {
             path = Path.Combine(directory,
-                $"{stem} (remote conflict {stamp}-{suffix++}){extension}");
+                $"{stem} ({label} {shortSignature}-{suffix++}){extension}");
         }
-        AtomicFile.Write(path, remote);
+        if (copySource)
+        {
+            AtomicFile.Copy(databasePath, path);
+        }
+        else
+        {
+            AtomicFile.Write(path, content!);
+        }
         return path;
     }
 
@@ -629,7 +676,6 @@ public sealed class SyncCoordinator
 
     private void ClearConflictCopies()
     {
-        _conflictSignature = null;
         _conflictLocalCopy = null;
         _conflictRemoteCopy = null;
     }
