@@ -51,6 +51,8 @@ manifest, Windows build, headless service tests; `-Full` adds the application se
   listed copies stay),
   the diagnostics export (unique names within one millisecond, readable archive without database
   paths/URLs/usernames, newest ten retained, crash-left temporaries removed),
+  crash-residue cleanup (save/restore/backup temporaries at unlock and across the application
+  data tree, fresh files and unrelated files kept),
   recovery candidate selection: newest decryptable backup wins while corrupt, unreadable and
   wrong-password candidates are skipped, verified against the real core as well),
   diagnostics archive and logging.

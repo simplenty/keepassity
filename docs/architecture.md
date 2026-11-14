@@ -84,6 +84,10 @@ planned for v1.x and is expected to consume the same core directly.
 - Diagnostics archives are written through the flushed-temporary/rename protocol, exported names
   are unique even within one millisecond, only the newest ten are kept, and the archive never
   contains database paths, WebDAV URLs or usernames.
+- Crash residue is bounded too: opening a vault removes crash-left save, restore and backup
+  temporaries next to it, and the first launch removes stale protocol temporaries across the
+  application data folder. Both passes use age thresholds and only touch files whose names carry
+  the protocol infixes, so an active write is never disturbed.
 - A newly created database goes through the same protocol from its first byte:
   `AtomicFile.WriteNew` flushes a temporary and performs a create-only move, so it never replaces
   a file another program created in the race, and `NewDatabasePreparer` writes a WebDAV working

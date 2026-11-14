@@ -27,6 +27,25 @@ internal static class BackupServiceTests
         RunTimestampOrdering(check, rootDirectory);
         RunRestore(check, rootDirectory);
         RunCorruptedRestoreRejected(check, rootDirectory);
+        RunResidualTempCleanup(check, rootDirectory);
+    }
+
+    private static void RunResidualTempCleanup(TestCheck check, string root)
+    {
+        string directory = NewDirectory(root, "backup-residual-temps");
+        string database = Path.Combine(directory, "vault.kdbx");
+        File.WriteAllBytes(database, File.ReadAllBytes(TestEnvironment.Fixture(FixtureName)));
+        string backupDirectory = BackupService.BackupDirectory(database);
+        Directory.CreateDirectory(backupDirectory);
+        string stale = Path.Combine(backupDirectory, ".2026-01-01.vault.kdbx.tmp-dead");
+        string fresh = Path.Combine(backupDirectory, ".2026-01-01.vault.kdbx.tmp-live");
+        File.WriteAllText(stale, "x");
+        File.WriteAllText(fresh, "x");
+        File.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddDays(-2));
+
+        int removed = BackupService.CleanupResidualTemps(database, TimeSpan.FromHours(1));
+        check("backup cleanup removes a crash-left temporary and keeps a fresh one",
+            removed == 1 && !File.Exists(stale) && File.Exists(fresh), removed.ToString());
     }
 
     private static void RunRetentionBoundary(TestCheck check, string root)

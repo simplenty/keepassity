@@ -128,6 +128,12 @@ public partial class App : Application
                 // Safe point to drop stale WebDAV cache entries: no other instance
                 // exists and no window has opened a working copy yet.
                 PruneRemoteCache();
+                int residual = AtomicFile.CleanupResidualTempsInTree(
+                    ApplicationPaths.Root, TimeSpan.FromDays(1));
+                if (residual > 0)
+                {
+                    AppLog.Info($"removed {residual} residual temporary file(s)");
+                }
             }
         }
 

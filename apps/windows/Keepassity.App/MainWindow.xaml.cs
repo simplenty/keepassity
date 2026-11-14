@@ -3015,6 +3015,12 @@ public sealed partial class MainWindow : Window
             {
                 AppLog.Info($"removed {cleaned} residual save temporary file(s)");
             }
+            int backupCleaned = BackupService.CleanupResidualTemps(_dbPath,
+                TimeSpan.FromHours(1));
+            if (backupCleaned > 0)
+            {
+                AppLog.Info($"removed {backupCleaned} residual backup temporary file(s)");
+            }
             RememberVaultFingerprint();
         }
 

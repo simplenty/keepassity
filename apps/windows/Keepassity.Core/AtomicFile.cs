@@ -114,6 +114,8 @@ public static class AtomicFile
         {
             name + TempInfix,
             "." + name + TempInfix,
+            name + ".restore-tmp-",
+            "." + name + ".restore-tmp-",
         };
         int removed = 0;
         foreach (string prefix in candidates)
@@ -133,6 +135,75 @@ public static class AtomicFile
                     // Leave it; it is clearly named and not the live file.
                 }
             }
+        }
+        return removed;
+    }
+
+    /// <summary>
+    /// Removes crash residue under the application data folder. Only files whose
+    /// name carries one of the protocol infixes are considered, and only when
+    /// they are older than <paramref name="olderThan"/> so a concurrent test
+    /// instance's write is never disturbed. Returns the number removed.
+    /// </summary>
+    public static int CleanupResidualTempsInTree(string root, TimeSpan olderThan)
+    {
+        try
+        {
+            string fullRoot = Path.GetFullPath(root);
+            if (!Directory.Exists(fullRoot))
+            {
+                return 0;
+            }
+            return CleanupResidualTempsInDirectory(fullRoot, DateTime.UtcNow - olderThan);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppLog.Warn($"residual temporary cleanup failed: {ex.Message}");
+            return 0;
+        }
+    }
+
+    private static int CleanupResidualTempsInDirectory(string directory, DateTime cutoff)
+    {
+        int removed = 0;
+        try
+        {
+            foreach (string file in Directory.EnumerateFiles(directory))
+            {
+                string name = Path.GetFileName(file);
+                bool ours = name.Contains(TempInfix, StringComparison.Ordinal) ||
+                            name.Contains(".restore-tmp-", StringComparison.Ordinal) ||
+                            name.Contains(".tmp-", StringComparison.Ordinal);
+                if (!ours || File.GetLastWriteTimeUtc(file) > cutoff)
+                {
+                    continue;
+                }
+                try
+                {
+                    File.Delete(file);
+                    removed++;
+                }
+                catch
+                {
+                    // Leave it; the next launch retries.
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppLog.Warn($"residual temporary cleanup could not list {directory}: {ex.Message}");
+        }
+        try
+        {
+            foreach (string child in Directory.EnumerateDirectories(directory))
+            {
+                removed += CleanupResidualTempsInDirectory(child, cutoff);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppLog.Warn($"residual temporary cleanup could not descend into {directory}: " +
+                        ex.Message);
         }
         return removed;
     }

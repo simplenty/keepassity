@@ -84,8 +84,7 @@ public static class BackupService
     }
 
     public static List<BackupEntry> ListBackups(string databasePath)
-    {
-        string directory = BackupDirectory(databasePath);
+    {        string directory = BackupDirectory(databasePath);
         if (!Directory.Exists(directory))
         {
             return new List<BackupEntry>();
@@ -96,6 +95,47 @@ public static class BackupService
             .Cast<BackupEntry>()
             .OrderByDescending(entry => entry.Timestamp)
             .ToList();
+    }
+
+    /// <summary>
+    /// Removes temporary files a crash left inside the backup folder (a backup
+    /// interrupted mid-copy). Only names produced by this service are touched and
+    /// only when they are older than <paramref name="olderThan"/>, so an active
+    /// backup is never disturbed.
+    /// </summary>
+    public static int CleanupResidualTemps(string databasePath, TimeSpan olderThan)
+    {
+        string directory = BackupDirectory(databasePath);
+        if (!Directory.Exists(directory))
+        {
+            return 0;
+        }
+        DateTime cutoff = DateTime.UtcNow - olderThan;
+        int removed = 0;
+        try
+        {
+            foreach (string file in Directory.EnumerateFiles(directory, "*.tmp-*"))
+            {
+                try
+                {
+                    if (File.GetLastWriteTimeUtc(file) > cutoff)
+                    {
+                        continue;
+                    }
+                    File.Delete(file);
+                    removed++;
+                }
+                catch
+                {
+                    // Leave it; the next unlock retries.
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppLog.Warn($"backup temporary cleanup failed: {ex.Message}");
+        }
+        return removed;
     }
 
     /// <summary>Restore is two-step: back up the current file first, then replace it.</summary>

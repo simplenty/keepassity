@@ -17,6 +17,12 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **Crash residue is cleaned up:** a crash during a backup copy, a backup restore or a sidecar
+  write could leave `.tmp-` / `.keepassity-tmp-` files behind forever; only the save temporaries
+  next to the database were cleaned when a vault was opened. Opening a vault now also removes
+  crash-left restore and backup temporaries, and the first launch of the day removes stale
+  protocol temporaries anywhere under the application data folder (fresh files are kept, so a
+  concurrent test instance is never disturbed).
 - **A save during a sync is no longer overwritten:** a background sync captured the local file
   when it started and then replaced it with downloaded or merged bytes after the network round
   trip, so a save that landed in between could be silently undone and the reloaded window would

@@ -131,5 +131,37 @@ internal static class AtomicFileTests
         check("replace fallback creates a missing destination",
             File.ReadAllBytes(createdTarget).SequenceEqual(fallbackNew) &&
             !File.Exists(createdTemp));
+
+        string restoreTemp = Path.Combine(directory, ".vault.kdbx.restore-tmp-crash");
+        File.WriteAllBytes(restoreTemp, "restore"u8.ToArray());
+        AtomicFile.CleanupResidualTemps(live);
+        check("residual cleanup removes a crash-left restore temporary",
+            !File.Exists(restoreTemp), restoreTemp);
+
+        string residueRoot = Path.Combine(directory, "app-data");
+        string nested = Path.Combine(residueRoot, "state");
+        Directory.CreateDirectory(nested);
+        string staleSave = Path.Combine(residueRoot, "settings.json.keepassity-tmp-dead");
+        string staleBackup = Path.Combine(nested, ".2026-01-01.vault.kdbx.tmp-dead");
+        string staleRestore = Path.Combine(nested, ".vault.kdbx.restore-tmp-dead");
+        string fresh = Path.Combine(nested, "recent-databases.json.keepassity-tmp-live");
+        string unrelated = Path.Combine(residueRoot, "settings.json");
+        File.WriteAllText(staleSave, "x");
+        File.WriteAllText(staleBackup, "x");
+        File.WriteAllText(staleRestore, "x");
+        File.WriteAllText(fresh, "x");
+        File.WriteAllText(unrelated, "{}");
+        foreach (string stale in new[] { staleSave, staleBackup, staleRestore })
+        {
+            File.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddDays(-2));
+        }
+        int treeRemoved = AtomicFile.CleanupResidualTempsInTree(residueRoot,
+            TimeSpan.FromDays(1));
+        check("application-data cleanup removes stale save/restore/backup temporaries",
+            treeRemoved == 3 && !File.Exists(staleSave) && !File.Exists(staleBackup) &&
+            !File.Exists(staleRestore), treeRemoved.ToString());
+        check("application-data cleanup keeps fresh temporaries and real files",
+            File.Exists(fresh) && File.Exists(unrelated) &&
+            File.ReadAllText(unrelated) == "{}");
     }
 }
