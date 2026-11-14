@@ -34,8 +34,10 @@ KDBX write-path changes must state the compatibility impact.
   now drops clean working copies that have not been touched for ninety days (they can be downloaded
   again), plus backups, metadata and sync state whose working copy already vanished. Copies with
   unsynced edits, copies whose hash does not match the recorded baseline, copies without source
-  metadata and the current target are never removed, and the pass only runs when this process owns
-  the single-instance mutex before any window opens.
+  metadata and the current target are never removed, and the recent-databases list forgets a
+  working copy that the pass deleted instead of offering that now-missing file on the unlock
+  screen. The pass only runs when this process owns the single-instance mutex before any window
+  opens.
 - **A crash is noticed on the next launch:** a small run marker is written when the window
   starts and removed on a clean close. When it is still there and its process is gone, the unlock
   surface reports that the previous session ended unexpectedly and points at the backups, so a

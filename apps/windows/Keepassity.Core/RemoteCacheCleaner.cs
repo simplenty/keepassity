@@ -28,12 +28,15 @@ public sealed record RemoteCacheCleanupResult(
 public sealed class RemoteCacheCleaner
 {
     private readonly SyncStateStore _states;
+    private readonly RecentDatabaseStore? _recents;
     private readonly Func<DateTimeOffset> _now;
 
-    public RemoteCacheCleaner(SyncStateStore states, Func<DateTimeOffset>? now = null)
+    public RemoteCacheCleaner(SyncStateStore states, Func<DateTimeOffset>? now = null,
+        RecentDatabaseStore? recents = null)
     {
         _states = states ?? throw new ArgumentNullException(nameof(states));
         _now = now ?? (() => DateTimeOffset.UtcNow);
+        _recents = recents;
     }
 
     /// <summary>
@@ -120,6 +123,7 @@ public sealed class RemoteCacheCleaner
                 try
                 {
                     Directory.Delete(directory, recursive: true);
+                    _recents?.Remove(workingCopy);
                     orphans++;
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -140,6 +144,7 @@ public sealed class RemoteCacheCleaner
             try
             {
                 File.Delete(metadataFile);
+                _recents?.Remove(workingCopy);
                 orphans++;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -166,6 +171,7 @@ public sealed class RemoteCacheCleaner
             }
             _states.Remove(metadata.Url, metadata.Username, path);
             RemoteDatabaseStore.DeleteMetadata(path);
+            _recents?.Remove(path);
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

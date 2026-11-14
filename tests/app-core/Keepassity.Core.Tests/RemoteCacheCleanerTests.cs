@@ -22,6 +22,7 @@ internal static class RemoteCacheCleanerTests
         KeepsListedCopy(check, dataDirectory);
         KeepsHashMismatch(check, dataDirectory);
         CleansOrphanLeftovers(check, dataDirectory);
+        PrunedCopyLeavesRecentList(check, dataDirectory);
     }
 
     private static void PrunesOldCleanCopy(TestCheck check, string dataDirectory)
@@ -121,6 +122,21 @@ internal static class RemoteCacheCleanerTests
             metadata is not null && !File.Exists(metadata), result.ToString());
     }
 
+    private static void PrunedCopyLeavesRecentList(TestCheck check, string dataDirectory)
+    {
+        using var scope = new IsolatedRoot(dataDirectory, "recent-prune");
+        (string working, string url, string user) = CreateCachedCopy(
+            scope.States, clean: true, old: true);
+        var recents = new RecentDatabaseStore();
+        recents.Remember(working, "webdav", url, user);
+
+        RemoteCacheCleanupResult result = scope.NewCleaner(recents)
+            .Prune(Array.Empty<string>(), TimeSpan.FromDays(90));
+        check("remote cache: pruning also forgets the deleted working copy in recents",
+            result.RemovedWorkingCopies == 1 && recents.Entries.Count == 0 &&
+            !File.Exists(working), recents.Entries.Count.ToString());
+    }
+
     private static (string Working, string Url, string User) CreateCachedCopy(
         SyncStateStore states, bool clean, bool old)
     {
@@ -164,8 +180,8 @@ internal static class RemoteCacheCleanerTests
 
         public SyncStateStore States { get; }
 
-        public RemoteCacheCleaner NewCleaner()
-            => new(States, () => DateTimeOffset.UtcNow);
+        public RemoteCacheCleaner NewCleaner(RecentDatabaseStore? recents = null)
+            => new(States, () => DateTimeOffset.UtcNow, recents);
 
         public void Dispose()
             => Environment.SetEnvironmentVariable("KEEPASSITY_DATA_DIR", _previous);

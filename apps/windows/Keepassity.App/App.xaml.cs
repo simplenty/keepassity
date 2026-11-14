@@ -153,7 +153,8 @@ public partial class App : Application
                 keep.Add(RemoteDatabaseStore.PathFor(current.LastWebDavUrl,
                     current.LastWebDavUsername ?? string.Empty));
             }
-            RemoteCacheCleanupResult result = new RemoteCacheCleaner(new SyncStateStore())
+            RemoteCacheCleanupResult result = new RemoteCacheCleaner(new SyncStateStore(),
+                    recents: new RecentDatabaseStore())
                 .Prune(keep, TimeSpan.FromDays(90));
             if (result.TotalRemoved > 0)
             {

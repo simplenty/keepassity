@@ -78,8 +78,9 @@ planned for v1.x and is expected to consume the same core directly.
 - The local WebDAV cache is bounded by a startup cleanup (`RemoteCacheCleaner`): clean working
   copies untouched for ninety days are dropped (a remote re-open downloads them again), along with
   backups/metadata/sync state whose working copy vanished. Dirty copies, hash-mismatched copies,
-  unknown-provenance copies and the current target are kept; the pass runs only while this process
-  owns the single-instance mutex, before any window can open a cache file.
+  unknown-provenance copies and the current target are kept; a deleted copy is also forgotten by
+  the recent-databases list. The pass runs only while this process owns the single-instance mutex,
+  before any window can open a cache file.
 - Diagnostics archives are written through the flushed-temporary/rename protocol, exported names
   are unique even within one millisecond, only the newest ten are kept, and the archive never
   contains database paths, WebDAV URLs or usernames.
