@@ -60,6 +60,7 @@ public sealed partial class MainWindow : Window
     private readonly RunStateStore _runState = new();
     private PendingRemoteDatabase? _pendingRemoteDownload;
     private PreviousRun? _previousRun;
+    private bool _repairUnreadableRemoteOnce;
     private string? _corruptRecoveryPath;
     private bool _corruptRecoveryOffered;
     private readonly DispatcherTimer _totpTimer = new();
@@ -1668,13 +1669,17 @@ public sealed partial class MainWindow : Window
                 Username = username,
                 MasterPassword = _masterPassword,
             };
+            // The unreadable-remote repair is an explicit one-shot choice made in
+            // the dialog below; it must never be enabled by default.
+            _sync.OverwriteUnreadableRemote = _repairUnreadableRemoteOnce;
+            _repairUnreadableRemoteOnce = false;
             SyncReport report = await _sync.RunAsync(
                 dav,
                 new LiveVaultDocument(this, _dbPath),
                 _core,
                 options,
                 update => SetSyncStatus(update.Source, update.Arguments));
-            ShowSyncReport(report, startup);
+            await ShowSyncReportAsync(report, startup);
         }
         catch (WebDavException ex)
         {
@@ -1807,7 +1812,7 @@ public sealed partial class MainWindow : Window
     /// The status line was already reported through the progress callback; this is
     /// only the toast, including the conflict copy names.
     /// </summary>
-    private void ShowSyncReport(SyncReport report, bool startup)
+    private async Task ShowSyncReportAsync(SyncReport report, bool startup)
     {
         if (report.Notice == SyncNotice.None)
         {
@@ -1859,7 +1864,62 @@ public sealed partial class MainWindow : Window
                                 "nothing was overwritten."),
                     InfoBarSeverity.Warning);
                 break;
+            case SyncNotice.RemoteUnreadable:
+                ShowToast(Loc.T("The remote database cannot be opened with this password; " +
+                                "the local copy was kept."),
+                    InfoBarSeverity.Warning);
+                if (!startup && await ShowRemoteRepairDialogAsync())
+                {
+                    _repairUnreadableRemoteOnce = true;
+                    // The current run still holds the sync gate; retry after it ends.
+                    DispatcherQueue.TryEnqueue(() => _ = SyncAsync());
+                }
+                break;
+            case SyncNotice.RemoteRepaired:
+                ShowToast(Loc.T("The remote copy was unreadable; it has been replaced with " +
+                                "the local copy."),
+                    InfoBarSeverity.Success);
+                break;
+            case SyncNotice.RemoteUnreadableRemoteChanged:
+                ShowToast(Loc.T("Remote changed again while repairing; will retry next sync."),
+                    InfoBarSeverity.Warning);
+                break;
         }
+    }
+
+    /// <summary>
+    /// Ask before replacing an unreadable remote copy. The dialog is marshalled to
+    /// the UI thread because sync reporting may resume on a worker thread.
+    /// </summary>
+    private Task<bool> ShowRemoteRepairDialogAsync()
+    {
+        var completion = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            try
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = Loc.T("Remote database unreadable"),
+                    Content = Loc.T("The remote database cannot be opened with the current " +
+                                    "password. Replace it with the local copy? The unreadable " +
+                                    "remote file will be overwritten."),
+                    PrimaryButtonText = Loc.T("Replace remote with local copy"),
+                    CloseButtonText = Loc.T("Cancel"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = Root.XamlRoot,
+                };
+                ContentDialogResult result = await dialog.ShowAsync();
+                completion.TrySetResult(result == ContentDialogResult.Primary);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"remote repair dialog failed: {ex.Message}");
+                completion.TrySetResult(false);
+            }
+        });
+        return completion.Task;
     }
 
     /// <summary>

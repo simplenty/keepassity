@@ -41,6 +41,12 @@ public enum SyncOutcome
 
     /// <summary>The local merged/kept bytes were applied but the remote changed again.</summary>
     RemoteChanged,
+
+    /// <summary>
+    /// The remote copy cannot be opened with the master password; nothing local
+    /// was touched and the user has to decide whether to replace it.
+    /// </summary>
+    RemoteUnreadable,
 }
 
 /// <summary>The user-visible follow-up the shell should show after a run.</summary>
@@ -56,6 +62,9 @@ public enum SyncNotice
     MergedRemoteChanged,
     KeptLocalRemoteChanged,
     LocalChangedWhileSyncing,
+    RemoteUnreadable,
+    RemoteRepaired,
+    RemoteUnreadableRemoteChanged,
 }
 
 /// <summary>Result of a sync run: what happened and which notice to surface.</summary>
@@ -128,6 +137,14 @@ public sealed class SyncCoordinator
     /// runs and tests) the run pauses the conflict without writing anything.
     /// </summary>
     public Func<SyncConflictContext, Task<SyncConflictChoice>>? ConflictChoice { get; set; }
+
+    /// <summary>
+    /// One-shot explicit user choice: when the downloaded remote copy cannot be
+    /// opened with the master password, replace it with the verified local copy
+    /// instead of pausing. Never enabled without asking the user: the unreadable
+    /// remote may still be the only copy of data the user can recover elsewhere.
+    /// </summary>
+    public bool OverwriteUnreadableRemote { get; set; }
 
     /// <summary>
     /// Execute one sync run against <paramref name="remote"/>. Network and core
@@ -360,9 +377,14 @@ public sealed class SyncCoordinator
         {
             // The live database is only replaced after the downloaded bytes
             // decrypt with the current master password. A redirect page or a
-            // corrupted body must not become the local vault.
-            RequireMasterPassword(run);
-            await run.Core.VerifyAsync(bytes, run.MasterPassword!);
+            // corrupted body must not become the local vault; when the remote
+            // copy itself is unreadable the user decides whether to repair it.
+            SyncReport? unreadable = await VerifyRemoteOrRepairAsync(run, state, metadata,
+                bytes);
+            if (unreadable is not null)
+            {
+                return unreadable;
+            }
             await run.Document.ReplaceAsync(bytes);
             run.LocalShaAtStart = sha;
             await run.Document.ReloadAsync();
@@ -385,6 +407,12 @@ public sealed class SyncCoordinator
         WebDavFileInfo metadata)
     {
         byte[] remote = await run.Remote.DownloadAsync(run.Cancellation);
+        SyncReport? unreadable = await VerifyRemoteOrRepairAsync(run, state, metadata,
+            remote);
+        if (unreadable is not null)
+        {
+            return unreadable;
+        }
         (string? localCopy, string? remoteCopy) = await PrepareConflictCopiesAsync(run, remote);
         SyncMergeResult merged = await run.Document.MergeRemoteAsync(remote);
         if (merged.Conflicts.Count == 0)
@@ -477,8 +505,7 @@ public sealed class SyncCoordinator
         {
             return LocalChangedWhileSyncing(run, state);
         }
-        RequireMasterPassword(run);
-        await run.Core.VerifyAsync(remote, run.MasterPassword!);
+        // MergeAsync verified these exact bytes before asking the conflict question.
         await run.Document.ReplaceAsync(remote);
         run.LocalShaAtStart = Sha256Hex(remote);
         await run.Document.ReloadAsync();
@@ -660,6 +687,68 @@ public sealed class SyncCoordinator
         Report(run.Status, "Local changed");
         return new SyncReport(SyncOutcome.ConflictPaused,
             SyncNotice.LocalChangedWhileSyncing);
+    }
+
+    private static bool IsUnreadableRemote(CoreException ex)
+        => ex.Code is "BadPassword" or "CorruptDatabase" or "Corrupt";
+
+    /// <summary>
+    /// Verify downloaded remote bytes before they may replace anything. Returns a
+    /// report when the remote copy cannot be opened; the caller then returns it
+    /// unchanged. A null result means the bytes are readable.
+    /// </summary>
+    private async Task<SyncReport?> VerifyRemoteOrRepairAsync(SyncRun run, SyncState state,
+        WebDavFileInfo metadata, byte[] remote)
+    {
+        RequireMasterPassword(run);
+        try
+        {
+            await run.Core.VerifyAsync(remote, run.MasterPassword!);
+            return null;
+        }
+        catch (CoreException ex) when (IsUnreadableRemote(ex))
+        {
+            return await RepairUnreadableRemoteAsync(run, state, metadata, ex);
+        }
+    }
+
+    /// <summary>
+    /// An unreadable remote copy never overwrites the local vault. By default the
+    /// run pauses with a dirty baseline and asks the shell to offer the repair; only
+    /// an explicit user choice (<see cref="OverwriteUnreadableRemote"/>) uploads the
+    /// verified local copy over it.
+    /// </summary>
+    private async Task<SyncReport> RepairUnreadableRemoteAsync(SyncRun run, SyncState state,
+        WebDavFileInfo metadata, CoreException cause)
+    {
+        if (!OverwriteUnreadableRemote)
+        {
+            state.LocalDirty = true;
+            SaveState(run, state);
+            AppLog.Warn("sync: the remote database cannot be opened with this password; " +
+                        "keeping the local copy");
+            Report(run.Status, "Remote unreadable");
+            return new SyncReport(SyncOutcome.RemoteUnreadable,
+                SyncNotice.RemoteUnreadable, Reason: cause.Code);
+        }
+        AppLog.Warn("sync: replacing an unreadable remote database with the verified local copy");
+        byte[] localBytes = await run.Document.ReadBytesAsync();
+        string? etag;
+        try
+        {
+            etag = await run.Remote.UploadAsync(localBytes, metadata.ETag,
+                run.Cancellation);
+        }
+        catch (WebDavException ex) when (ex.Conflict)
+        {
+            state.LocalDirty = true;
+            SaveState(run, state);
+            Report(run.Status, "Conflict");
+            return new SyncReport(SyncOutcome.RemoteChanged,
+                SyncNotice.RemoteUnreadableRemoteChanged);
+        }
+        await CommitSyncedAsync(run, state, localBytes, etag, metadata, "Remote repaired");
+        return new SyncReport(SyncOutcome.Synced, SyncNotice.RemoteRepaired);
     }
 
     private static void RequireMasterPassword(SyncRun run)

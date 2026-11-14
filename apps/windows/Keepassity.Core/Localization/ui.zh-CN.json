@@ -91,6 +91,8 @@
   "Password": "密码",
   "Password stored for {0} (Windows DPAPI).": "已为 {0} 存储密码（Windows DPAPI）。",
   "Recent databases": "最近的数据库",
+  "Remote repaired": "远程已修复",
+  "Remote unreadable": "远程无法打开",
   "Remove from recent list": "从最近列表中移除",
   "Resolving conflict": "正在解决冲突",
   "Retrying sync in {0} ms": "{0} 毫秒后重试同步",

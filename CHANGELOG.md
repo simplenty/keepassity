@@ -17,6 +17,13 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **An unreadable remote copy can be repaired:** when the server-side database cannot be opened
+  with the master password (a failed upload from another client, a server-side truncation, a
+  different encryption), a sync used to fail and every later sync failed at the same point — the
+  local vault stayed safe but the remote copy remained broken with no way to fix it from the app.
+  The run now pauses without touching the local vault and offers an explicit repair dialog that
+  replaces the unreadable remote with the verified local copy; nothing is uploaded unless the user
+  confirms.
 - **Large vaults no longer time out during sync:** every WebDAV request shared the HTTP client's
   fixed 45-second timeout, so a database with large attachments could not be downloaded or
   uploaded on a slow link and the save failed on every attempt. Metadata requests keep the

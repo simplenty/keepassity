@@ -31,6 +31,7 @@ internal static class SyncCoordinatorTests
         ConflictCopiesAreReused(check, dataDirectory);
         LocalEditDuringSync(check, dataDirectory);
         LocalEditDuringUpload(check, dataDirectory);
+        UnreadableRemote(check, dataDirectory);
         NothingQueued(check, dataDirectory);
     }
 
@@ -192,18 +193,13 @@ internal static class SyncCoordinatorTests
         harness.Core.Decision = new SyncDecisionDto { Action = "download" };
         harness.Core.VerifyFails = true;
 
-        bool threw = false;
-        try
-        {
-            harness.RunAsync().GetAwaiter().GetResult();
-        }
-        catch (CoreException)
-        {
-            threw = true;
-        }
+        SyncReport report = harness.RunAsync().GetAwaiter().GetResult();
 
         check("downloaded bytes that do not decrypt are rejected before writing",
-            threw && harness.Document.Writes.Count == 0 &&
+            report.Outcome == SyncOutcome.RemoteUnreadable &&
+            report.Notice == SyncNotice.RemoteUnreadable &&
+            harness.Document.Writes.Count == 0 &&
+            harness.Remote.Uploaded.Count == 0 &&
             File.ReadAllBytes(harness.Document.Path).SequenceEqual(Local("local")));
         check("a rejected download leaves the baseline dirty", harness.State.LocalDirty);
     }
@@ -282,9 +278,9 @@ internal static class SyncCoordinatorTests
         check("the merge is written, uploaded and committed",
             harness.Document.Writes[^1].SequenceEqual(merged) &&
             harness.Remote.Uploaded[^1].SequenceEqual(merged) &&
-            harness.Events.TakeLast(6).SequenceEqual(new[]
+            harness.Events.TakeLast(7).SequenceEqual(new[]
             {
-                "download", "merge", "write", "reload", "upload", "commit",
+                "download", "verify", "merge", "write", "reload", "upload", "commit",
             }),
             string.Join(",", harness.Events));
         check("an automatically resolved merge records a clean baseline",
@@ -470,6 +466,42 @@ internal static class SyncCoordinatorTests
             harness.Document.Bytes.SequenceEqual(userEdit) &&
             harness.Remote.Uploaded.Count == 0 && harness.State.LocalDirty,
             report.Notice.ToString());
+    }
+
+    private static void UnreadableRemote(TestCheck check, string dataDirectory)
+    {
+        Harness paused = new(dataDirectory, "unreadable-remote-paused", Local("local"));
+        paused.Remote.Bytes = Local("corrupt-remote");
+        paused.SaveCleanState(Local("remote-old"), "\"e1\"");
+        paused.MarkDirty();
+        paused.Core.Decision = new SyncDecisionDto { Action = "download" };
+        paused.Core.VerifyFails = true;
+
+        SyncReport pausedReport = paused.RunAsync().GetAwaiter().GetResult();
+        check("sync: an unreadable remote copy never replaces the local vault",
+            pausedReport.Outcome == SyncOutcome.RemoteUnreadable &&
+            pausedReport.Notice == SyncNotice.RemoteUnreadable &&
+            paused.Document.Writes.Count == 0 && paused.Remote.Uploaded.Count == 0 &&
+            paused.State.LocalDirty,
+            pausedReport.Notice.ToString());
+
+        Harness repaired = new(dataDirectory, "unreadable-remote-repair", Local("local"));
+        repaired.Remote.Bytes = Local("corrupt-remote");
+        repaired.SaveCleanState(Local("remote-old"), "\"e1\"");
+        repaired.MarkDirty();
+        repaired.Core.Decision = new SyncDecisionDto { Action = "download" };
+        repaired.Core.VerifyFails = true;
+        repaired.Coordinator.OverwriteUnreadableRemote = true;
+
+        SyncReport repairedReport = repaired.RunAsync().GetAwaiter().GetResult();
+        check("sync: an explicit repair uploads the local copy over an unreadable remote",
+            repairedReport.Outcome == SyncOutcome.Synced &&
+            repairedReport.Notice == SyncNotice.RemoteRepaired &&
+            repaired.Remote.Uploaded.Count == 1 &&
+            repaired.Remote.Uploaded[0].SequenceEqual(Local("local")) &&
+            !repaired.State.LocalDirty &&
+            repaired.State.Sha256 == Sha(Local("local")),
+            repairedReport.Notice.ToString());
     }
 
     private static void NothingQueued(TestCheck check, string dataDirectory)

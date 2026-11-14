@@ -60,6 +60,9 @@ planned for v1.x and is expected to consume the same core directly.
   timestamped duplicates in the vault folder. `WebDavClient` applies per-request timeouts: 45 s for
   the small PROPFIND metadata call and 30 minutes for a whole-file download or upload, so a large
   vault on a slow link is not cut off while a stalled transfer still ends with a clear timeout.
+  An unreadable remote copy never replaces the local vault: the run pauses with the local file
+  untouched, and only an explicit user confirmation replaces the remote with the verified local
+  copy (the sync coordinator's one-shot `OverwriteUnreadableRemote` option).
 
 ## Data safety
 
