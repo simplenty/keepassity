@@ -79,6 +79,8 @@ public sealed partial class MainWindow : Window
     private readonly VaultSession _vault = new();
     private TrayIcon? _trayIcon;
     private bool _exitRequested;
+    private bool _shutdownDrainStarted;
+    private bool _shutdownDrainComplete;
     private bool _trayHintShown;
     private DateTimeOffset _lastActivity = DateTimeOffset.UtcNow;
     private CancellationTokenSource? _searchCts;
@@ -293,18 +295,78 @@ public sealed partial class MainWindow : Window
 
     private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
     {
-        if (_exitRequested || _trayIcon is null || !_trayIcon.Available)
+        if (_shutdownDrainComplete)
         {
             return;
         }
-        args.Cancel = true;
-        AppWindow.Hide();
-        if (!_trayHintShown)
+        if (!_exitRequested && _trayIcon is { Available: true })
         {
-            _trayHintShown = true;
-            _trayIcon.ShowInfo("Keepassity",
-                Loc.T("Still running in the notification area. Use its menu to exit."));
+            args.Cancel = true;
+            AppWindow.Hide();
+            if (!_trayHintShown)
+            {
+                _trayHintShown = true;
+                _trayIcon.ShowInfo("Keepassity",
+                    Loc.T("Still running in the notification area. Use its menu to exit."));
+            }
+            return;
         }
+        if (!HasPendingDurableWrites())
+        {
+            _shutdownDrainStarted = true;
+            return;
+        }
+        // A save, restore or unlock write is still running. Give it a bounded
+        // moment to land instead of cutting the file write off mid-way; the
+        // atomic protocol would keep the old file, but the edit being saved
+        // would be the one that never reached disk.
+        args.Cancel = true;
+        _ = DrainAndCloseAsync();
+    }
+
+    /// <summary>
+    /// True while a shell operation (unlock/create/lock) or a vault write is
+    /// queued. Used only by the shutdown path.
+    /// </summary>
+    private bool HasPendingDurableWrites() => _busy || _vault.IsWriting;
+
+    /// <summary>
+    /// Wait (bounded) for in-flight vault writes, then close for real. The file
+    /// on disk is always a complete database thanks to AtomicFile; this keeps a
+    /// save that is already in progress from being the one lost at exit.
+    /// </summary>
+    private async Task DrainAndCloseAsync()
+    {
+        if (_shutdownDrainStarted)
+        {
+            return;
+        }
+        _shutdownDrainStarted = true;
+        AppLog.Info("closing: waiting for in-flight vault writes");
+        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (DateTimeOffset.UtcNow < deadline && HasPendingDurableWrites())
+        {
+            TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                break;
+            }
+            if (_vault.IsWriting)
+            {
+                await _vault.WaitForIdleAsync(remaining);
+            }
+            else
+            {
+                await Task.Delay(25);
+            }
+        }
+        if (HasPendingDurableWrites())
+        {
+            AppLog.Warn("closing with a vault write still in flight after the drain timeout");
+        }
+        _shutdownDrainComplete = true;
+        _exitRequested = true;
+        Close();
     }
 
     private void RestoreWindowBounds()
@@ -1524,6 +1586,11 @@ public sealed partial class MainWindow : Window
     }
     private async Task SyncAsync(bool startup = false)
     {
+        if (_shutdownDrainStarted)
+        {
+            // The window is closing; do not start another network round.
+            return;
+        }
         if (!await _syncGate.WaitAsync(0))
         {
             return;

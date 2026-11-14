@@ -85,7 +85,8 @@ planned for v1.x and is expected to consume the same core directly.
   restores, so the window cannot compose them differently per call site. The new ciphertext is
   decrypted and parsed with the cached KDF key before it can replace the file; the write gate
   serializes save, sync-copy and restore replacements so an older async snapshot cannot land
-  last.
+  last. `VaultSession` also reports whether a write is queued or running, and the window drains
+  that work (bounded) before it disposes the session and core on close.
 - The real database, credentials and WebDAV working copies never enter a git repository.
 - Test fixtures are synthetic or public samples; see `tests/fixtures/README.md`.
 

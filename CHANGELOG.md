@@ -17,6 +17,12 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **Closing the window waits for an in-flight vault write:** `VaultSession` now tracks queued and
+  running saves, sync replacements and restores, and the shell drains them (bounded to ten
+  seconds) before the closed handler releases the lock, disposes the write gate and the core. An
+  edit whose save was already running is therefore not the one cut off by exit; `AtomicFile` still
+  guarantees the file itself is always a complete database, and a write that outlives the drain no
+  longer has its gate disposed underneath it.
 - **The WinUI shell project is `Keepassity.App`:** the prototype name `Keepassity.Mock` is gone
   from the project folder, namespace, XAML classes, solution, publish/self-test scripts,
   installer icon path, CI and docs; the shipped binary stays `Keepassity.exe`, and the pre-1.0

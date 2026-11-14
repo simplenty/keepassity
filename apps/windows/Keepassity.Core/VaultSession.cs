@@ -21,9 +21,12 @@ namespace Keepassity.Core;
 public sealed class VaultSession : IDisposable
 {
     private readonly VaultWriteGate _writes = new();
+    private readonly object _writeStateSync = new();
     private VaultFileLock? _lock;
     private VaultFingerprint? _fingerprint;
     private string? _fingerprintPath;
+    private int _activeWrites;
+    private TaskCompletionSource? _writesIdle;
 
     /// <summary>Absolute path of the acquired vault, or null before/after a release.</summary>
     public string? DatabasePath { get; private set; }
@@ -127,6 +130,61 @@ public sealed class VaultSession : IDisposable
     }
 
     /// <summary>
+    /// True while a save, sync replacement or restore is queued or running. The
+    /// shell uses this to drain in-flight writes before the process exits, so an
+    /// edit that is already being written is not cut off by shutdown.
+    /// </summary>
+    public bool IsWriting
+    {
+        get
+        {
+            lock (_writeStateSync)
+            {
+                return _activeWrites > 0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Wait until no write is queued or running. Returns when the vault is idle
+    /// or when <paramref name="timeout"/> elapses; the caller may close anyway
+    /// then, because the durable protocol always leaves the last complete file.
+    /// </summary>
+    public async Task WaitForIdleAsync(TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        using var timeoutSource = new CancellationTokenSource(timeout);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken, timeoutSource.Token);
+        while (true)
+        {
+            Task idle;
+            lock (_writeStateSync)
+            {
+                if (_activeWrites == 0)
+                {
+                    return;
+                }
+                _writesIdle ??=
+                    new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                idle = _writesIdle.Task;
+            }
+            try
+            {
+                await idle.WaitAsync(linked.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+                when (timeoutSource.IsCancellationRequested &&
+                      !cancellationToken.IsCancellationRequested)
+            {
+                // The shell closes after the bounded wait; the file is either
+                // the previous or the next complete database, never a partial one.
+                return;
+            }
+        }
+    }
+
+    /// <summary>
     /// Save the open model through <paramref name="core"/>: wait for the write
     /// gate, refuse when the file changed outside the application (checked once
     /// here and once more after serialization by the core), then remember the
@@ -136,12 +194,20 @@ public sealed class VaultSession : IDisposable
     public async Task SaveAsync(ICoreClient core, int backupRetention = 20)
     {
         ArgumentNullException.ThrowIfNull(core);
-        string path = AcquiredPath();
-        using IDisposable write = await _writes.EnterAsync().ConfigureAwait(false);
-        EnsureUnchanged(path);
-        await core.SaveAsync(path, backupRetention, () => ChangedOnDisk(path))
-            .ConfigureAwait(false);
-        CaptureFingerprint(path);
+        BeginWrite();
+        try
+        {
+            string path = AcquiredPath();
+            using IDisposable write = await _writes.EnterAsync().ConfigureAwait(false);
+            EnsureUnchanged(path);
+            await core.SaveAsync(path, backupRetention, () => ChangedOnDisk(path))
+                .ConfigureAwait(false);
+            CaptureFingerprint(path);
+        }
+        finally
+        {
+            EndWrite();
+        }
     }
 
     /// <summary>
@@ -151,12 +217,20 @@ public sealed class VaultSession : IDisposable
     public async Task ReplaceAsync(byte[] bytes, int backupRetention = 20,
         string reason = "sync")
     {
-        string path = AcquiredPath();
-        using IDisposable write = await _writes.EnterAsync().ConfigureAwait(false);
-        EnsureUnchanged(path);
-        await Task.Run(() => AtomicFile.Replace(path, bytes, backupRetention, reason))
-            .ConfigureAwait(false);
-        CaptureFingerprint(path);
+        BeginWrite();
+        try
+        {
+            string path = AcquiredPath();
+            using IDisposable write = await _writes.EnterAsync().ConfigureAwait(false);
+            EnsureUnchanged(path);
+            await Task.Run(() => AtomicFile.Replace(path, bytes, backupRetention, reason))
+                .ConfigureAwait(false);
+            CaptureFingerprint(path);
+        }
+        finally
+        {
+            EndWrite();
+        }
     }
 
     /// <summary>
@@ -168,27 +242,69 @@ public sealed class VaultSession : IDisposable
     public async Task RestoreAsync(byte[] content, int backupRetention = 20,
         Func<Task>? afterReplace = null)
     {
-        string path = AcquiredPath();
-        using IDisposable write = await _writes.EnterAsync().ConfigureAwait(false);
-        EnsureUnchanged(path);
-        await Task.Run(() => BackupService.RestoreBytes(path, content, backupRetention))
-            .ConfigureAwait(false);
-        if (afterReplace is not null)
+        BeginWrite();
+        try
         {
-            await afterReplace().ConfigureAwait(false);
+            string path = AcquiredPath();
+            using IDisposable write = await _writes.EnterAsync().ConfigureAwait(false);
+            EnsureUnchanged(path);
+            await Task.Run(() => BackupService.RestoreBytes(path, content, backupRetention))
+                .ConfigureAwait(false);
+            if (afterReplace is not null)
+            {
+                await afterReplace().ConfigureAwait(false);
+            }
+            CaptureFingerprint(path);
         }
-        CaptureFingerprint(path);
+        finally
+        {
+            EndWrite();
+        }
     }
 
     /// <summary>Release the lock and dispose the write gate.</summary>
     public void Dispose()
     {
         Release();
+        lock (_writeStateSync)
+        {
+            if (_activeWrites > 0)
+            {
+                // A writer is still in flight after the shutdown drain timeout.
+                // Leave the gate alive for it; the process is exiting and the
+                // durable protocol keeps the file whole.
+                AppLog.Warn("vault session disposed with a write still in flight");
+                return;
+            }
+        }
         _writes.Dispose();
     }
 
     private string AcquiredPath() => DatabasePath ??
         throw new InvalidOperationException("no vault is acquired");
+
+    private void BeginWrite()
+    {
+        lock (_writeStateSync)
+        {
+            _activeWrites++;
+        }
+    }
+
+    private void EndWrite()
+    {
+        TaskCompletionSource? idle = null;
+        lock (_writeStateSync)
+        {
+            _activeWrites--;
+            if (_activeWrites == 0)
+            {
+                idle = _writesIdle;
+                _writesIdle = null;
+            }
+        }
+        idle?.TrySetResult();
+    }
 
     private void EnsureUnchanged(string path)
     {

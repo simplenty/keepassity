@@ -19,6 +19,7 @@ internal static class VaultSessionTests
         ReplaceIsDurableAndBackedUp(check, dataDirectory);
         ReplaceRefusesAnExternalChange(check, dataDirectory);
         RestoreBacksUpOldBytes(check, dataDirectory);
+        WriteTrackingDrainsBeforeExit(check, dataDirectory);
         ReleaseForgetsTheFingerprint(check, dataDirectory);
     }
 
@@ -213,6 +214,81 @@ internal static class VaultSessionTests
         check("a refused empty restore leaves the vault untouched",
             File.ReadAllBytes(path).SequenceEqual(restored) && !session.ChangedOnDisk());
         session.Dispose();
+    }
+
+    private static void WriteTrackingDrainsBeforeExit(TestCheck check, string dataDirectory)
+    {
+        (_, string path) = NewVault(dataDirectory, "drain", Bytes(1));
+        var session = new VaultSession();
+        _ = session.TryAcquire(path, out _);
+        session.CaptureFingerprint();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var core = new FakeCore
+        {
+            ModelBytes = Bytes(5, 5, 5),
+            OnSave = async () =>
+            {
+                entered.TrySetResult();
+                await release.Task.ConfigureAwait(false);
+            },
+        };
+        Task save = session.SaveAsync(core);
+        entered.Task.GetAwaiter().GetResult();
+
+        check("a running save is reported as in flight", session.IsWriting);
+        Task idle = session.WaitForIdleAsync(TimeSpan.FromSeconds(5));
+        check("waiting for idle does not complete while a save runs", !idle.IsCompleted);
+
+        bool timeoutReturned = false;
+        try
+        {
+            session.WaitForIdleAsync(TimeSpan.FromMilliseconds(30)).GetAwaiter().GetResult();
+            timeoutReturned = true;
+        }
+        catch (OperationCanceledException)
+        {
+            timeoutReturned = false;
+        }
+        check("waiting for idle times out without throwing",
+            timeoutReturned && session.IsWriting);
+
+        release.SetResult();
+        save.GetAwaiter().GetResult();
+        idle.GetAwaiter().GetResult();
+        check("the save finishes and the session becomes idle",
+            !session.IsWriting && File.ReadAllBytes(path).SequenceEqual(Bytes(5, 5, 5)));
+        session.WaitForIdleAsync(TimeSpan.FromMilliseconds(30)).GetAwaiter().GetResult();
+        check("waiting for an idle session returns immediately", !session.IsWriting);
+
+        // Shutdown timeout: disposing the session while the writer is in flight
+        // must not cut the durable write short or throw from the writer.
+        var blocked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var enteredAgain = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lateCore = new FakeCore
+        {
+            ModelBytes = Bytes(6, 6),
+            OnSave = async () =>
+            {
+                enteredAgain.TrySetResult();
+                await blocked.Task.ConfigureAwait(false);
+            },
+        };
+        Task lateSave = session.SaveAsync(lateCore);
+        enteredAgain.Task.GetAwaiter().GetResult();
+        session.Dispose();
+        blocked.SetResult();
+        bool writerSurvived = true;
+        try
+        {
+            lateSave.GetAwaiter().GetResult();
+        }
+        catch (ObjectDisposedException)
+        {
+            writerSurvived = false;
+        }
+        check("disposing during a save lets the writer finish",
+            writerSurvived && File.ReadAllBytes(path).SequenceEqual(Bytes(6, 6)));
     }
 
     private static void ReleaseForgetsTheFingerprint(TestCheck check, string dataDirectory)

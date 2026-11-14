@@ -34,7 +34,8 @@ manifest, Windows build, headless service tests; `-Full` adds the application se
   rules with fake remote/vault/core ports, the WebDAV open ordering (pending bytes are only
   promoted after the master password opens them; one end-to-end case runs with the real core
   and the loopback WebDAV server), the vault session's single-writer rules (lock ownership,
-  external-change refusal, save serialization, replacement/restore with backups), new-database
+  external-change refusal, save serialization, replacement/restore with backups, write-idle
+  tracking used by the shutdown drain), new-database
   preparation (create-only local write, WebDAV working copy with a clean baseline), DPAPI
   credential round-trip (Windows), backups (retention/restore, corrupted-backup rejection),
   diagnostics archive and logging.
