@@ -52,6 +52,8 @@ manifest, Windows build, headless service tests; `-Full` adds the application se
   listed copies stay),
   the diagnostics export (unique names within one millisecond, readable archive without database
   paths/URLs/usernames, newest ten retained, crash-left temporaries removed),
+  WebDAV per-request timeouts (short metadata bound, long transfer bound, stalled transfers fail
+  with a clear message, caller cancellation preserved),
   crash-residue cleanup (save/restore/backup temporaries at unlock and across the application
   data tree, fresh files and unrelated files kept),
   the last-moment replace guard (save, sync replacement and backup restore abort on an external

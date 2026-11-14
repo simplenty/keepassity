@@ -195,6 +195,7 @@ try
     RemoteCacheCleanerTests.Run(Check, dataDirectory);
     DiagnosticsServiceTests.Run(Check, dataDirectory);
     LogFileTests.Run(Check, dataDirectory);
+    WebDavTimeoutTests.Run(Check);
     NewDatabasePreparerTests.Run(Check, dataDirectory);
     RecentDatabaseTests.Run(Check, dataDirectory);
     SyncStateStoreTests.Run(Check, dataDirectory);

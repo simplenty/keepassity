@@ -254,6 +254,9 @@ internal sealed class WebDavMockServer : IDisposable
     /// <summary>Answer GET with a 302 to a readable resource.</summary>
     public bool RedirectDownloads { get; set; }
 
+    /// <summary>Delay every response by this much; used by the timeout checks.</summary>
+    public TimeSpan ResponseDelay { get; set; } = TimeSpan.Zero;
+
     public int PendingRequests
     {
         get
@@ -344,6 +347,10 @@ internal sealed class WebDavMockServer : IDisposable
                 lock (_sync)
                 {
                     _requests.Enqueue(request);
+                }
+                if (ResponseDelay > TimeSpan.Zero)
+                {
+                    await Task.Delay(ResponseDelay).ConfigureAwait(false);
                 }
                 Response response = Handle(request);
                 await WriteResponseAsync(stream, response).ConfigureAwait(false);

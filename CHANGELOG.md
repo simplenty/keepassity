@@ -17,6 +17,11 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **Large vaults no longer time out during sync:** every WebDAV request shared the HTTP client's
+  fixed 45-second timeout, so a database with large attachments could not be downloaded or
+  uploaded on a slow link and the save failed on every attempt. Metadata requests keep the
+  45-second bound, whole-file transfers now get thirty minutes, a stalled transfer still aborts
+  with a clear "timed out" message, and caller cancellation is still reported as cancellation.
 - **Conflict copies no longer pile up across restarts:** the local/remote copies for an unresolved
   conflict were named with the current timestamp, so every sync against the same unresolved pair
   (or every launch after a cancelled dialog) wrote another pair into the vault folder, and a new

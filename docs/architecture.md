@@ -57,7 +57,9 @@ planned for v1.x and is expected to consume the same core directly.
   snapshot; when the file changed in the meantime a save during a download, merge or upload is
   merged later instead of being undone. Conflict copies are named from the local and remote
   content hashes, so an unresolved pair is reused across syncs and restarts instead of accumulating
-  timestamped duplicates in the vault folder.
+  timestamped duplicates in the vault folder. `WebDavClient` applies per-request timeouts: 45 s for
+  the small PROPFIND metadata call and 30 minutes for a whole-file download or upload, so a large
+  vault on a slow link is not cut off while a stalled transfer still ends with a clear timeout.
 
 ## Data safety
 

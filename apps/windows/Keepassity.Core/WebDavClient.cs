@@ -45,14 +45,31 @@ public sealed class WebDavClient : IDisposable, ISyncRemote
     /// </summary>
     private readonly HttpClient _uploadClient;
     private readonly Uri _fileUri;
+    private readonly TimeSpan _metadataTimeout;
+    private readonly TimeSpan _transferTimeout;
+
+    /// <summary>PROPFIND is a small request; a short timeout keeps sync responsive.</summary>
+    public static readonly TimeSpan DefaultMetadataTimeout = TimeSpan.FromSeconds(45);
+
+    /// <summary>
+    /// Download/upload carry the whole database, which can hold large attachments;
+    /// the old fixed 45-second client timeout made big vaults on slow links fail
+    /// every save. A stalled transfer still ends after half an hour.
+    /// </summary>
+    public static readonly TimeSpan DefaultTransferTimeout = TimeSpan.FromMinutes(30);
 
     /// <param name="trustedCertificateSha256">
     /// Lowercase hex SHA-256 of a certificate the user explicitly trusted (SY-04).
     /// Only that exact certificate is accepted in addition to the platform-trusted
     /// chain; certificate validation is never disabled globally.
     /// </param>
+    /// <param name="metadataTimeout">Override for tests; defaults to
+    /// <see cref="DefaultMetadataTimeout"/>.</param>
+    /// <param name="transferTimeout">Override for tests; defaults to
+    /// <see cref="DefaultTransferTimeout"/>.</param>
     public WebDavClient(string fileUrl, string username, string password,
-        string? trustedCertificateSha256 = null)
+        string? trustedCertificateSha256 = null, TimeSpan? metadataTimeout = null,
+        TimeSpan? transferTimeout = null)
     {
         if (!Uri.TryCreate(fileUrl, UriKind.Absolute, out Uri? uri) ||
             (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
@@ -67,6 +84,8 @@ public sealed class WebDavClient : IDisposable, ISyncRemote
                 "WebDAV URLs must use https:// (the password travels with Basic authentication).");
         }
         _fileUri = uri;
+        _metadataTimeout = metadataTimeout ?? DefaultMetadataTimeout;
+        _transferTimeout = transferTimeout ?? DefaultTransferTimeout;
         _client = CreateHttpClient(username, password, trustedCertificateSha256,
             // Download and metadata must not follow redirects either: a redirected
             // host could receive Basic credentials, and a redirected GET could
@@ -75,6 +94,16 @@ public sealed class WebDavClient : IDisposable, ISyncRemote
             allowAutoRedirect: false);
         _uploadClient = CreateHttpClient(username, password, trustedCertificateSha256,
             allowAutoRedirect: false);
+    }
+
+    /// <summary>Timeout for one request; caller cancellation still wins.</summary>
+    private static CancellationTokenSource StartTimeout(CancellationToken cancellationToken,
+        TimeSpan timeout)
+    {
+        CancellationTokenSource cts =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(timeout);
+        return cts;
     }
 
     private static HttpClient CreateHttpClient(string username, string password,
@@ -97,7 +126,9 @@ public sealed class WebDavClient : IDisposable, ISyncRemote
         }
         var client = new HttpClient(handler)
         {
-            Timeout = TimeSpan.FromSeconds(45),
+            // Per-operation timeouts are applied by the caller so a large vault
+            // upload is not capped at the metadata request's short timeout.
+            Timeout = Timeout.InfiniteTimeSpan,
         };
         // Update together with Directory.Build.props on a release bump.
         client.DefaultRequestHeaders.UserAgent.ParseAdd("keepassity/1.0.0");
@@ -114,17 +145,19 @@ public sealed class WebDavClient : IDisposable, ISyncRemote
     {
         try
         {
+        using var timeout = StartTimeout(cancellationToken, _metadataTimeout);
+        CancellationToken token = timeout.Token;
         using var request = new HttpRequestMessage(new HttpMethod("PROPFIND"), _fileUri);
         request.Headers.TryAddWithoutValidation("Depth", "0");
         request.Content = new StringContent(PropfindBody, Encoding.UTF8, "application/xml");
         using HttpResponseMessage response = await _client.SendAsync(request,
-            HttpCompletionOption.ResponseContentRead, cancellationToken);
+            HttpCompletionOption.ResponseContentRead, token);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
             return null;
         }
-        await EnsureSuccessAsync(response, cancellationToken);
-        string text = await response.Content.ReadAsStringAsync(cancellationToken);
+        await EnsureSuccessAsync(response, token);
+        string text = await response.Content.ReadAsStringAsync(token);
         XNamespace dav = "DAV:";
         XElement? prop = XDocument.Parse(text)
             .Descendants(dav + "response")
@@ -155,26 +188,38 @@ public sealed class WebDavClient : IDisposable, ISyncRemote
         {
             throw new WebDavTlsException(_fileUri, tls);
         }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new WebDavException("The WebDAV metadata request timed out.");
+        }
     }
 
     public async Task<byte[]> DownloadAsync(CancellationToken cancellationToken = default)
     {
         try
         {
+            using var timeout = StartTimeout(cancellationToken, _transferTimeout);
+            CancellationToken token = timeout.Token;
             using HttpResponseMessage response = await _client.GetAsync(_fileUri,
-                HttpCompletionOption.ResponseContentRead, cancellationToken);
-            await EnsureSuccessAsync(response, cancellationToken);
-            return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+                HttpCompletionOption.ResponseHeadersRead, token);
+            await EnsureSuccessAsync(response, token);
+            return await response.Content.ReadAsByteArrayAsync(token);
         }
         catch (HttpRequestException ex) when (ex.InnerException is AuthenticationException tls)
         {
             throw new WebDavTlsException(_fileUri, tls);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new WebDavException("The WebDAV download timed out.");
         }
     }
 
     public async Task<string?> UploadAsync(byte[] bytes, string? ifMatch,
         CancellationToken cancellationToken = default)
     {
+        using var timeout = StartTimeout(cancellationToken, _transferTimeout);
+        CancellationToken token = timeout.Token;
         using var request = new HttpRequestMessage(HttpMethod.Put, _fileUri);
         var content = new ByteArrayContent(bytes);
         content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
@@ -191,11 +236,15 @@ public sealed class WebDavClient : IDisposable, ISyncRemote
         try
         {
             response = await _uploadClient.SendAsync(request,
-                HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                HttpCompletionOption.ResponseHeadersRead, token);
         }
         catch (HttpRequestException ex) when (ex.InnerException is AuthenticationException tls)
         {
             throw new WebDavTlsException(_fileUri, tls);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new WebDavException("The WebDAV upload timed out.");
         }
         using (response)
         {
@@ -204,7 +253,7 @@ public sealed class WebDavClient : IDisposable, ISyncRemote
             throw new WebDavException("The remote database changed during sync.", 412,
                 conflict: true);
         }
-        await EnsureSuccessAsync(response, cancellationToken);
+        await EnsureSuccessAsync(response, token);
         return response.Headers.ETag?.Tag
                ?? (response.Headers.TryGetValues("ETag", out IEnumerable<string>? values)
                    ? values.FirstOrDefault()?.Trim()
