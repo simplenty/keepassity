@@ -25,9 +25,15 @@ public sealed class SyncStateStore
 
     private readonly string _directory;
 
-    public SyncStateStore()
+    /// <summary>
+    /// <paramref name="directory"/> is for tests and diagnostics; the app uses
+    /// the application data root.
+    /// </summary>
+    public SyncStateStore(string? directory = null)
     {
-        _directory = Path.Combine(ApplicationPaths.Root, "state");
+        _directory = string.IsNullOrWhiteSpace(directory)
+            ? Path.Combine(ApplicationPaths.Root, "state")
+            : Path.GetFullPath(directory);
         try
         {
             Directory.CreateDirectory(_directory);
@@ -65,11 +71,16 @@ public sealed class SyncStateStore
             }
             catch (Exception ex)
             {
+                PreserveCorruptFile(path);
                 AppLog.Warn($"sync state is unreadable; treating the vault as dirty: {ex.Message}");
             }
         }
         if (state is null)
         {
+            if (existed)
+            {
+                PreserveCorruptFile(path);
+            }
             // Missing on first sync is normal and clean. An existing but
             // unreadable sidecar is not: fail closed so the next sync uploads
             // or merges instead of overwriting the local database.
@@ -96,6 +107,24 @@ public sealed class SyncStateStore
             return;
         }
         AtomicFile.Write(path, JsonSerializer.SerializeToUtf8Bytes(state, Options));
+    }
+
+    private static void PreserveCorruptFile(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return;
+            }
+            string backup = path + ".corrupt-" + DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            File.Copy(path, backup, overwrite: false);
+            AppLog.Warn($"preserved unreadable sync state as {Path.GetFileName(backup)}");
+        }
+        catch
+        {
+            // Diagnostics must not prevent a sync from proceeding dirty.
+        }
     }
 
     private string PathFor(string remoteUrl, string username, string localPath)

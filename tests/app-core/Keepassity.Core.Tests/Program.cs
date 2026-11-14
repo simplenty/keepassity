@@ -189,6 +189,7 @@ try
     VaultGuardTests.Run(Check, dataDirectory);
     VaultWriteGateTests.Run(Check);
     RecentDatabaseTests.Run(Check, dataDirectory);
+    SyncStateStoreTests.Run(Check, dataDirectory);
 
     // diagnostics archive contains a summary and no credential blobs
     string archive = DiagnosticsService.ExportAsync(reloaded.Current)

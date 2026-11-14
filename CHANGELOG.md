@@ -5,6 +5,7 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Sync baseline corruption is preserved:** an unreadable `state/*.json` sidecar is copied to `.corrupt-<timestamp>` before the vault is treated as dirty. `SyncStateStore` accepts an explicit directory for tests, and the headless suite covers round trip, missing-baseline clean state, malformed hash and corrupt-file preservation.
 - **WebDAV downloads also reject redirects:** the download/metadata HTTP client no longer
   follows redirects (the upload client already did not). A 3xx response fails the sync instead
   of sending Basic credentials to the redirect target or replacing the working copy with a
