@@ -42,14 +42,14 @@ if (-not $Exe) {
   # Pick the newest Release build: builds made with -p:Platform=x64 and a plain
   # `dotnet build` land in different bin subdirectories, and testing a stale
   # binary silently hides regressions.
-  $candidate = Get-ChildItem -Path (Join-Path $root 'apps/windows/Keepassity.Mock/bin') -Recurse -Filter 'Keepassity.exe' -ErrorAction SilentlyContinue |
+  $candidate = Get-ChildItem -Path (Join-Path $root 'apps/windows/Keepassity.App/bin') -Recurse -Filter 'Keepassity.exe' -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -match '\\Release\\' } |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
   if ($candidate) {
     $Exe = $candidate.FullName
   } else {
-    $Exe = Join-Path $root 'apps/windows/Keepassity.Mock/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64/Keepassity.exe'
+    $Exe = Join-Path $root 'apps/windows/Keepassity.App/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64/Keepassity.exe'
   }
 }
 if (-not (Test-Path $Exe)) {

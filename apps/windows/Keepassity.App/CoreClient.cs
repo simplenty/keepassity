@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 public sealed class CoreClient : ICoreClient
 {

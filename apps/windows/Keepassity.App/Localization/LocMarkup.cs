@@ -5,7 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using System.Runtime.CompilerServices;
 
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 /// <summary>
 /// Attached properties that localize static XAML text through <see cref="Loc"/>.

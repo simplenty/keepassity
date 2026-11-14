@@ -10,7 +10,7 @@ The shell requires the native FFI DLL:
 
 ```powershell
 cargo build -p keepassity-ffi --release
-dotnet build apps/windows/Keepassity.Mock/Keepassity.Mock.csproj -c Debug
+dotnet build apps/windows/Keepassity.App/Keepassity.App.csproj -c Debug
 ```
 
 The project copies `target/release/keepassity_ffi.dll` next to the app on build
@@ -20,7 +20,7 @@ included in the output).
 ## Run
 
 ```powershell
-apps/windows/Keepassity.Mock/bin/Debug/net10.0-windows10.0.19041.0/win-x64/Keepassity.exe
+apps/windows/Keepassity.App/bin/Debug/net10.0-windows10.0.19041.0/win-x64/Keepassity.exe
 ```
 
 1. Choose a `.kdbx` file, or use **New database…** to create an empty KDBX 4.0
@@ -123,7 +123,7 @@ non-zero on failure. The report contains counts/status only, never secrets.
 
 ## Notes
 
-- The project is still named `Keepassity.Mock` because it began as the UI prototype;
-  the UI is the intended shell and now talks to the real core.
+- The project is `Keepassity.App` (renamed from the original `Keepassity.Mock`
+  prototype in the v1.1 line) and ships `Keepassity.exe`.
 - Fixture passwords are public test values from `tests/fixtures`; no real vault is
   committed. `.spike/` and `docs/spike/` are local review artifacts only.

@@ -5,7 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System.Reflection;
 
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 /// <summary>
 /// Settings / About panel host. The panel itself is a bound

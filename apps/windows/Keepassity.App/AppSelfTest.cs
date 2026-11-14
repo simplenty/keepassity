@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 /// <summary>
 /// App-level smoke test used by --selftest: open a fixture copy, list, read TOTP,

@@ -8,7 +8,7 @@ planned for v1.x and is expected to consume the same core directly.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ shell (apps/windows/Keepassity.Mock)                       │
+│ shell (apps/windows/Keepassity.App)                        │
 │   views/XAML, platform adapters: DPAPI, tray, clipboard,   │
 │   idle/lock detection, file pickers, window lifetime       │
 ├─────────────────────────────────────────────────────────────┤

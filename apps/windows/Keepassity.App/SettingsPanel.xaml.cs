@@ -3,7 +3,7 @@ using Keepassity.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 /// <summary>
 /// View for <see cref="SettingsViewModel"/>. Labels are view concerns and are

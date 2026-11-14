@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 /// <summary>
 /// Adapts the catalog-backed <see cref="Loc"/> service to the view-model text

@@ -6,7 +6,7 @@ using Windows.Storage.Streams;
 using ZXing;
 using ZXing.Common;
 
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 /// <summary>Decodes an otpauth QR image or a clipboard screenshot in the UI layer.</summary>
 public static class QrDecoder

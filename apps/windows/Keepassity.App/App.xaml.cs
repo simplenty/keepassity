@@ -3,7 +3,7 @@ using Microsoft.UI.Xaml;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 public partial class App : Application
 {

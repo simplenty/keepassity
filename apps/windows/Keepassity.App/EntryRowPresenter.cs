@@ -4,7 +4,7 @@ using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 /// <summary>
 /// The thin WinUI adapter for one list row. <see cref="EntryRowViewModel"/> owns

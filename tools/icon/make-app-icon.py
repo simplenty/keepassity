@@ -8,9 +8,9 @@ repository root:
     python tools/icon/make-app-icon.py
 
 Outputs:
-    apps/windows/Keepassity.Mock/Assets/app.ico          (16..256 px frames)
-    apps/windows/Keepassity.Mock/Assets/app-icon-256.png
-    apps/windows/Keepassity.Mock/Assets/app-icon-512.png
+    apps/windows/Keepassity.App/Assets/app.ico          (16..256 px frames)
+    apps/windows/Keepassity.App/Assets/app-icon-256.png
+    apps/windows/Keepassity.App/Assets/app-icon-512.png
 
 No network, no external assets: the mark is drawn geometrically so it stays
 crisp at 16 px (tray) and 256 px (store/About).
@@ -24,7 +24,7 @@ from PIL import Image, ImageDraw
 
 CANVAS = 1024
 SUPERSAMPLE = 4
-ASSETS = pathlib.Path("apps/windows/Keepassity.Mock/Assets")
+ASSETS = pathlib.Path("apps/windows/Keepassity.App/Assets")
 
 # Palette: deep ink to teal, white mark, dark keyhole.
 INK = (11, 27, 43)

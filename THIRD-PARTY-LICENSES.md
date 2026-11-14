@@ -2,7 +2,7 @@
 
 > Every dependency listed here must be verifiable with `cargo deny` or the package's license
 > file. Direct NuGet dependencies are pinned in `Directory.Packages.props`; resolved versions
-> (including transitives) are recorded in `apps/windows/Keepassity.Mock/packages.lock.json`
+> (including transitives) are recorded in `apps/windows/Keepassity.App/packages.lock.json`
 > and `tests/*/packages.lock.json`.
 
 | Component | Version | License | Usage | Notes |

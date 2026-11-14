@@ -12,14 +12,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$project = Join-Path $root "apps/windows/Keepassity.Mock/Keepassity.Mock.csproj"
+$project = Join-Path $root "apps/windows/Keepassity.App/Keepassity.App.csproj"
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path $root "dist"
 }
 if ([string]::IsNullOrWhiteSpace($Version)) {
+    # Read the single version source with the XML DOM instead of the PowerShell
+    # adapter: Windows PowerShell 5.1 returns an XmlElement for
+    # $props.Project.PropertyGroup.KeepassityVersion, which turned the version
+    # property into "System.Xml.XmlElement" and made restore fail.
     [xml]$props = Get-Content (Join-Path $root "Directory.Build.props")
-    $Version = ($props.Project.PropertyGroup | Where-Object { $_.KeepassityVersion } |
-        Select-Object -First 1).KeepassityVersion
+    $versionNode = $props.SelectSingleNode('/Project/PropertyGroup/KeepassityVersion')
+    $Version = if ($versionNode) { $versionNode.InnerText.Trim() } else { "" }
     if ([string]::IsNullOrWhiteSpace($Version)) {
         $Version = "1.0.0-dev"
     }

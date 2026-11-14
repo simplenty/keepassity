@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 /// <summary>
 /// Opt-in gate for the diagnostic overrides that exist for automated UI checks:

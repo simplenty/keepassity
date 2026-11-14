@@ -6,7 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <RootNamespace>Keepassity.Mock</RootNamespace>
+    <RootNamespace>Keepassity.Core</RootNamespace>
     <AssemblyName>Keepassity.Core</AssemblyName>
   </PropertyGroup>
   <!-- UI language catalogs: <domain>.<language>.json, embedded so the shell can

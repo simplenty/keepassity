@@ -62,7 +62,7 @@ manifest, Windows build, headless service tests; `-Full` adds the application se
 ## UI strings
 
 The Windows shell ships English and Simplified Chinese and can switch at runtime (see
-`apps/windows/Keepassity.Mock/Localization/`). All user-visible shell text lives in the
+`apps/windows/Keepassity.App/Localization/`). All user-visible shell text lives in the
 embedded catalogs under `apps/windows/Keepassity.Core/Localization/*.zh-CN.json`; the English
 source text is the catalog key, so an untranslated string falls back to English instead of a
 raw key. Code uses `Loc.T(...)` / `Loc.TLong(...)`; XAML uses the `loc:LocMarkup.Text`,

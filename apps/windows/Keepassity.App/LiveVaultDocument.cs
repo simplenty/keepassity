@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 /// <summary>
 /// Adapts the open window's vault file to <see cref="IVaultDocument"/>: durable

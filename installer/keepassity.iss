@@ -39,7 +39,7 @@ UninstallDisplayIcon={app}\{#AppExe}
 ; install/uninstall (Inno Setup help: [Setup] ChangesAssociations).
 ChangesAssociations=yes
 ; Setup/uninstaller icon (the same multi-size icon the app uses).
-SetupIconFile=..\apps\windows\Keepassity.Mock\Assets\app.ico
+SetupIconFile=..\apps\windows\Keepassity.App\Assets\app.ico
 ; Refuse to install/uninstall while keepassity is running. The name must match
 ; the mutex the app creates at startup (App.xaml.cs, App.OnLaunched:
 ; new Mutex(true, @"Local\keepassity-windows-app")).

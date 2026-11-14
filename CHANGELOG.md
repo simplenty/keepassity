@@ -5,6 +5,17 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **The WinUI shell project is `Keepassity.App`:** the prototype name `Keepassity.Mock` is gone
+  from the project folder, namespace, XAML classes, solution, publish/self-test scripts,
+  installer icon path, CI and docs; the shipped binary stays `Keepassity.exe`, and the pre-1.0
+  `Keepassity.Mock.exe` cleanup in the installer/verify script is kept deliberately for upgrade
+  semantics. `Keepassity.Core` also gets its real root namespace. A clean self-contained
+  publish and an installer compile were run against the renamed project.
+- **The publish script works under Windows PowerShell 5.1 again:** its version fallback read
+  `Directory.Build.props` through the PowerShell XML adapter, which returns an `XmlElement`
+  there, so the version property became `System.Xml.XmlElement`, restore failed with a
+  swallowed MSBuild error and the output folder was misnamed. The script now reads the DOM
+  `InnerText`; a clean self-contained publish and installer compile were verified afterwards.
 - **Vault writes share one guard:** `VaultSession` in `Keepassity.Core` now owns the
   cross-process lock, the in-process write gate and the content fingerprint, and exposes save,
   sync-replace and backup-restore as the only write paths. The window no longer composes the

@@ -3,7 +3,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 /// <summary>
 /// Language switching for the shell. The static XAML labels update through

@@ -56,7 +56,7 @@ $cjkPattern = '[\u3000-\u303F\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAF
 $recycleBin = [string][char]0x56DE + [char]0x6536 + [char]0x7AD9
 $templates = [string][char]0x6A21 + [char]0x677F
 $allowedLines = @{}
-$allowedLines['apps/windows/Keepassity.Mock/MainWindow.xaml.cs'] = @(
+$allowedLines['apps/windows/Keepassity.App/MainWindow.xaml.cs'] = @(
     ('return value.Equals("' + $recycleBin + '", StringComparison.OrdinalIgnoreCase) ||'),
     ('return value.Equals("' + $templates + '", StringComparison.OrdinalIgnoreCase) ||')
 )

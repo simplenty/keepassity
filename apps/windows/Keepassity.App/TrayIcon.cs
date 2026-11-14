@@ -10,7 +10,7 @@ using System.Runtime.InteropServices;
 using Windows.UI;
 using WinRT.Interop;
 
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 /// <summary>
 /// WinUI notification-area icon with a native WinUI menu surface.

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using Keepassity.ViewModels;
 
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 /// <summary>Thin adapter from the FFI DTO to the view model's TOTP snapshot.</summary>
 internal sealed class CoreTotpSource : ITotpCodeSource

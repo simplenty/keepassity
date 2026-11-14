@@ -127,7 +127,7 @@ management UI, multi-database, mobile, macOS, Linux (Linux is planned for v1.x).
 | `crates/core` | Rust core: KDBX parsing/writing, crypto, merge/sync decisions, TOTP (no IO, no network) |
 | `crates/ffi` | C ABI + JSON bridge |
 | `crates/cli` | CLI harness for CI, interop and acceptance checks (not shipped with the app) |
-| `apps/windows` | WinUI 3 shell (`Keepassity.Mock`); talks to the core through the FFI v1 C ABI |
+| `apps/windows` | WinUI 3 shell (`Keepassity.App`); talks to the core through the FFI v1 C ABI |
 | `tests/fixtures` | Public KDBX test corpus (MIT, from keepass-rs) plus a generated 500-entry synthetic database |
 | `tools/interop` | Test-only interop verification harness (KeePassLib + keepassxc-cli) |
 | `docs/` | Architecture, compatibility, testing and release notes |
@@ -155,7 +155,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish-windows.ps1 
 ```
 
 For IDE work, open `apps/windows/Keepassity.sln` in Visual Studio 2026 (or the
-`Keepassity.Mock.csproj` directly); `apps/windows/.vsconfig` lists the required IDE
+`Keepassity.App.csproj` directly); `apps/windows/.vsconfig` lists the required IDE
 components (Windows App SDK C#, Windows 11 SDK, .NET desktop workload). Build
 `keepassity-ffi` in release mode once first, because the app copies the native
 `keepassity_ffi.dll` next to its output and cannot open a database without it.

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 /// <summary>
 /// Absolute paths to the runtime artwork copied next to the executable by the
-/// build (see Keepassity.Mock.csproj). The Windows App SDK requires a real file
+/// build (see Keepassity.App.csproj). The Windows App SDK requires a real file
 /// path for AppWindow.SetIcon(string); the tray icon and the About page load the
 /// same assets from disk.
 /// </summary>

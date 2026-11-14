@@ -259,7 +259,7 @@ jobs:
             @{ fixture = 'tests/fixtures/keepass-rs/test_db_kdbx4_with_password_aes.kdbx'; password = 'demopass' },
             @{ fixture = 'tests/fixtures/keepass-rs/test_db_kdbx4_with_totp_entry.kdbx'; password = 'test' }
           )
-          $exe = (Get-ChildItem 'apps/windows/Keepassity.Mock/bin' -Recurse -Filter 'Keepassity.exe' |
+          $exe = (Get-ChildItem 'apps/windows/Keepassity.App/bin' -Recurse -Filter 'Keepassity.exe' |
             Where-Object { $_.FullName -match '\\Release\\' } | Select-Object -First 1).FullName
           foreach ($case in $cases) {
             $report = Join-Path $env:RUNNER_TEMP ('selftest-' + [guid]::NewGuid().ToString('N') + '.log')
@@ -279,7 +279,7 @@ jobs:
       - name: dependency audit (informational)
         shell: pwsh
         continue-on-error: true
-        run: dotnet list apps/windows/Keepassity.Mock/Keepassity.Mock.csproj package --vulnerable --include-transitive
+        run: dotnet list apps/windows/Keepassity.App/Keepassity.App.csproj package --vulnerable --include-transitive
 
   ui-strings:
     name: ui-strings / ubuntu

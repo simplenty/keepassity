@@ -26,7 +26,7 @@ using Windows.UI;
 using Windows.UI.ViewManagement;
 using Keepassity.ViewModels;
 
-namespace Keepassity.Mock;
+namespace Keepassity.App;
 
 public sealed partial class MainWindow : Window
 {
