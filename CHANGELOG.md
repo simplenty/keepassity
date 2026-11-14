@@ -5,6 +5,10 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **WebDAV downloads also reject redirects:** the download/metadata HTTP client no longer
+  follows redirects (the upload client already did not). A 3xx response fails the sync instead
+  of sending Basic credentials to the redirect target or replacing the working copy with a
+  different resource. The mock-server test asserts one request and a 302 error.
 - **The application runs on .NET 10:** the shell targets `net10.0-windows10.0.19041.0`; Core, ViewModels, the app-core harness, FFI smoke test and maintenance drills target `net10.0`. Windows App SDK 1.8 and the existing packages build and run unchanged; self-contained publish, installer compilation and `--selftest` were verified on the installed .NET 10 runtime. CI/CodeQL/release use 10.0.x and `global.json` pins SDK 10.0.100 (`latestFeature`).
 - **Conflict copies are written atomically:** both the local and remote conflict copies now go
   through a flushed temporary file and atomic move (`AtomicFile.Copy` / `AtomicFile.Write`)

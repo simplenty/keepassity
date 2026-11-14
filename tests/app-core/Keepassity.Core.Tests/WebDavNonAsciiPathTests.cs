@@ -251,6 +251,9 @@ internal sealed class WebDavMockServer : IDisposable
     /// <summary>Answer the next PUT with a 303 to a readable resource.</summary>
     public bool RedirectUploads { get; set; }
 
+    /// <summary>Answer GET with a 302 to a readable resource.</summary>
+    public bool RedirectDownloads { get; set; }
+
     public int PendingRequests
     {
         get
@@ -433,6 +436,11 @@ internal sealed class WebDavMockServer : IDisposable
                             headResource.Modified, headResource.Content.LongLength)
                         : NotFound();
                 case "GET":
+                    if (RedirectDownloads)
+                    {
+                        return new Response(302, "Found", Array.Empty<byte>(), null, null,
+                            Location: "/redirected-target");
+                    }
                     return _resources.TryGetValue(request.Target, out Resource? getResource)
                         ? new Response(200, "OK", getResource.Content, getResource.ETag,
                             getResource.Modified)

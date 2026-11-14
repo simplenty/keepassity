@@ -44,6 +44,31 @@ internal static class WebDavSafetyTests
                 server.PendingRequests.ToString());
         }
 
+        // A redirected GET must not carry Basic credentials to another resource
+        // or replace the working copy with whatever the redirect target serves.
+        int requestsBeforeDownload = server.PendingRequests;
+        server.RedirectDownloads = true;
+        using (var downloadClient = new WebDavClient(url, "dav-user", "dav-password"))
+        {
+            bool downloadRejected = false;
+            int? downloadStatus = null;
+            try
+            {
+                _ = downloadClient.DownloadAsync().GetAwaiter().GetResult();
+            }
+            catch (WebDavException ex)
+            {
+                downloadRejected = true;
+                downloadStatus = ex.StatusCode;
+            }
+            check("webdav download redirect is rejected",
+                downloadRejected && downloadStatus == 302,
+                downloadStatus?.ToString() ?? "no exception");
+            check("webdav download redirect is not followed",
+                server.PendingRequests == requestsBeforeDownload + 1,
+                (server.PendingRequests - requestsBeforeDownload).ToString());
+        }
+
         bool nonLoopbackHttpRejected = false;
         try
         {

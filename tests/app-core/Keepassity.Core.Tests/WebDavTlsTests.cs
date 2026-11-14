@@ -258,7 +258,7 @@ internal static class WebDavTlsTests
         {
             try
             {
-                return new X509Certificate2(pfx, "keepassity", flags);
+                return X509CertificateLoader.LoadPkcs12(pfx, "keepassity", flags);
             }
             catch (CryptographicException)
             {

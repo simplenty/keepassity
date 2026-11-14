@@ -68,7 +68,11 @@ public sealed class WebDavClient : IDisposable
         }
         _fileUri = uri;
         _client = CreateHttpClient(username, password, trustedCertificateSha256,
-            allowAutoRedirect: true);
+            // Download and metadata must not follow redirects either: a redirected
+            // host could receive Basic credentials, and a redirected GET could
+            // replace the working copy with a different resource. The upload
+            // client already rejects redirects; both paths fail closed.
+            allowAutoRedirect: false);
         _uploadClient = CreateHttpClient(username, password, trustedCertificateSha256,
             allowAutoRedirect: false);
     }
