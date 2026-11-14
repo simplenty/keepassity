@@ -708,19 +708,21 @@ public sealed class SyncCoordinator
         }
         catch (CoreException ex) when (IsUnreadableRemote(ex))
         {
-            return await RepairUnreadableRemoteAsync(run, state, metadata, ex);
+            return await RepairUnreadableRemoteAsync(run, state, metadata, remote, ex);
         }
     }
 
     /// <summary>
-    /// An unreadable remote copy never overwrites the local vault. By default the
-    /// run pauses with a dirty baseline and asks the shell to offer the repair; only
-    /// an explicit user choice (<see cref="OverwriteUnreadableRemote"/>) uploads the
-    /// verified local copy over it.
+    /// An unreadable remote copy never overwrites the local vault. Its exact bytes
+    /// are first preserved next to the local database (the server copy may be the
+    /// only other copy of data, or may be a valid database protected by a different
+    /// password). By default the run then pauses; only an explicit user choice
+    /// (<see cref="OverwriteUnreadableRemote"/>) uploads the verified local copy.
     /// </summary>
     private async Task<SyncReport> RepairUnreadableRemoteAsync(SyncRun run, SyncState state,
-        WebDavFileInfo metadata, CoreException cause)
+        WebDavFileInfo metadata, byte[] remote, CoreException cause)
     {
+        string? preserved = await PreserveUnreadableRemoteAsync(run, remote);
         if (!OverwriteUnreadableRemote)
         {
             state.LocalDirty = true;
@@ -729,7 +731,7 @@ public sealed class SyncCoordinator
                         "keeping the local copy");
             Report(run.Status, "Remote unreadable");
             return new SyncReport(SyncOutcome.RemoteUnreadable,
-                SyncNotice.RemoteUnreadable, Reason: cause.Code);
+                SyncNotice.RemoteUnreadable, RemoteCopy: preserved, Reason: cause.Code);
         }
         AppLog.Warn("sync: replacing an unreadable remote database with the verified local copy");
         byte[] localBytes = await run.Document.ReadBytesAsync();
@@ -745,10 +747,56 @@ public sealed class SyncCoordinator
             SaveState(run, state);
             Report(run.Status, "Conflict");
             return new SyncReport(SyncOutcome.RemoteChanged,
-                SyncNotice.RemoteUnreadableRemoteChanged);
+                SyncNotice.RemoteUnreadableRemoteChanged, RemoteCopy: preserved);
         }
         await CommitSyncedAsync(run, state, localBytes, etag, metadata, "Remote repaired");
-        return new SyncReport(SyncOutcome.Synced, SyncNotice.RemoteRepaired);
+        return new SyncReport(SyncOutcome.Synced, SyncNotice.RemoteRepaired,
+            RemoteCopy: preserved);
+    }
+
+    /// <summary>
+    /// Keep the unreadable remote bytes under a deterministic hash-derived name next
+    /// to the local database before any repair can overwrite them. Best effort: a
+    /// failure to preserve must not block the safe default of keeping local data.
+    /// </summary>
+    private static async Task<string?> PreserveUnreadableRemoteAsync(SyncRun run,
+        byte[] remote)
+    {
+        try
+        {
+            string databasePath = run.Document.Path;
+            string directory = Path.GetDirectoryName(databasePath)!;
+            string stem = Path.GetFileNameWithoutExtension(databasePath);
+            string extension = Path.GetExtension(databasePath);
+            string hash = Sha256Hex(remote);
+            string path = Path.Combine(directory,
+                $"{stem} (unreadable remote {hash[..8]}){extension}");
+            int suffix = 1;
+            while (File.Exists(path))
+            {
+                try
+                {
+                    if (string.Equals(Sha256Hex(File.ReadAllBytes(path)), hash,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return path;
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Unreadable existing file: choose another name below.
+                }
+                path = Path.Combine(directory,
+                    $"{stem} (unreadable remote {hash[..8]}-{suffix++}){extension}");
+            }
+            await Task.Run(() => AtomicFile.Write(path, remote));
+            return path;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppLog.Warn($"the unreadable remote copy could not be preserved: {ex.Message}");
+            return null;
+        }
     }
 
     private static void RequireMasterPassword(SyncRun run)

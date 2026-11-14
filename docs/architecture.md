@@ -62,7 +62,9 @@ planned for v1.x and is expected to consume the same core directly.
   vault on a slow link is not cut off while a stalled transfer still ends with a clear timeout.
   An unreadable remote copy never replaces the local vault: the run pauses with the local file
   untouched, and only an explicit user confirmation replaces the remote with the verified local
-  copy (the sync coordinator's one-shot `OverwriteUnreadableRemote` option).
+  copy (the sync coordinator's one-shot `OverwriteUnreadableRemote` option). The unreadable bytes
+  are first preserved next to the local database under a hash-derived name, so the repair never
+  destroys the only copy of a valid database that happens to use another master password.
 
 ## Data safety
 

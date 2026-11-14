@@ -23,7 +23,9 @@ KDBX write-path changes must state the compatibility impact.
   local vault stayed safe but the remote copy remained broken with no way to fix it from the app.
   The run now pauses without touching the local vault and offers an explicit repair dialog that
   replaces the unreadable remote with the verified local copy; nothing is uploaded unless the user
-  confirms.
+  confirms. Before that choice is offered, the exact remote bytes are preserved next to the local
+  database under a hash-derived name, so a damaged file — or a valid database protected by a
+  different master password from another device — is never lost by the repair.
 - **Large vaults no longer time out during sync:** every WebDAV request shared the HTTP client's
   fixed 45-second timeout, so a database with large attachments could not be downloaded or
   uploaded on a slow link and the save failed on every attempt. Metadata requests keep the

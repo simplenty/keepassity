@@ -1865,8 +1865,12 @@ public sealed partial class MainWindow : Window
                     InfoBarSeverity.Warning);
                 break;
             case SyncNotice.RemoteUnreadable:
-                ShowToast(Loc.T("The remote database cannot be opened with this password; " +
-                                "the local copy was kept."),
+                ShowToast(report.RemoteCopy is null
+                        ? Loc.T("The remote database cannot be opened with this password; " +
+                                "the local copy was kept.")
+                        : Loc.T("The remote database cannot be opened with this password; " +
+                                "the local copy was kept and the unreadable remote was " +
+                                "saved as {0}.", Path.GetFileName(report.RemoteCopy)),
                     InfoBarSeverity.Warning);
                 if (!startup && await ShowRemoteRepairDialogAsync())
                 {
@@ -1876,8 +1880,12 @@ public sealed partial class MainWindow : Window
                 }
                 break;
             case SyncNotice.RemoteRepaired:
-                ShowToast(Loc.T("The remote copy was unreadable; it has been replaced with " +
-                                "the local copy."),
+                ShowToast(report.RemoteCopy is null
+                        ? Loc.T("The remote copy was unreadable; it has been replaced with " +
+                                "the local copy.")
+                        : Loc.T("The remote copy was unreadable; it has been replaced with " +
+                                "the local copy (saved as {0}).",
+                            Path.GetFileName(report.RemoteCopy)),
                     InfoBarSeverity.Success);
                 break;
             case SyncNotice.RemoteUnreadableRemoteChanged:
@@ -1903,8 +1911,11 @@ public sealed partial class MainWindow : Window
                 {
                     Title = Loc.T("Remote database unreadable"),
                     Content = Loc.T("The remote database cannot be opened with the current " +
-                                    "password. Replace it with the local copy? The unreadable " +
-                                    "remote file will be overwritten."),
+                                    "password. It may be corrupt, or it may be a valid " +
+                                    "database protected by a different master password from " +
+                                    "another device. Replace it with the local copy? The " +
+                                    "unreadable remote file will be overwritten (a local copy " +
+                                    "of it is kept)."),
                     PrimaryButtonText = Loc.T("Replace remote with local copy"),
                     CloseButtonText = Loc.T("Cancel"),
                     DefaultButton = ContentDialogButton.Close,

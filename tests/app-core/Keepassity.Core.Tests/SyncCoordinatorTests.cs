@@ -478,12 +478,17 @@ internal static class SyncCoordinatorTests
         paused.Core.VerifyFails = true;
 
         SyncReport pausedReport = paused.RunAsync().GetAwaiter().GetResult();
+        string? preserved = pausedReport.RemoteCopy;
         check("sync: an unreadable remote copy never replaces the local vault",
             pausedReport.Outcome == SyncOutcome.RemoteUnreadable &&
             pausedReport.Notice == SyncNotice.RemoteUnreadable &&
             paused.Document.Writes.Count == 0 && paused.Remote.Uploaded.Count == 0 &&
             paused.State.LocalDirty,
             pausedReport.Notice.ToString());
+        check("sync: the unreadable remote bytes are preserved next to the vault",
+            preserved is not null && File.Exists(preserved) &&
+            File.ReadAllBytes(preserved).SequenceEqual(Local("corrupt-remote")),
+            preserved ?? "not preserved");
 
         Harness repaired = new(dataDirectory, "unreadable-remote-repair", Local("local"));
         repaired.Remote.Bytes = Local("corrupt-remote");
@@ -500,7 +505,9 @@ internal static class SyncCoordinatorTests
             repaired.Remote.Uploaded.Count == 1 &&
             repaired.Remote.Uploaded[0].SequenceEqual(Local("local")) &&
             !repaired.State.LocalDirty &&
-            repaired.State.Sha256 == Sha(Local("local")),
+            repaired.State.Sha256 == Sha(Local("local")) &&
+            repairedReport.RemoteCopy is not null &&
+            File.Exists(repairedReport.RemoteCopy),
             repairedReport.Notice.ToString());
     }
 
