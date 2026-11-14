@@ -22,7 +22,9 @@
             decoded),
           - the string literals in the first argument of SetSyncStatus(...) and of
             CommitSyncedAsync(...) (the sync status is rendered later by
-            SetSyncStatus, so its literal is a catalog key too).
+            SetSyncStatus, so its literal is a catalog key too), and the literals
+            in Report(<status port>, ...) of the sync coordinator, which forwards
+            the same status keys.
         Adjacent C# literals ("a" + "b") are joined, and both "..." and @"..."
         are decoded. A call whose first argument is not a literal (a variable, a
         conditional expression, an interpolated string) cannot be resolved
@@ -155,6 +157,9 @@ $script:RegexSetSyncStatus = [regex]'(?<![A-Za-z0-9_.])SetSyncStatus\s*\('
 # Status strings handed to the sync commit helper end up in SetSyncStatus(status)
 # through a variable, so their literals are catalog keys too.
 $script:RegexCommitSynced = [regex]'(?<![A-Za-z0-9_.])CommitSyncedAsync\s*\('
+# The sync coordinator reports its status lines through Report(<status port>,
+# "<catalog key>", ...); those literals are the same keys SetSyncStatus renders.
+$script:RegexReportSyncStatus = [regex]'(?<![A-Za-z0-9_.])Report\s*\(\s*[A-Za-z_][A-Za-z0-9_.]*\s*,'
 # A tiny ternary over two catalog keys is intentional and both keys are checked
 # as used; the expression itself cannot be one static key.
 $script:RegexConditionalKey = [regex]'_unlocked\s*\?\s*"(?<yes>[^"\\]*)"\s*:\s*"(?<no>[^"\\]*)"'
@@ -1364,6 +1369,31 @@ foreach ($file in $csFiles) {
             }
             Add-UsedKey -Key $literal.Value -File $relative -Line $line `
                 -Origin 'CommitSyncedAsync'
+            $countSync++
+        }
+    }
+
+    # ---- Report(<status port>, "<key>", ...): the sync coordinator's status
+    # lines, rendered by the shell's SetSyncStatus. The status port is the first
+    # argument, so the key literals follow it; a forwarded variable has no
+    # literal and is checked where the literal is written.
+    foreach ($hit in $script:RegexReportSyncStatus.Matches($code)) {
+        $parenIndex = $code.IndexOf('(', $hit.Index)
+        if ($parenIndex -lt 0) {
+            continue
+        }
+        $closeIndex = Find-CloseParen -Code $code -OpenIndex $parenIndex
+        if ($closeIndex -lt 0) {
+            continue
+        }
+        $line = Get-LineNumber -LineStarts $lineStarts -Index $hit.Index
+        $siteLiterals = Get-LiteralsInRange -Literals $scan.Literals `
+            -Start $hit.Index -End $closeIndex
+        foreach ($literal in $siteLiterals) {
+            if (-not $literal.Ok -or $literal.Value.Length -eq 0) {
+                continue
+            }
+            Add-UsedKey -Key $literal.Value -File $relative -Line $line -Origin 'Report'
             $countSync++
         }
     }

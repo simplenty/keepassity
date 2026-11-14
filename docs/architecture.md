@@ -45,6 +45,14 @@ planned for v1.x and is expected to consume the same core directly.
   WebDAV client, backups, paths and the `ICoreClient` port are platform-neutral C# and covered
   by the headless `tests/app-core` suite, so the future Linux shell can reuse them instead of
   duplicating the logic. The WinUI shell also carries the FFI adapter (`CoreClient`).
+- **The sync protocol is an application service.** `SyncCoordinator` runs one WebDAV sync
+  (decide → upload with back-off → download → three-way merge → conflict choice → baseline
+  commit) against three narrow ports: `ISyncRemote` (implemented by `WebDavClient`),
+  `IVaultDocument` (the open window: durable write, reopen, merge through a second core handle)
+  and the expanded `ICoreClient`. The window keeps only the connection, the conflict dialog and
+  the toasts. This is the part of the sync path where ordering decides whether data survives a
+  crash, so it is tested headlessly with fakes (`SyncCoordinatorTests`) instead of living in the
+  6k-line window.
 
 ## Data safety
 
@@ -59,6 +67,11 @@ planned for v1.x and is expected to consume the same core directly.
   live database; download and upload redirects are rejected rather than followed, and a sync
   baseline without a content hash is refused. A corrupt sync sidecar makes the vault dirty
   instead of clean.
+- A sync run only records a clean baseline after the local write, the verified upload and the
+  core's baseline commit succeeded, in that order: `SyncCoordinator` writes the database first,
+  uploads second, asks the core to accept the new etag/hash third, and only then saves the
+  sidecar. A failure at any step leaves the vault dirty, so the next run retries instead of
+  trusting a half-finished sync.
 - One process writes a vault: opening it takes a cross-process lock, and a save compares the
   file's SHA-256 with the bytes the in-memory model came from. An external change blocks the
   save instead of being overwritten. The new ciphertext is decrypted and parsed with the cached

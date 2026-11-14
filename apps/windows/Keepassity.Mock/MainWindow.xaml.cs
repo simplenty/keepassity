@@ -51,11 +51,10 @@ public sealed partial class MainWindow : Window
     private readonly SyncStateStore _syncStates = new();
     private readonly CredentialStore _credentials = new();
     private readonly SemaphoreSlim _syncGate = new(1, 1);
-    // Copy files are kept per local/remote pair so a repeated sync attempt for
-    // the same unresolved conflict does not create another pair every time.
-    private string? _conflictSignature;
-    private string? _conflictLocalCopy;
-    private string? _conflictRemoteCopy;
+    // The sync protocol (decision, back-off, verification, conflict rules and
+    // baseline ordering) lives in Core; the window supplies the open vault, the
+    // WebDAV client and the conflict dialog.
+    private readonly SyncCoordinator _sync;
     private readonly DispatcherTimer _totpTimer = new();
     private readonly DispatcherTimer _toastTimer = new();
     private readonly DispatcherTimer _autoLockTimer = new();
@@ -147,6 +146,10 @@ public sealed partial class MainWindow : Window
         Detail.Clear(Loc.T("Select an entry"));
         Totp = new TotpDisplayViewModel(new CoreTotpSource(_core),
             () => DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        _sync = new SyncCoordinator(_syncStates)
+        {
+            ConflictChoice = ShowConflictDialogAsync,
+        };
         InitializeComponent();
         ApplyThemePreference(Settings.Theme);
         Title = "Keepassity";
@@ -1558,71 +1561,20 @@ public sealed partial class MainWindow : Window
             }
 
             SetSyncStatus("Syncing…");
-            SyncState state = _syncStates.Load(url, username, _dbPath);
-            if (!string.IsNullOrEmpty(state.Sha256))
-            {
-                await _core.SyncCommitAsync(state.Etag, state.Sha256);
-            }
             using var dav = await CreateWebDavClientAsync(url, username, password);
-            WebDavFileInfo? metadata = await dav.GetMetadataAsync();
-            if (metadata is null)
+            var options = new SyncOptions
             {
-                await UploadWithBackoffAsync(dav, state, url, username);
-                return;
-            }
-
-            string remoteMeta = JsonSerializer.Serialize(new
-            {
-                etag = metadata.ETag,
-                size = metadata.Size,
-                modified_unix = metadata.ModifiedUnix,
-                reliability = metadata.ETag is null ? "degraded" : "full",
-            });
-            SyncDecisionDto decision = await _core.SyncDecideAsync(remoteMeta, state.LocalDirty);
-            switch (decision.Action)
-            {
-                case "up_to_date":
-                    if (string.IsNullOrEmpty(state.Sha256))
-                    {
-                        // The remote says unchanged, but there is no content
-                        // hash to record as a baseline. Do not mark the vault
-                        // clean; a later sync could overwrite local edits.
-                        state.LocalDirty = true;
-                        _syncStates.Save(url, username, _dbPath, state);
-                        SetSyncStatus("Sync needs baseline");
-                        break;
-                    }
-                    state.Etag = metadata.ETag;
-                    state.Size = metadata.Size;
-                    state.RemoteModifiedUnix = metadata.ModifiedUnix;
-                    state.LocalDirty = false;
-                    state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-                    await _core.SyncCommitAsync(state.Etag, state.Sha256);
-                    _syncStates.Save(url, username, _dbPath, state);
-                    SetSyncStatus(decision.Degraded ? "Synced (degraded)" : "Synced");
-                    break;
-                case "upload":
-                    await UploadWithBackoffAsync(dav, state, url, username);
-                    break;
-                case "download":
-                    await DownloadRemoteAsync(dav, metadata, state, url, username);
-                    break;
-                case "download_and_merge":
-                case "conflict":
-                    await MergeRemoteAsync(dav, metadata, state, url, username);
-                    break;
-                case "retry":
-                    SetSyncStatus("Sync retry");
-                    break;
-                case "offline":
-                default:
-                    SetSyncStatus("Offline");
-                    if (!startup)
-                    {
-                        ShowToast(Loc.T("Sync skipped: {0}", decision.Reason), InfoBarSeverity.Warning);
-                    }
-                    break;
-            }
+                RemoteUrl = url,
+                Username = username,
+                MasterPassword = _masterPassword,
+            };
+            SyncReport report = await _sync.RunAsync(
+                dav,
+                new LiveVaultDocument(this, _dbPath),
+                _core,
+                options,
+                update => SetSyncStatus(update.Source, update.Arguments));
+            ShowSyncReport(report, startup);
         }
         catch (WebDavException ex)
         {
@@ -1657,162 +1609,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task UploadLocalAsync(WebDavClient dav, SyncState state, string url,
-        string username)
-    {
-        byte[] bytes = await _core.SaveBytesAsync();
-        await WriteLocalBytesAsync(_dbPath!, bytes);
-        // A 412 means the remote changed while we were preparing the upload; it
-        // is handled by UploadWithBackoffAsync, which retries with the core
-        // state machine's back-off schedule and merges after the last retry.
-        string? etag = await dav.UploadAsync(bytes, state.Etag);
-        string sha = Sha256Hex(bytes);
-        await _core.SyncCommitAsync(etag, sha);
-        state.Etag = etag;
-        state.Sha256 = sha;
-        state.Size = bytes.Length;
-        state.LocalDirty = false;
-        state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        _syncStates.Save(url, username, _dbPath!, state);
-        SetSyncStatus("Synced");
-    }
-
-    /// <summary>
-    /// Uploads the current database, retrying a 412 (remote changed during the
-    /// upload) three times with the same 0.5 s / 1.5 s / 4 s back-off schedule as
-    /// the core sync state machine (SY-08). After the last retry the remote
-    /// change is resolved through the normal three-way merge/conflict path; the
-    /// remote is never overwritten silently.
-    /// </summary>
-    private async Task UploadWithBackoffAsync(WebDavClient dav, SyncState state,
-        string url, string username)
-    {
-        for (int attempt = 0; ; attempt++)
-        {
-            try
-            {
-                await UploadLocalAsync(dav, state, url, username);
-                return;
-            }
-            catch (WebDavException ex) when (ex.Conflict)
-            {
-                if (attempt >= 3)
-                {
-                    AppLog.Warn("sync: PUT 412 after three back-off retries; merging");
-                    WebDavFileInfo? metadata = await dav.GetMetadataAsync();
-                    if (metadata is null)
-                    {
-                        throw;
-                    }
-                    SetSyncStatus("Resolving conflict");
-                    await MergeRemoteAsync(dav, metadata, state, url, username);
-                    return;
-                }
-                int delayMs = attempt switch
-                {
-                    0 => 500,
-                    1 => 1500,
-                    _ => 4000,
-                };
-                SetSyncStatus("Retrying sync in {0} ms", delayMs);
-                AppLog.Warn($"sync: PUT 412, retry {attempt + 1}/3 after {delayMs} ms");
-                await Task.Delay(delayMs);
-            }
-        }
-    }
-
-    private async Task DownloadRemoteAsync(WebDavClient dav, WebDavFileInfo metadata,
-        SyncState state, string url, string username)
-    {
-        byte[] bytes = await dav.DownloadAsync();
-        string sha = Sha256Hex(bytes);
-        bool contentChanged = true;
-        if (!string.IsNullOrEmpty(state.Sha256))
-        {
-            contentChanged = !string.Equals(sha, state.Sha256, StringComparison.OrdinalIgnoreCase);
-        }
-        else if (_dbPath is not null && File.Exists(_dbPath))
-        {
-            byte[] localBytes = await File.ReadAllBytesAsync(_dbPath);
-            contentChanged = !string.Equals(sha, Sha256Hex(localBytes),
-                StringComparison.OrdinalIgnoreCase);
-        }
-        if (contentChanged)
-        {
-            if (string.IsNullOrEmpty(_masterPassword))
-            {
-                throw new InvalidOperationException(
-                    "Unlock the vault before applying remote changes.");
-            }
-            // The live database is only replaced after the downloaded bytes
-            // decrypt with the current master password. A redirect page or a
-            // corrupted body must not become the local vault.
-            await _core.VerifyAsync(bytes, _masterPassword);
-            await WriteLocalBytesAsync(_dbPath!, bytes);
-            await ReopenFromLocalAsync();
-        }
-        await _core.SyncCommitAsync(metadata.ETag, sha);
-        state.Etag = metadata.ETag;
-        state.Sha256 = sha;
-        state.Size = bytes.Length;
-        state.RemoteModifiedUnix = metadata.ModifiedUnix;
-        state.LocalDirty = false;
-        state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        _syncStates.Save(url, username, _dbPath!, state);
-        SetSyncStatus("Synced");
-        if (contentChanged)
-        {
-            ShowToast(Loc.T("Downloaded remote changes"), InfoBarSeverity.Success);
-        }
-    }
-
-    private async Task MergeRemoteAsync(WebDavClient dav, WebDavFileInfo metadata,
-        SyncState state, string url, string username)
-    {
-        byte[] remote = await dav.DownloadAsync();
-        (string? localCopy, string? remoteCopy) = await PrepareConflictCopiesAsync(remote);
-        SyncMergeResult merged = await ProbeMergeAsync(remote);
-        if (merged.Conflicts.Count == 0)
-        {
-            await ApplyMergedAsync(dav, metadata, state, url, username, merged,
-                localCopy, remoteCopy, autoMerged: true);
-            return;
-        }
-
-        ConflictChoice choice = await ShowConflictDialogAsync(localCopy, remoteCopy,
-            merged.Conflicts);
-        switch (choice)
-        {
-            case ConflictChoice.KeepLocal:
-                await KeepLocalConflictAsync(dav, metadata, state, url, username);
-                break;
-            case ConflictChoice.KeepRemote:
-                await KeepRemoteConflictAsync(dav, metadata, state, url, username, remote);
-                break;
-            case ConflictChoice.KeepBoth:
-                await ApplyMergedAsync(dav, metadata, state, url, username, merged,
-                    localCopy, remoteCopy, autoMerged: false);
-                break;
-            default:
-                state.LocalDirty = true;
-                _syncStates.Save(url, username, _dbPath!, state);
-                SetSyncStatus("Conflict");
-            ShowToast(Loc.T("Sync paused. Local and remote are unchanged; conflict copies were saved."),
-                InfoBarSeverity.Warning);
-                break;
-        }
-    }
-
-    private enum ConflictChoice
-    {
-        Cancel,
-        KeepLocal,
-        KeepRemote,
-        KeepBoth,
-    }
-
-    private async Task<ConflictChoice> ShowConflictDialogAsync(string? localCopy,
-        string? remoteCopy, List<SyncConflictDto> conflicts)
+    private async Task<SyncConflictChoice> ShowConflictDialogAsync(SyncConflictContext context)
     {
         var panel = new StackPanel { Spacing = 12 };
         panel.Children.Add(new TextBlock
@@ -1825,15 +1622,15 @@ public sealed partial class MainWindow : Window
         });
         panel.Children.Add(new TextBlock
         {
-            Text = Loc.T("Local copy: {0}", Path.GetFileName(localCopy)) + "\n" +
-                   Loc.T("Remote copy: {0}", Path.GetFileName(remoteCopy)),
+            Text = Loc.T("Local copy: {0}", Path.GetFileName(context.LocalCopy)) + "\n" +
+                   Loc.T("Remote copy: {0}", Path.GetFileName(context.RemoteCopy)),
             TextWrapping = TextWrapping.Wrap,
             FontSize = 11,
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
         });
-        if (conflicts.Count > 0)
+        if (context.Conflicts.Count > 0)
         {
-            var lines = conflicts.Take(6).Select(conflict =>
+            var lines = context.Conflicts.Take(6).Select(conflict =>
             {
                 string fields = conflict.Fields.Count == 0
                     ? Loc.T("entry changed on both sides")
@@ -1848,7 +1645,7 @@ public sealed partial class MainWindow : Window
             });
         }
 
-        ConflictChoice choice = ConflictChoice.Cancel;
+        SyncConflictChoice choice = SyncConflictChoice.Cancel;
         var keepBoth = new Button
         {
             Content = Loc.T("Keep both (recommended)"),
@@ -1882,22 +1679,22 @@ public sealed partial class MainWindow : Window
         };
         keepBoth.Click += (_, _) =>
         {
-            choice = ConflictChoice.KeepBoth;
+            choice = SyncConflictChoice.KeepBoth;
             dialog.Hide();
         };
         keepLocal.Click += (_, _) =>
         {
-            choice = ConflictChoice.KeepLocal;
+            choice = SyncConflictChoice.KeepLocal;
             dialog.Hide();
         };
         keepRemote.Click += (_, _) =>
         {
-            choice = ConflictChoice.KeepRemote;
+            choice = SyncConflictChoice.KeepRemote;
             dialog.Hide();
         };
         cancel.Click += (_, _) =>
         {
-            choice = ConflictChoice.Cancel;
+            choice = SyncConflictChoice.Cancel;
             dialog.Hide();
         };
         dialog.Opened += (_, _) => keepBoth.Focus(FocusState.Programmatic);
@@ -1905,7 +1702,67 @@ public sealed partial class MainWindow : Window
         return choice;
     }
 
-    private async Task<SyncMergeResult> ProbeMergeAsync(byte[] remote)
+    /// <summary>
+    /// Turn the coordinator's report into the localized follow-up the user sees.
+    /// The status line was already reported through the progress callback; this is
+    /// only the toast, including the conflict copy names.
+    /// </summary>
+    private void ShowSyncReport(SyncReport report, bool startup)
+    {
+        if (report.Notice == SyncNotice.None)
+        {
+            if (report.Outcome == SyncOutcome.Offline && !startup)
+            {
+                ShowToast(Loc.T("Sync skipped: {0}", report.Reason),
+                    InfoBarSeverity.Warning);
+            }
+            return;
+        }
+        string copies = Loc.T("local: {0}; remote: {1}",
+            Path.GetFileName(report.LocalCopy ?? string.Empty),
+            Path.GetFileName(report.RemoteCopy ?? string.Empty));
+        switch (report.Notice)
+        {
+            case SyncNotice.Downloaded:
+                ShowToast(Loc.T("Downloaded remote changes"), InfoBarSeverity.Success);
+                break;
+            case SyncNotice.MergedAutomatically:
+                ShowToast(Loc.T("Merged remote changes automatically ({0}).", copies),
+                    InfoBarSeverity.Success);
+                break;
+            case SyncNotice.MergedKeptBoth:
+                ShowToast(Loc.T("Kept both versions; merged and uploaded ({0}).", copies),
+                    InfoBarSeverity.Success);
+                break;
+            case SyncNotice.KeptLocal:
+                ShowToast(Loc.T("Kept local version; remote copy was saved."),
+                    InfoBarSeverity.Success);
+                break;
+            case SyncNotice.KeptRemote:
+                ShowToast(Loc.T("Kept remote version; local copy was saved."),
+                    InfoBarSeverity.Success);
+                break;
+            case SyncNotice.ConflictPaused:
+                ShowToast(Loc.T("Sync paused. Local and remote are unchanged; conflict copies were saved."),
+                    InfoBarSeverity.Warning);
+                break;
+            case SyncNotice.MergedRemoteChanged:
+                ShowToast(Loc.T("Remote changed again; merged locally, will retry next sync."),
+                    InfoBarSeverity.Warning);
+                break;
+            case SyncNotice.KeptLocalRemoteChanged:
+                ShowToast(Loc.T("Remote changed again; local version kept, will retry next sync."),
+                    InfoBarSeverity.Warning);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Three-way merge through a second core handle, so the open window's model
+    /// is untouched until the merged bytes replace the file. The sync
+    /// coordinator reaches this through <see cref="IVaultDocument.MergeRemoteAsync"/>.
+    /// </summary>
+    internal async Task<SyncMergeResult> ProbeMergeAsync(byte[] remote)
     {
         using var probe = new CoreClient();
         await probe.OpenAsync(_dbPath!, _masterPassword!);
@@ -1919,94 +1776,11 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task ApplyMergedAsync(WebDavClient dav, WebDavFileInfo metadata,
-        SyncState state, string url, string username, SyncMergeResult merged,
-        string? localCopy, string? remoteCopy, bool autoMerged)
-    {
-        await WriteLocalBytesAsync(_dbPath!, merged.Bytes);
-        await ReopenFromLocalAsync();
-        string? etag;
-        try
-        {
-            etag = await dav.UploadAsync(merged.Bytes, metadata.ETag);
-        }
-        catch (WebDavException ex) when (ex.Conflict)
-        {
-            state.LocalDirty = true;
-            _syncStates.Save(url, username, _dbPath!, state);
-            SetSyncStatus("Conflict");
-            ShowToast(Loc.T("Remote changed again; merged locally, will retry next sync."),
-                InfoBarSeverity.Warning);
-            return;
-        }
-        await CommitSyncedAsync(state, merged.Bytes, etag, metadata, url, username,
-            autoMerged ? "Synced" : "Merged");
-        string copies = Loc.T("local: {0}; remote: {1}",
-            Path.GetFileName(localCopy), Path.GetFileName(remoteCopy));
-        ShowToast(autoMerged
-                ? Loc.T("Merged remote changes automatically ({0}).", copies)
-                : Loc.T("Kept both versions; merged and uploaded ({0}).", copies),
-            InfoBarSeverity.Success);
-    }
-
-    private async Task KeepLocalConflictAsync(WebDavClient dav, WebDavFileInfo metadata,
-        SyncState state, string url, string username)
-    {
-        byte[] localBytes = await File.ReadAllBytesAsync(_dbPath!);
-        string? etag;
-        try
-        {
-            etag = await dav.UploadAsync(localBytes, metadata.ETag);
-        }
-        catch (WebDavException ex) when (ex.Conflict)
-        {
-            state.LocalDirty = true;
-            _syncStates.Save(url, username, _dbPath!, state);
-            SetSyncStatus("Conflict");
-            ShowToast(Loc.T("Remote changed again; local version kept, will retry next sync."),
-                InfoBarSeverity.Warning);
-            return;
-        }
-        await CommitSyncedAsync(state, localBytes, etag, metadata, url, username, "Synced");
-        ShowToast(Loc.T("Kept local version; remote copy was saved."), InfoBarSeverity.Success);
-    }
-
-    private async Task KeepRemoteConflictAsync(WebDavClient dav, WebDavFileInfo metadata,
-        SyncState state, string url, string username, byte[] remote)
-    {
-        if (string.IsNullOrEmpty(_masterPassword))
-        {
-            throw new InvalidOperationException(
-                "Unlock the vault before applying remote changes.");
-        }
-        await _core.VerifyAsync(remote, _masterPassword);
-        await WriteLocalBytesAsync(_dbPath!, remote);
-        await ReopenFromLocalAsync();
-        await CommitSyncedAsync(state, remote, metadata.ETag, metadata, url, username,
-            "Synced");
-        ShowToast(Loc.T("Kept remote version; local copy was saved."), InfoBarSeverity.Success);
-    }
-
-    private async Task CommitSyncedAsync(SyncState state, byte[] bytes, string? etag,
-        WebDavFileInfo metadata, string url, string username, string status)
-    {
-        string sha = Sha256Hex(bytes);
-        await _core.SyncCommitAsync(etag, sha);
-        state.Etag = etag;
-        state.Sha256 = sha;
-        state.Size = bytes.Length;
-        state.RemoteModifiedUnix = metadata.ModifiedUnix;
-        state.LocalDirty = false;
-        state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        _syncStates.Save(url, username, _dbPath!, state);
-        // The conflict, if there was one, is resolved now.
-        _conflictSignature = null;
-        _conflictLocalCopy = null;
-        _conflictRemoteCopy = null;
-        SetSyncStatus(status);
-    }
-
-    private async Task ReopenFromLocalAsync()
+    /// <summary>
+    /// Reopen the core and refresh the UI from the file just written. The sync
+    /// coordinator's <see cref="IVaultDocument.ReloadAsync"/> adapter calls this.
+    /// </summary>
+    internal async Task ReopenFromLocalAsync()
     {
         if (_dbPath is null || string.IsNullOrEmpty(_masterPassword))
         {
@@ -2018,98 +1792,15 @@ public sealed partial class MainWindow : Window
         await ReloadVaultAsync(_currentFull?.Uuid);
     }
 
-    /// <summary>
-    /// Keep one local/remote copy pair for an unresolved conflict. A sync that
-    /// runs again against the same pair (for example the user cancelled the
-    /// dialog, or every later save retries the merge) reuses the existing copies
-    /// instead of writing another pair into the vault folder.
-    /// </summary>
-    private async Task<(string? LocalCopy, string? RemoteCopy)> PrepareConflictCopiesAsync(
-        byte[] remote)
-    {
-        string? signature = await ConflictSignatureAsync(remote);
-        if (signature is not null && signature == _conflictSignature &&
-            _conflictLocalCopy is not null && File.Exists(_conflictLocalCopy) &&
-            _conflictRemoteCopy is not null && File.Exists(_conflictRemoteCopy))
-        {
-            return (_conflictLocalCopy, _conflictRemoteCopy);
-        }
-        _conflictSignature = signature;
-        _conflictLocalCopy = CreateConflictCopy();
-        _conflictRemoteCopy = CreateRemoteConflictCopy(remote);
-        return (_conflictLocalCopy, _conflictRemoteCopy);
-    }
-
-    private async Task<string?> ConflictSignatureAsync(byte[] remote)
-    {
-        if (_dbPath is null)
-        {
-            return null;
-        }
-        try
-        {
-            byte[] local = await File.ReadAllBytesAsync(_dbPath);
-            string localHash = Convert.ToHexString(
-                System.Security.Cryptography.SHA256.HashData(local));
-            string remoteHash = Convert.ToHexString(
-                System.Security.Cryptography.SHA256.HashData(remote));
-            return localHash + ":" + remoteHash;
-        }
-        catch (IOException)
-        {
-            return null;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return null;
-        }
-    }
-
-    private string? CreateConflictCopy()
-    {
-        if (_dbPath is null)
-        {
-            return null;
-        }
-        string directory = Path.GetDirectoryName(_dbPath)!;
-        string stem = Path.GetFileNameWithoutExtension(_dbPath);
-        string extension = Path.GetExtension(_dbPath);
-        string stamp = DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss");
-        string path = Path.Combine(directory, $"{stem} (conflict {stamp}){extension}");
-        int suffix = 1;
-        while (File.Exists(path))
-        {
-            path = Path.Combine(directory, $"{stem} (conflict {stamp}-{suffix++}){extension}");
-        }
-        AtomicFile.Copy(_dbPath, path);
-        return path;
-    }
-
-    private string? CreateRemoteConflictCopy(byte[] remote)
-    {
-        if (_dbPath is null)
-        {
-            return null;
-        }
-        string directory = Path.GetDirectoryName(_dbPath)!;
-        string stem = Path.GetFileNameWithoutExtension(_dbPath);
-        string extension = Path.GetExtension(_dbPath);
-        string stamp = DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss");
-        string path = Path.Combine(directory, $"{stem} (remote conflict {stamp}){extension}");
-        int suffix = 1;
-        while (File.Exists(path))
-        {
-            path = Path.Combine(directory,
-                $"{stem} (remote conflict {stamp}-{suffix++}){extension}");
-        }
-        AtomicFile.Write(path, remote);
-        return path;
-    }
-
+    /// <summary>Lowercase hex SHA-256, the same shape the core's sync baseline uses.</summary>
     private static string Sha256Hex(byte[] bytes)
         => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
-    private async Task WriteLocalBytesAsync(string path, byte[] bytes)
+    /// <summary>
+    /// Durable, gated write of database bytes (sync/restore paths). The sync
+    /// coordinator's <see cref="IVaultDocument.ReplaceAsync"/> adapter calls this.
+    /// </summary>
+    internal async Task WriteLocalBytesAsync(string path, byte[] bytes)
     {
         using IDisposable vaultWrite = await _vaultWriteGate.EnterAsync();
         bool isLiveDatabase = _dbPath is not null &&

@@ -5,6 +5,18 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **The WebDAV sync protocol is a tested application service:** `SyncCoordinator` in
+  `Keepassity.Core` now owns the whole run (decision, conditional upload with the 0.5/1.5/4 s
+  back-off, verified download, three-way merge, conflict copies and the three conflict choices,
+  then the baseline commit) behind `ISyncRemote`, `IVaultDocument` and the expanded `ICoreClient`
+  ports. The window keeps the WebDAV connection, the conflict dialog and the toast texts, which
+  shrank it by ~500 lines. Because the ordering rules are now outside WinUI, 38 headless
+  assertions pin them down: verify before replace, local write before upload, core baseline
+  commit before the sidecar says clean, 412 retries and the merge fallback, conflict-copy reuse
+  and dirty-on-failure. A clean sidecar is also cross-checked against the local file, so a crash
+  between the save and its baseline write cannot turn the next sync into a silent no-op. The FFI
+  wire DTOs moved to Core with the coordinator they describe, and the localization gate learned
+  the coordinator's status strings.
 - **Sync baseline corruption is preserved:** an unreadable `state/*.json` sidecar is copied to `.corrupt-<timestamp>` before the vault is treated as dirty. `SyncStateStore` accepts an explicit directory for tests, and the headless suite covers round trip, missing-baseline clean state, malformed hash and corrupt-file preservation.
 - **WebDAV downloads also reject redirects:** the download/metadata HTTP client no longer
   follows redirects (the upload client already did not). A 3xx response fails the sync instead

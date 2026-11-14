@@ -30,7 +30,7 @@ public sealed class WebDavFileInfo
 }
 
 /// <summary>Minimal WebDAV file client: PROPFIND depth 0, GET and conditional PUT.</summary>
-public sealed class WebDavClient : IDisposable
+public sealed class WebDavClient : IDisposable, ISyncRemote
 {
     private const string PropfindBody =
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +

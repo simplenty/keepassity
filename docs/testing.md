@@ -30,7 +30,8 @@ manifest, Windows build, headless service tests; `-Full` adds the application se
 - `tests/app-core/Keepassity.Core.Tests`: settings round-trip/schema and credential
   storage, sync-state round-trip and per-user keying, deterministic WebDAV working-copy
   paths, the WebDAV client against an in-process mock server (PROPFIND, GET, conditional
-  PUT, 412, non-ASCII/percent-encoded paths), DPAPI credential round-trip (Windows),
+  PUT, 412, non-ASCII/percent-encoded paths), the sync coordinator's ordering and conflict
+  rules with fake remote/vault/core ports, DPAPI credential round-trip (Windows),
   backups (retention/restore, corrupted-backup rejection), diagnostics archive and logging.
 - `apps/windows` `--selftest`: non-UI application smoke test (open fixture copy -> list ->
   TOTP -> save -> reopen). It exits non-zero on failure and writes counts/status only, never

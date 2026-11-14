@@ -177,6 +177,20 @@ internal static class UnlockViewModelTests
             return Task.CompletedTask;
         }
 
+        // The unlock view model only opens and locks; the sync members of the
+        // port are exercised by SyncCoordinatorTests with its own fake.
+        public Task<byte[]> SaveBytesAsync()
+            => throw new NotSupportedException();
+
+        public Task VerifyAsync(byte[] bytes, string password)
+            => throw new NotSupportedException();
+
+        public Task<SyncDecisionDto> SyncDecideAsync(string remoteMetaJson, bool localDirty)
+            => throw new NotSupportedException();
+
+        public Task SyncCommitAsync(string? etag, string? sha256)
+            => throw new NotSupportedException();
+
         public void Dispose()
         {
         }

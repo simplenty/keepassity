@@ -2,9 +2,9 @@
 namespace Keepassity.Core;
 
 /// <summary>
-/// The application-facing view of the native core. View models depend on this
-/// port, never on the P/Invoke implementation, so their behaviour can be tested
-/// without the native library or a window.
+/// The application-facing view of the native core. View models and application
+/// services depend on this port, never on the P/Invoke implementation, so their
+/// behaviour can be tested without the native library or a window.
 /// </summary>
 public interface ICoreClient : IDisposable
 {
@@ -22,4 +22,23 @@ public interface ICoreClient : IDisposable
 
     /// <summary>Lock the vault and drop the decrypted state; the handle stays usable.</summary>
     Task LockAsync();
+
+    /// <summary>
+    /// Serialize the current model as KDBX bytes without writing them to disk.
+    /// The core has already decrypted and re-parsed the result before returning,
+    /// so the bytes are safe to place on disk.
+    /// </summary>
+    Task<byte[]> SaveBytesAsync();
+
+    /// <summary>
+    /// Decrypt and validate KDBX bytes with the given password without keeping a
+    /// handle. Used before downloaded or restored bytes replace the live file.
+    /// </summary>
+    Task VerifyAsync(byte[] bytes, string password);
+
+    /// <summary>Ask the core's sync state machine what to do with the remote copy.</summary>
+    Task<SyncDecisionDto> SyncDecideAsync(string remoteMetaJson, bool localDirty);
+
+    /// <summary>Record the remote etag and content hash the local copy is now in sync with.</summary>
+    Task SyncCommitAsync(string? etag, string? sha256);
 }
