@@ -191,6 +191,7 @@ try
     VaultWriteGateTests.Run(Check);
     VaultSessionTests.Run(Check, dataDirectory);
     VaultFileLockTests.Run(Check, dataDirectory);
+    RunStateStoreTests.Run(Check, dataDirectory);
     NewDatabasePreparerTests.Run(Check, dataDirectory);
     RecentDatabaseTests.Run(Check, dataDirectory);
     SyncStateStoreTests.Run(Check, dataDirectory);

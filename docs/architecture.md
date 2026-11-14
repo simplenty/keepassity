@@ -69,6 +69,9 @@ planned for v1.x and is expected to consume the same core directly.
 - A damaged database can be replaced from the unlock screen by the newest local backup that the
   entered master password opens (`VaultRecovery`); the damaged file is kept as a before-restore
   backup, and the normal in-app restore list still requires the restored vault to be open.
+- A run marker (`RunStateStore`) separates a clean close from a crash or power loss: the next
+  launch reports an unclean previous session on the unlock surface and points at the backups. The
+  marker is written atomically, is best effort, and ignores a concurrent test-only second window.
 - A newly created database goes through the same protocol from its first byte:
   `AtomicFile.WriteNew` flushes a temporary and performs a create-only move, so it never replaces
   a file another program created in the race, and `NewDatabasePreparer` writes a WebDAV working

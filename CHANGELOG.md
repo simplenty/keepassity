@@ -17,6 +17,12 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **A crash is noticed on the next launch:** a small run marker is written when the window
+  starts and removed on a clean close. When it is still there and its process is gone, the unlock
+  surface reports that the previous session ended unexpectedly and points at the backups, so a
+  crash or power loss no longer looks like a normal start. A marker from a still-running instance
+  is ignored, a malformed marker counts as an unclean run, and writing the marker is atomic and
+  best effort (the `--selftest` path never creates one).
 - **Saves work on FAT/exFAT and network shares:** the atomic replace used `File.Replace`, which
   is unavailable on volumes without that primitive, so every save of a vault on such a volume
   failed. The placement now falls back to a same-volume rename (still a rename, so a crash leaves

@@ -43,6 +43,8 @@ manifest, Windows build, headless service tests; `-Full` adds the application se
   preparation (create-only local write, WebDAV working copy with a clean baseline), DPAPI
   credential round-trip (Windows), backups (retention/restore, corrupted-backup rejection,
   the same-volume rename fallback for volumes without `File.Replace`,
+  the run marker that reports an unclean previous session (clean close, dead process, live
+  process, malformed marker, atomic write),
   recovery candidate selection: newest decryptable backup wins while corrupt, unreadable and
   wrong-password candidates are skipped, verified against the real core as well),
   diagnostics archive and logging.

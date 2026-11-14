@@ -57,7 +57,9 @@ public sealed partial class MainWindow : Window
     // only then is the working copy replaced (see RemoteVaultOpener).
     private readonly RemoteVaultOpener _remoteOpener;
     private readonly NewDatabasePreparer _newDatabase;
+    private readonly RunStateStore _runState = new();
     private PendingRemoteDatabase? _pendingRemoteDownload;
+    private PreviousRun? _previousRun;
     private string? _corruptRecoveryPath;
     private bool _corruptRecoveryOffered;
     private readonly DispatcherTimer _totpTimer = new();
@@ -192,6 +194,12 @@ public sealed partial class MainWindow : Window
         Root.Language = Loc.IsChinese ? "zh-CN" : "en-US";
         InitializeLanguageUi();
 
+        // Detect an unclean shutdown before marking this run: a marker whose
+        // process no longer exists means the last session died (crash, power
+        // loss, forced kill), so the unlock surface can point at the backups.
+        _previousRun = _runState.DetectPreviousCrash();
+        _runState.MarkRunning();
+
         // Security: lock the vault on Windows session lock, logoff, session end
         // and system suspend (see SessionLockMonitor). The network monitor
         // replays pending WebDAV edits when connectivity comes back.
@@ -223,6 +231,7 @@ public sealed partial class MainWindow : Window
         Root.Loaded += Root_Loaded;
         Closed += (_, _) =>
         {
+            _runState.Clear();
             SaveWindowBounds();
             _totpTimer.Stop();
             _sessionLockMonitor?.Dispose();
@@ -628,6 +637,15 @@ public sealed partial class MainWindow : Window
         if (Settings.StartMinimized && _trayIcon is { Available: true })
         {
             AppWindow.Hide();
+        }
+        if (_previousRun is not null)
+        {
+            AppLog.Warn($"previous session (pid {_previousRun.ProcessId}) " +
+                        "did not close cleanly");
+            Unlock.ShowStatus(Loc.T("Previous session ended unexpectedly"),
+                Loc.T("If the database looks wrong, check Backups: the newest copies are " +
+                      "saved with the database."),
+                UnlockStatusSeverity.Informational, recovery: true);
         }
         string? devPassword = TestHooks.EnvironmentValue("KEEPASSITY_MOCK_PASSWORD");
         if (_dbPath is not null && !string.IsNullOrEmpty(devPassword))
