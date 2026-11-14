@@ -42,8 +42,9 @@ manifest, Windows build, headless service tests; `-Full` adds the application se
   credential round-trip (Windows), backups (retention/restore, corrupted-backup rejection),
   diagnostics archive and logging.
 - `apps/windows` `--selftest`: non-UI application smoke test (open fixture copy -> list ->
-  TOTP -> save -> reopen). It exits non-zero on failure and writes counts/status only, never
-  secrets.
+  TOTP -> save -> backup create/restore -> reopen -> verify, plus localization, launch-argument,
+  single-instance payload and merge-fidelity checks). It exits non-zero on failure and writes
+  counts/status only, never secrets.
 
 ## Fixtures
 

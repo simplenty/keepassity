@@ -162,6 +162,9 @@ internal static class AppSelfTest
             Record("single-instance: payload encode/decode and path validation");
             Record("copying fixture");
             File.Copy(databasePath, temp, true);
+            int entriesBeforeRestore = -1;
+            string? entryAddedAfterBackup = null;
+            int restoreRecoveryPoints = 0;
             using (var core = new CoreClient())
             {
                 Record("opening copy");
@@ -269,6 +272,39 @@ internal static class AppSelfTest
                 Record("saving copy again (cached KDF)");
                 core.SaveAsync(temp, 20).GetAwaiter().GetResult();
                 Record($"saved again: {new FileInfo(temp).Length} bytes");
+                // Backups must restore end to end. Create one, make a change,
+                // restore the backup, then reopen below to prove the change is
+                // gone and the overwritten bytes survive as a recovery point.
+                Record("creating backup");
+                byte[] savedBytes = File.ReadAllBytes(temp);
+                BackupEntry? backup = BackupService.CreateBackup(temp, 20, "selftest");
+                if (backup is null ||
+                    !File.ReadAllBytes(backup.Path).SequenceEqual(savedBytes))
+                {
+                    throw new InvalidOperationException(
+                        "The newly created backup does not match the saved database.");
+                }
+                entriesBeforeRestore = entries.Count;
+                entryAddedAfterBackup = core.CreateEntryAsync(groups[0].Uuid,
+                    "selftest-restore", string.Empty, string.Empty, string.Empty,
+                    string.Empty).GetAwaiter().GetResult();
+                core.SaveAsync(temp, 20).GetAwaiter().GetResult();
+                byte[] changedBytes = File.ReadAllBytes(temp);
+                BackupService.RestoreBytes(temp, savedBytes, 20);
+                if (!File.ReadAllBytes(temp).SequenceEqual(savedBytes))
+                {
+                    throw new InvalidOperationException(
+                        "Restoring the backup did not restore the saved bytes.");
+                }
+                List<BackupEntry> recoveryPoints = BackupService.ListBackups(temp);
+                if (!recoveryPoints.Any(entry =>
+                        File.ReadAllBytes(entry.Path).SequenceEqual(changedBytes)))
+                {
+                    throw new InvalidOperationException(
+                        "Restoring did not keep the overwritten database as a recovery point.");
+                }
+                restoreRecoveryPoints = recoveryPoints.Count;
+                Record($"backup: created, restored, {restoreRecoveryPoints} recovery point(s)");
             }
 
             using (var verify = new CoreClient())
@@ -281,6 +317,19 @@ internal static class AppSelfTest
                     throw new InvalidOperationException("Reopened database has no entries.");
                 }
                 Record($"reopened: {reopened.Count} entr(ies)");
+                if (entriesBeforeRestore >= 0 &&
+                    (reopened.Count != entriesBeforeRestore ||
+                     (entryAddedAfterBackup is not null &&
+                      reopened.Any(entry => entry.Uuid == entryAddedAfterBackup))))
+                {
+                    throw new InvalidOperationException(
+                        "The restored database still contains the post-backup change.");
+                }
+                if (entriesBeforeRestore >= 0)
+                {
+                    Record($"restore: reopened {reopened.Count} entr(ies) without the " +
+                           $"post-backup change, {restoreRecoveryPoints} recovery point(s)");
+                }
 
                 // Remote bytes are verified before they replace the live copy.
                 // Prove the C ABI accepts the intact save and rejects a damaged
@@ -348,6 +397,28 @@ internal static class AppSelfTest
             catch
             {
                 // Temp cleanup is best-effort.
+            }
+            try
+            {
+                string backupDirectory = BackupService.BackupDirectory(temp);
+                if (Directory.Exists(backupDirectory))
+                {
+                    Directory.Delete(backupDirectory, recursive: true);
+                    string backupsRoot = Path.GetDirectoryName(backupDirectory)!;
+                    string keepassityRoot = Path.GetDirectoryName(backupsRoot)!;
+                    if (Directory.GetFileSystemEntries(backupsRoot).Length == 0)
+                    {
+                        Directory.Delete(backupsRoot);
+                    }
+                    if (Directory.GetFileSystemEntries(keepassityRoot).Length == 0)
+                    {
+                        Directory.Delete(keepassityRoot);
+                    }
+                }
+            }
+            catch
+            {
+                // Backup cleanup is best-effort.
             }
         }
         return code;

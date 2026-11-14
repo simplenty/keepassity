@@ -17,6 +17,13 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **Backup restore verifies the exact bytes it writes, and the self-test covers the round trip:**
+  the restore flow verified a backup by opening its path in a probe, so an external change between
+  the read and the probe could make it validate a different snapshot than the bytes it replaced.
+  It now runs `kp_verify` on the byte array that will be restored, before the pre-restore save and
+  the atomic replacement. The `--selftest` smoke test now creates a backup, makes and saves a
+  change, restores the backup, reopens and asserts that the change is gone and the overwritten
+  bytes survive as a recovery point.
 - **A sync read can no longer make a save fail:** the sync coordinator read the live database file
   directly, so its read handle could collide with a concurrent atomic replace and make the save
   fail with a sharing violation. Reads now go through the vault session's write gate

@@ -1990,11 +1990,10 @@ public sealed partial class MainWindow : Window
         try
         {
             byte[] selectedBytes = await File.ReadAllBytesAsync(selected.Path);
-            using (var probe = new CoreClient())
-            {
-                await probe.OpenAsync(selected.Path, _masterPassword);
-                await probe.LockAsync();
-            }
+            // Verify the exact bytes that will be restored. Opening the backup
+            // path in a probe would verify whatever the file holds at that
+            // moment, which may no longer be the snapshot read above.
+            await _core.VerifyAsync(selectedBytes, _masterPassword);
             if (!await SaveAsync(silent: true, syncAfterSave: false))
             {
                 // Restoring replaces the file; never continue when the current
