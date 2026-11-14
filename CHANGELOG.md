@@ -17,6 +17,12 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **A damaged database can be recovered from the unlock screen:** opening a corrupt database used
+  to leave only the error banner and an external backup-folder button, because the in-app backup
+  list needs an open vault. The unlock failure now offers the newest local backup that the entered
+  master password still opens; its bytes are verified with the core before anything is replaced,
+  the damaged file is kept as a before-restore backup, and the unlock is retried. Corrupt,
+  unreadable and wrong-password candidates are skipped (`VaultRecovery`).
 - **Backup restore verifies the exact bytes it writes, and the self-test covers the round trip:**
   the restore flow verified a backup by opening its path in a probe, so an external change between
   the read and the probe could make it validate a different snapshot than the bytes it replaced.

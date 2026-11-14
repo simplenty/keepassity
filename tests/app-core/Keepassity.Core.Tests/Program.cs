@@ -185,6 +185,7 @@ try
     // M4-05: retention boundary (custom and default 20), restore ordering and
     // rejection of a corrupted backup with the live database left untouched.
     BackupServiceTests.Run(Check, dataDirectory);
+    VaultRecoveryTests.Run(Check, dataDirectory);
     AtomicFileTests.Run(Check, dataDirectory);
     VaultGuardTests.Run(Check, dataDirectory);
     VaultWriteGateTests.Run(Check);

@@ -39,7 +39,9 @@ manifest, Windows build, headless service tests; `-Full` adds the application se
   serialized with writes), the TOTP display state machine (window countdown, pre-fetch, entry
   switch, a failing source shown as unavailable rather than throwing), new-database
   preparation (create-only local write, WebDAV working copy with a clean baseline), DPAPI
-  credential round-trip (Windows), backups (retention/restore, corrupted-backup rejection),
+  credential round-trip (Windows), backups (retention/restore, corrupted-backup rejection,
+  recovery candidate selection: newest decryptable backup wins while corrupt, unreadable and
+  wrong-password candidates are skipped, verified against the real core as well),
   diagnostics archive and logging.
 - `apps/windows` `--selftest`: non-UI application smoke test (open fixture copy -> list ->
   TOTP -> save -> backup create/restore -> reopen -> verify, plus localization, launch-argument,

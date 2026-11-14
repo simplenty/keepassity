@@ -58,6 +58,8 @@ public sealed partial class MainWindow : Window
     private readonly RemoteVaultOpener _remoteOpener;
     private readonly NewDatabasePreparer _newDatabase;
     private PendingRemoteDatabase? _pendingRemoteDownload;
+    private string? _corruptRecoveryPath;
+    private bool _corruptRecoveryOffered;
     private readonly DispatcherTimer _totpTimer = new();
     private readonly DispatcherTimer _toastTimer = new();
     private readonly DispatcherTimer _autoLockTimer = new();
@@ -3000,6 +3002,20 @@ public sealed partial class MainWindow : Window
         {
             _busy = false;
         }
+        if (!unlocked && await TryRestoreDamagedDatabaseAsync(MasterPassword.Password))
+        {
+            // The damaged file was replaced by the newest backup this password
+            // can open; try the unlock again on the restored database.
+            _busy = true;
+            try
+            {
+                unlocked = await Unlock.UnlockAsync(MasterPassword.Password);
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
         if (!unlocked)
         {
             ReleaseVaultLock();
@@ -3029,6 +3045,100 @@ public sealed partial class MainWindow : Window
         ShowMain();
         MasterPassword.Password = string.Empty;
         _ = SyncAsync(startup: true);
+    }
+
+    /// <summary>
+    /// A damaged database cannot be opened, which also makes the normal in-app
+    /// backup list unreachable (it needs an open vault). Offer the newest local
+    /// backup the entered master password can still open; restoring it preserves
+    /// the damaged file as a before-restore backup. Returns true when the caller
+    /// should retry the unlock.
+    /// </summary>
+    private async Task<bool> TryRestoreDamagedDatabaseAsync(string password)
+    {
+        if (_dbPath is null ||
+            !string.Equals(Unlock.LastErrorCode, "CorruptDatabase", StringComparison.Ordinal))
+        {
+            return false;
+        }
+        if (!string.Equals(_corruptRecoveryPath, _dbPath, StringComparison.OrdinalIgnoreCase))
+        {
+            _corruptRecoveryPath = _dbPath;
+            _corruptRecoveryOffered = false;
+        }
+        if (_corruptRecoveryOffered || BackupService.ListBackups(_dbPath).Count == 0)
+        {
+            return false;
+        }
+        _corruptRecoveryOffered = true;
+        var dialog = new ContentDialog
+        {
+            Title = Loc.T("Database is damaged"),
+            Content = Loc.T("The database could not be opened. Restore the newest backup " +
+                            "that opens with this master password? The damaged file is kept " +
+                            "as a backup."),
+            PrimaryButtonText = Loc.T("Restore backup"),
+            CloseButtonText = Loc.T("Cancel"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Root.XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return false;
+        }
+        RestorableBackup? restorable;
+        try
+        {
+            restorable = await VaultRecovery.FindRestorableBackupAsync(_dbPath,
+                bytes => VerifyBackupAsync(bytes, password));
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("damaged-database recovery search failed", ex);
+            ShowToast(Loc.T("Restore failed: {0}", ex.Message), InfoBarSeverity.Error);
+            return false;
+        }
+        if (restorable is null)
+        {
+            AppLog.Warn("damaged-database recovery: no backup opens with this password");
+            Unlock.ShowStatus(Loc.T("Database is damaged"),
+                Loc.T("No backup opens with this master password."),
+                UnlockStatusSeverity.Error, recovery: true);
+            return false;
+        }
+        try
+        {
+            BackupService.RestoreBytes(_dbPath, restorable.Bytes, Settings.BackupRetention);
+            RememberVaultFingerprint(_dbPath);
+            AppLog.Info($"damaged database replaced by backup " +
+                        $"{Path.GetFileName(restorable.Entry.Path)}");
+            ShowToast(Loc.T("Backup restored"), InfoBarSeverity.Success);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("damaged-database recovery failed", ex);
+            ShowToast(Loc.T("Restore failed: {0}", ex.Message), InfoBarSeverity.Error);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// True when the candidate backup bytes decrypt with the entered password.
+    /// Uses the same core verifier as the remote-download path, so a damaged or
+    /// wrong-password backup is never offered as recovery.
+    /// </summary>
+    private async Task<bool> VerifyBackupAsync(byte[] bytes, string password)
+    {
+        try
+        {
+            await _core.VerifyAsync(bytes, password);
+            return true;
+        }
+        catch (CoreException)
+        {
+            return false;
+        }
     }
 
     private void ShowMain()

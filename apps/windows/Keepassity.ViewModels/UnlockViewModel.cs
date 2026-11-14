@@ -46,6 +46,13 @@ public sealed partial class UnlockViewModel : ObservableObject
     [ObservableProperty]
     private bool _recoveryVisible;
 
+    /// <summary>
+    /// Core error code of the last failed attempt (<c>CorruptDatabase</c>,
+    /// <c>BadPassword</c>, ...). The shell uses it to offer a backup recovery for
+    /// a damaged database without re-parsing a status message.
+    /// </summary>
+    public string? LastErrorCode { get; private set; }
+
     /// <param name="remoteOpener">
     /// When the selected database was downloaded from WebDAV, the unlock opens
     /// the downloaded bytes first and only then promotes them to the working
@@ -172,6 +179,7 @@ public sealed partial class UnlockViewModel : ObservableObject
 
         IsBusy = true;
         ClearStatus();
+        LastErrorCode = null;
         PendingRemoteDatabase? pending = _pendingRemote;
         bool usePendingRemote = pending is not null && _remoteOpener is not null &&
             string.Equals(pending.WorkingCopyPath, _databasePath,
@@ -198,6 +206,7 @@ public sealed partial class UnlockViewModel : ObservableObject
         }
         catch (CoreException ex)
         {
+            LastErrorCode = ex.Code;
             ShowError(TitleFor(ex.Code), ex.Message, recovery: true);
             return false;
         }

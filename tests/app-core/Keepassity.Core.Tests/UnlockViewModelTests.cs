@@ -20,6 +20,7 @@ internal static class UnlockViewModelTests
         MissingDatabaseIsRejected();
         EmptyPasswordIsRejected();
         WrongPasswordIsClassified();
+        CorruptDatabaseIsClassified();
         UnsupportedDatabaseIsClassified();
         SuccessClearsTheBanner();
         ConcurrentAttemptsAreRejected();
@@ -71,6 +72,24 @@ internal static class UnlockViewModelTests
         Check("wrong password leaves the busy state", !vm.IsBusy && vm.CanUnlock);
     }
 
+    private static void CorruptDatabaseIsClassified()
+    {
+        var core = new FakeCoreClient
+        {
+            OnOpen = (_, _) => Task.FromException(
+                new CoreException("CorruptDatabase", "damaged")),
+        };
+        var vm = new UnlockViewModel(core, FakeText.Instance);
+        vm.SetDatabasePath(@"C:\vault.kdbx");
+        bool unlocked = vm.UnlockAsync("secret").GetAwaiter().GetResult();
+        Check("unlock reports a damaged database", !unlocked);
+        Check("damaged database keeps its core error code",
+            vm.LastErrorCode == "CorruptDatabase", vm.LastErrorCode ?? "(none)");
+        Check("damaged database uses its own title",
+            vm.StatusTitle == "Database is damaged" && vm.RecoveryVisible,
+            vm.StatusTitle);
+    }
+
     private static void UnsupportedDatabaseIsClassified()
     {
         var core = new FakeCoreClient
@@ -98,6 +117,8 @@ internal static class UnlockViewModelTests
             !vm.IsStatusOpen && vm.StatusMessage.Length == 0 && !vm.RecoveryVisible);
         Check("successful unlock passes the selected path and password",
             core.OpenedPath == @"C:\vault.kdbx" && core.OpenedPassword == "correct");
+        Check("successful unlock clears the last error code", vm.LastErrorCode is null,
+            vm.LastErrorCode ?? "(none)");
         Check("successful unlock leaves the view model idle", !vm.IsBusy && vm.CanUnlock);
     }
 

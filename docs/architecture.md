@@ -63,6 +63,9 @@ planned for v1.x and is expected to consume the same core directly.
   core's IO-free `save_atomic` protocol; an unlock removes leftover temps before opening. The
   Windows path therefore matches the core protocol's ordering (verify → temp → backup → replace),
   with the backup hook delegated to `BackupService`.
+- A damaged database can be replaced from the unlock screen by the newest local backup that the
+  entered master password opens (`VaultRecovery`); the damaged file is kept as a before-restore
+  backup, and the normal in-app restore list still requires the restored vault to be open.
 - A newly created database goes through the same protocol from its first byte:
   `AtomicFile.WriteNew` flushes a temporary and performs a create-only move, so it never replaces
   a file another program created in the race, and `NewDatabasePreparer` writes a WebDAV working
