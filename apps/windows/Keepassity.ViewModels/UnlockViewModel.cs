@@ -23,7 +23,9 @@ public sealed partial class UnlockViewModel : ObservableObject
 {
     private readonly ICoreClient _core;
     private readonly IAppText _text;
+    private readonly RemoteVaultOpener? _remoteOpener;
     private string? _databasePath;
+    private PendingRemoteDatabase? _pendingRemote;
 
     [ObservableProperty]
     private bool _isBusy;
@@ -44,10 +46,16 @@ public sealed partial class UnlockViewModel : ObservableObject
     [ObservableProperty]
     private bool _recoveryVisible;
 
-    public UnlockViewModel(ICoreClient core, IAppText text)
+    /// <param name="remoteOpener">
+    /// When the selected database was downloaded from WebDAV, the unlock opens
+    /// the downloaded bytes first and only then promotes them to the working
+    /// copy (see <see cref="SetPendingRemote"/>). Local databases unlock as before.
+    /// </param>
+    public UnlockViewModel(ICoreClient core, IAppText text, RemoteVaultOpener? remoteOpener = null)
     {
         _core = core ?? throw new ArgumentNullException(nameof(core));
         _text = text ?? throw new ArgumentNullException(nameof(text));
+        _remoteOpener = remoteOpener;
     }
 
     /// <summary>Absolute path of the database selected on the unlock surface.</summary>
@@ -81,7 +89,8 @@ public sealed partial class UnlockViewModel : ObservableObject
     /// <summary>
     /// Select a database path without unlocking. A different path clears any
     /// status left over from the previous attempt, so a stale error can never be
-    /// mistaken for the new selection.
+    /// mistaken for the new selection. A pending WebDAV download belongs to one
+    /// working copy only, so switching to another database drops it.
     /// </summary>
     public void SetDatabasePath(string? path)
     {
@@ -90,9 +99,28 @@ public sealed partial class UnlockViewModel : ObservableObject
         {
             return;
         }
+        if (_pendingRemote is not null && !string.Equals(
+                _pendingRemote.WorkingCopyPath, normalized,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            _pendingRemote = null;
+        }
         DatabasePath = normalized;
         ClearStatus();
     }
+
+    /// <summary>
+    /// The downloaded WebDAV database waiting to be unlocked, or null. Its bytes
+    /// are opened directly so the working copy is only replaced after the master
+    /// password proved they decrypt.
+    /// </summary>
+    public PendingRemoteDatabase? PendingRemote => _pendingRemote;
+
+    /// <summary>
+    /// Hand the downloaded remote database to the next unlock. Passing null
+    /// forgets it; a new download replaces the previous one.
+    /// </summary>
+    public void SetPendingRemote(PendingRemoteDatabase? pending) => _pendingRemote = pending;
 
     /// <summary>Whether a database-open operation (not necessarily an unlock) is running.</summary>
     public void SetBusy(bool busy) => IsBusy = busy;
@@ -144,9 +172,24 @@ public sealed partial class UnlockViewModel : ObservableObject
 
         IsBusy = true;
         ClearStatus();
+        PendingRemoteDatabase? pending = _pendingRemote;
+        bool usePendingRemote = pending is not null && _remoteOpener is not null &&
+            string.Equals(pending.WorkingCopyPath, _databasePath,
+                StringComparison.OrdinalIgnoreCase);
         try
         {
-            await _core.OpenAsync(_databasePath!, password).ConfigureAwait(true);
+            if (usePendingRemote)
+            {
+                // Open the downloaded bytes and promote them to the working copy
+                // only after they decrypted; a wrong password or a damaged
+                // download leaves the previous working copy alone.
+                await _remoteOpener!.OpenAsync(pending!, _core, password).ConfigureAwait(true);
+                _pendingRemote = null;
+            }
+            else
+            {
+                await _core.OpenAsync(_databasePath!, password).ConfigureAwait(true);
+            }
             return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

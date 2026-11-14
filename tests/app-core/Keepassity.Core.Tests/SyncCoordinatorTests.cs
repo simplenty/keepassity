@@ -621,6 +621,9 @@ internal static class SyncCoordinatorTests
         public Task OpenAsync(string path, string password)
             => throw new NotSupportedException();
 
+        public Task OpenBytesAsync(byte[] kdbx, string password, string? databasePath = null)
+            => throw new NotSupportedException();
+
         public Task LockAsync() => Task.CompletedTask;
 
         public Task<byte[]> SaveBytesAsync() => Task.FromResult(ModelBytes);

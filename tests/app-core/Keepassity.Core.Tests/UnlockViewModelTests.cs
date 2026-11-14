@@ -14,7 +14,7 @@ internal static class UnlockViewModelTests
 
     private static void Check(string name, bool ok, string detail) => _report(name, ok, detail);
 
-    public static void Run(Action<string, bool, string> check)
+    public static void Run(Action<string, bool, string> check, string dataDirectory)
     {
         _report = check;
         MissingDatabaseIsRejected();
@@ -24,6 +24,8 @@ internal static class UnlockViewModelTests
         SuccessClearsTheBanner();
         ConcurrentAttemptsAreRejected();
         ChangingTheDatabaseClearsStaleErrors();
+        PendingRemoteDownloadOpensItsBytesFirst(dataDirectory);
+        PendingRemoteDownloadSurvivesAWrongPassword(dataDirectory);
     }
 
     private static void MissingDatabaseIsRejected()
@@ -135,6 +137,101 @@ internal static class UnlockViewModelTests
             !vm.IsStatusOpen && !vm.RecoveryVisible && vm.HasDatabase);
     }
 
+    /// <summary>
+    /// A WebDAV download is opened from its bytes, so the working copy is only
+    /// rewritten after the master password proved that the download decrypts.
+    /// </summary>
+    private static void PendingRemoteDownloadOpensItsBytesFirst(string dataDirectory)
+    {
+        string folder = NewFolder(dataDirectory, "pending-promote");
+        string workingCopy = Path.Combine(folder, "vault.kdbx");
+        byte[] oldBytes = { 1, 1, 1 };
+        byte[] pendingBytes = { 7, 7, 7, 7 };
+        File.WriteAllBytes(workingCopy, oldBytes);
+        var states = new SyncStateStore(Path.Combine(folder, "state"));
+        var core = new FakeCoreClient();
+        var vm = new UnlockViewModel(core, FakeText.Instance, new RemoteVaultOpener(states));
+        vm.SetDatabasePath(workingCopy);
+        vm.SetPendingRemote(Pending(url: "https://example.test/pending.kdbx", workingCopy,
+            pendingBytes));
+
+        bool unlocked = vm.UnlockAsync("correct").GetAwaiter().GetResult();
+
+        Check("a pending remote download unlocks its bytes",
+            unlocked && core.OpenBytesCalls == 1, core.OpenBytesCalls.ToString());
+        Check("a pending remote download never opens the stale path", core.OpenCalls == 0);
+        Check("promoting a pending download writes the verified bytes",
+            File.ReadAllBytes(workingCopy).SequenceEqual(pendingBytes));
+        Check("a promoted pending download is forgotten", vm.PendingRemote is null);
+        SyncState state = states.Load("https://example.test/pending.kdbx", "user",
+            workingCopy);
+        Check("promoting a pending download records a clean baseline",
+            !state.LocalDirty && state.Etag == "\"e1\"" &&
+            state.Sha256 == Sha(pendingBytes), state.Sha256 ?? "(none)");
+    }
+
+    private static void PendingRemoteDownloadSurvivesAWrongPassword(string dataDirectory)
+    {
+        string folder = NewFolder(dataDirectory, "pending-retry");
+        string workingCopy = Path.Combine(folder, "vault.kdbx");
+        byte[] oldBytes = { 2, 2, 2 };
+        byte[] pendingBytes = { 8, 8 };
+        File.WriteAllBytes(workingCopy, oldBytes);
+        var states = new SyncStateStore(Path.Combine(folder, "state"));
+        var core = new FakeCoreClient
+        {
+            OnOpenBytes = (_, _, _) => Task.FromException(
+                new CoreException("BadPassword", "incorrect master password")),
+        };
+        var vm = new UnlockViewModel(core, FakeText.Instance, new RemoteVaultOpener(states));
+        vm.SetDatabasePath(workingCopy);
+        vm.SetPendingRemote(Pending(url: "https://example.test/retry.kdbx", workingCopy,
+            pendingBytes));
+
+        bool unlocked = vm.UnlockAsync("wrong").GetAwaiter().GetResult();
+
+        Check("a wrong password rejects the pending download", !unlocked);
+        Check("a wrong password uses the wrong-password title",
+            vm.StatusTitle == "Wrong master password", vm.StatusTitle);
+        Check("a wrong password leaves the working copy untouched",
+            File.ReadAllBytes(workingCopy).SequenceEqual(oldBytes));
+        Check("a wrong password keeps the pending download for a retry",
+            vm.PendingRemote is not null);
+
+        core.OnOpenBytes = null;
+        bool retried = vm.UnlockAsync("correct").GetAwaiter().GetResult();
+        Check("the retried password promotes the held download",
+            retried && File.ReadAllBytes(workingCopy).SequenceEqual(pendingBytes) &&
+            vm.PendingRemote is null);
+    }
+
+    private static PendingRemoteDatabase Pending(string url, string workingCopy,
+        byte[] bytes) => new()
+    {
+        Url = url,
+        Username = "user",
+        WorkingCopyPath = workingCopy,
+        Metadata = new WebDavFileInfo
+        {
+            ETag = "\"e1\"",
+            Size = bytes.Length,
+            ModifiedUnix = 42,
+        },
+        Bytes = bytes,
+    };
+
+    private static string NewFolder(string dataDirectory, string name)
+    {
+        string folder = Path.Combine(dataDirectory,
+            "unlock-" + name + "-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(folder);
+        return folder;
+    }
+
+    private static string Sha(byte[] bytes)
+        => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes))
+            .ToLowerInvariant();
+
     private sealed class FakeText : IAppText
     {
         public static readonly FakeText Instance = new();
@@ -151,7 +248,13 @@ internal static class UnlockViewModelTests
     {
         public Func<string, string, Task>? OnOpen { get; init; }
 
+        public Func<byte[], string, string?, Task>? OnOpenBytes { get; set; }
+
         public int OpenCalls { get; private set; }
+
+        public int OpenBytesCalls { get; private set; }
+
+        public byte[]? OpenedBytes { get; private set; }
 
         public string? OpenedPath { get; private set; }
 
@@ -169,6 +272,17 @@ internal static class UnlockViewModelTests
             IsOpen = true;
             DatabasePath = path;
             return OnOpen?.Invoke(path, password) ?? Task.CompletedTask;
+        }
+
+        public Task OpenBytesAsync(byte[] kdbx, string password, string? databasePath = null)
+        {
+            OpenBytesCalls++;
+            OpenedBytes = kdbx;
+            OpenedPassword = password;
+            OpenedPath = databasePath;
+            IsOpen = true;
+            DatabasePath = databasePath;
+            return OnOpenBytes?.Invoke(kdbx, password, databasePath) ?? Task.CompletedTask;
         }
 
         public Task LockAsync()

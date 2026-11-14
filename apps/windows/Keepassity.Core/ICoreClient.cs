@@ -20,6 +20,14 @@ public interface ICoreClient : IDisposable
     /// </summary>
     Task OpenAsync(string path, string password);
 
+    /// <summary>
+    /// Open and decrypt KDBX bytes already in memory, without reading a file
+    /// first. Used for a remote download so an unverified download never has to
+    /// reach the working copy; <paramref name="databasePath"/> is only recorded
+    /// for diagnostics and later saves.
+    /// </summary>
+    Task OpenBytesAsync(byte[] kdbx, string password, string? databasePath = null);
+
     /// <summary>Lock the vault and drop the decrypted state; the handle stays usable.</summary>
     Task LockAsync();
 

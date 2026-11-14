@@ -66,7 +66,9 @@ planned for v1.x and is expected to consume the same core directly.
 - Remote downloads are decrypted with the current master password before they replace the
   live database; download and upload redirects are rejected rather than followed, and a sync
   baseline without a content hash is refused. A corrupt sync sidecar makes the vault dirty
-  instead of clean.
+  instead of clean. Opening a database from WebDAV uses the same rule: the downloaded bytes are
+  opened first and only a database that decrypted is promoted to the local working copy
+  (`RemoteVaultOpener`), so a bad download cannot overwrite the previous copy.
 - A sync run only records a clean baseline after the local write, the verified upload and the
   core's baseline commit succeeded, in that order: `SyncCoordinator` writes the database first,
   uploads second, asks the core to accept the new etag/hash third, and only then saves the

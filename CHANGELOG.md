@@ -5,6 +5,14 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **A WebDAV download never replaces the vault before it is verified:** opening a database from
+  WebDAV now downloads the bytes into memory and keeps them pending; the master password opens
+  those exact bytes, and only then does `RemoteVaultOpener` write them to the local working copy
+  (durable atomic replace with a backup) and record a clean sync baseline. A wrong password, a
+  corrupted download or an HTML error page therefore leaves the previous working copy and its
+  baseline untouched, instead of clobbering the vault and requiring a backup restore. The
+  headless suite covers the ordering with fakes and adds an end-to-end check with the real core
+  and a loopback WebDAV server.
 - **The WebDAV sync protocol is a tested application service:** `SyncCoordinator` in
   `Keepassity.Core` now owns the whole run (decision, conditional upload with the 0.5/1.5/4 s
   back-off, verified download, three-way merge, conflict copies and the three conflict choices,

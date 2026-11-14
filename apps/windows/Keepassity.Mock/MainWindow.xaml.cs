@@ -55,6 +55,10 @@ public sealed partial class MainWindow : Window
     // baseline ordering) lives in Core; the window supplies the open vault, the
     // WebDAV client and the conflict dialog.
     private readonly SyncCoordinator _sync;
+    // A WebDAV download is held here until the master password opens its bytes;
+    // only then is the working copy replaced (see RemoteVaultOpener).
+    private readonly RemoteVaultOpener _remoteOpener;
+    private PendingRemoteDatabase? _pendingRemoteDownload;
     private readonly DispatcherTimer _totpTimer = new();
     private readonly DispatcherTimer _toastTimer = new();
     private readonly DispatcherTimer _autoLockTimer = new();
@@ -140,7 +144,8 @@ public sealed partial class MainWindow : Window
         // Resolve the saved UI language before InitializeComponent so the XAML
         // attached localization properties apply the right strings on first load.
         Loc.Initialize(Settings.Language);
-        Unlock = new UnlockViewModel(_core, LocText.Instance);
+        _remoteOpener = new RemoteVaultOpener(_syncStates);
+        Unlock = new UnlockViewModel(_core, LocText.Instance, _remoteOpener);
         SyncStatus = new SyncStatusViewModel(LocText.Instance);
         Detail = new EntryDetailViewModel();
         Detail.Clear(Loc.T("Select an entry"));
@@ -706,6 +711,13 @@ public sealed partial class MainWindow : Window
 
     private void UpdateDatabasePath()
     {
+        if (_pendingRemoteDownload is not null && !string.Equals(_dbPath,
+                _pendingRemoteDownload.WorkingCopyPath, StringComparison.OrdinalIgnoreCase))
+        {
+            // The pending download belongs to the previous database. A later
+            // unlock of a different file must never promote those bytes.
+            ClearPendingRemoteDownload();
+        }
         Unlock.SetDatabasePath(_dbPath);
         RefreshRecentDatabaseList();
         bool hasDatabase = _dbPath is not null;
@@ -2089,11 +2101,12 @@ public sealed partial class MainWindow : Window
         {
             // Never overwrite a working copy that still holds unsynced edits:
             // open it now and let the normal sync/merge path reconcile after unlock.
-            string pendingPath = RemoteDatabaseStore.PathFor(remoteUrl, remoteUsername);
-            SyncState pendingState = _syncStates.Load(remoteUrl, remoteUsername, pendingPath);
-            if (File.Exists(pendingPath) && pendingState.LocalDirty)
+            string workingPath = RemoteDatabaseStore.PathFor(remoteUrl, remoteUsername);
+            SyncState pendingState = _syncStates.Load(remoteUrl, remoteUsername, workingPath);
+            if (File.Exists(workingPath) && pendingState.LocalDirty)
             {
-                if (!TryAcquireVaultLock(pendingPath))
+                ClearPendingRemoteDownload();
+                if (!TryAcquireVaultLock(workingPath))
                 {
                     ShowUnlockError(Loc.T("Cannot open database"),
                         Loc.T("The database is open in another Keepassity window. " +
@@ -2111,7 +2124,7 @@ public sealed partial class MainWindow : Window
                         // The pending-change path must not fail on credential storage.
                     }
                 }
-                ApplyWebDavSource(remoteUrl, remoteUsername, pendingPath);
+                ApplyWebDavSource(remoteUrl, remoteUsername, workingPath);
                 Unlock.ShowStatus(Loc.T("Unsynced local changes"),
                     Loc.TLong("Unlock.UnsyncedChangesBody",
                         "The local working copy has changes that were not " +
@@ -2121,44 +2134,38 @@ public sealed partial class MainWindow : Window
                 MasterPassword.Focus(FocusState.Programmatic);
                 return;
             }
-            WebDavFileInfo? metadata;
-            byte[] bytes;
+            // Download into memory only. The working copy is replaced when the
+            // master password opens these exact bytes (RemoteVaultOpener), so a
+            // corrupted download or a wrong file can never clobber the vault.
+            PendingRemoteDatabase pending;
             using (var dav = await CreateWebDavClientAsync(remoteUrl, remoteUsername, remotePassword))
             {
-                metadata = await dav.GetMetadataAsync();
-                if (metadata is null)
-                {
-                    throw new WebDavException(Loc.T(
-                        "The remote database file was not found. Check the WebDAV file URL."), 404);
-                }
-                bytes = await dav.DownloadAsync();
+                pending = await _remoteOpener.DownloadAsync(dav, remoteUrl, remoteUsername,
+                    Settings.BackupRetention);
             }
             if (rememberPassword)
             {
                 _credentials.SavePassword(remoteUrl, remoteUsername, remotePassword);
             }
-            string workingPath = RemoteDatabaseStore.PathFor(remoteUrl, remoteUsername);
-            if (!TryAcquireVaultLock(workingPath))
+            if (!TryAcquireVaultLock(pending.WorkingCopyPath))
             {
                 ShowUnlockError(Loc.T("Cannot open database"),
                     Loc.T("The database is open in another Keepassity window. " +
                           "Close it there first."));
                 return;
             }
-            await WriteLocalBytesAsync(workingPath, bytes);
-            ApplyWebDavSource(remoteUrl, remoteUsername, workingPath);
-            SyncState state = _syncStates.Load(remoteUrl, remoteUsername, workingPath);
-            state.Etag = metadata.ETag;
-            state.Sha256 = Sha256Hex(bytes);
-            state.Size = bytes.Length;
-            state.RemoteModifiedUnix = metadata.ModifiedUnix;
-            state.LocalDirty = false;
-            state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            _syncStates.Save(remoteUrl, remoteUsername, workingPath, state);
+            ApplyWebDavSource(remoteUrl, remoteUsername, pending.WorkingCopyPath);
+            _pendingRemoteDownload = pending;
+            Unlock.SetPendingRemote(pending);
             Unlock.ShowStatus(Loc.T("Downloaded from WebDAV"),
                 Loc.T("Enter the master password to unlock. Saves will sync back to this file."),
                 UnlockStatusSeverity.Success);
             MasterPassword.Focus(FocusState.Programmatic);
+        }
+        catch (WebDavException ex) when (ex.StatusCode == 404)
+        {
+            ShowUnlockError(Loc.T("Cannot open database"),
+                Loc.T("The remote database file was not found. Check the WebDAV file URL."));
         }
         catch (WebDavException ex)
         {
@@ -2166,6 +2173,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
+            ClearPendingRemoteDownload();
             string workingPath = RemoteDatabaseStore.PathFor(remoteUrl, remoteUsername);
             if (File.Exists(workingPath))
             {
@@ -2216,6 +2224,16 @@ public sealed partial class MainWindow : Window
     private static bool IsWebDavUrl(string url)
         => Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) &&
            uri.Scheme == Uri.UriSchemeHttps;
+
+    /// <summary>
+    /// Forget a downloaded WebDAV database that has not been promoted yet (the
+    /// user switched database, went offline, or the dialog was reopened).
+    /// </summary>
+    private void ClearPendingRemoteDownload()
+    {
+        _pendingRemoteDownload = null;
+        Unlock.SetPendingRemote(null);
+    }
 
     private void ApplyWebDavSource(string url, string username, string workingPath)
     {
@@ -2893,6 +2911,11 @@ public sealed partial class MainWindow : Window
 
         string password = MasterPassword.Password;
         _masterPassword = password;
+        // A pending WebDAV download was only promoted to the working copy by the
+        // successful unlock; re-capture the file that is now on disk and forget
+        // the in-memory copy.
+        ClearPendingRemoteDownload();
+        RememberVaultFingerprint();
         _selectedGroupUuid = null;
         if (_dbPath is not null)
         {
@@ -5381,6 +5404,7 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
+        ClearPendingRemoteDownload();
         ClosePanels();
         _busy = true;
         try

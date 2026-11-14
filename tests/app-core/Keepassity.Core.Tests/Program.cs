@@ -48,7 +48,7 @@ try
     LocalizationTests.Run(Check);
 
     // MVVM: the unlock decision path is headless and has its own fakes.
-    UnlockViewModelTests.Run(Check);
+    UnlockViewModelTests.Run(Check, dataDirectory);
     SyncStatusViewModelTests.Run(Check);
     SettingsViewModelTests.Run(Check);
     EntryListViewModelTests.Run(Check);
@@ -190,6 +190,8 @@ try
     VaultWriteGateTests.Run(Check);
     RecentDatabaseTests.Run(Check, dataDirectory);
     SyncStateStoreTests.Run(Check, dataDirectory);
+    RemoteVaultOpenerTests.Run(Check, dataDirectory);
+    RemoteVaultOpenIntegrationTests.Run(Check, dataDirectory);
     SyncCoordinatorTests.Run(Check, dataDirectory);
 
     // diagnostics archive contains a summary and no credential blobs

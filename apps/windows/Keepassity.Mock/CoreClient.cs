@@ -69,6 +69,20 @@ public sealed class CoreClient : ICoreClient
     public async Task OpenAsync(string path, string password)
     {
         byte[] bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(false);
+        await OpenCoreAsync(bytes, password, path).ConfigureAwait(false);
+    }
+
+    public async Task OpenBytesAsync(byte[] kdbx, string password, string? databasePath = null)
+    {
+        if (kdbx.Length == 0)
+        {
+            throw new CoreException("CorruptDatabase", "the database file is empty");
+        }
+        await OpenCoreAsync(kdbx, password, databasePath).ConfigureAwait(false);
+    }
+
+    private async Task OpenCoreAsync(byte[] bytes, string password, string? databasePath)
+    {
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -90,7 +104,7 @@ public sealed class CoreClient : ICoreClient
                 }
                 _handle = handle;
             }).ConfigureAwait(false);
-            DatabasePath = path;
+            DatabasePath = databasePath;
         }
         finally
         {
