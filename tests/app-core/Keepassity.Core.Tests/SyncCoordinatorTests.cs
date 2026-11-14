@@ -29,6 +29,7 @@ internal static class SyncCoordinatorTests
         ExhaustedUploadMerges(check, dataDirectory);
         ConflictChoices(check, dataDirectory);
         ConflictCopiesAreReused(check, dataDirectory);
+        LocalEditDuringSync(check, dataDirectory);
         NothingQueued(check, dataDirectory);
     }
 
@@ -389,6 +390,57 @@ internal static class SyncCoordinatorTests
             string.Join("; ", ConflictCopyPaths(harness)));
     }
 
+    private static void LocalEditDuringSync(TestCheck check, string dataDirectory)
+    {
+        // A save that lands while the remote bytes are downloading must not be
+        // overwritten by the older download the decision was based on.
+        Harness download = new(dataDirectory, "edit-during-download", Local("baseline"));
+        byte[] remote = Local("remote");
+        download.Remote.Bytes = remote;
+        download.Remote.Metadata = new WebDavFileInfo
+        {
+            ETag = "\"e2\"",
+            Size = remote.Length,
+            ModifiedUnix = 700,
+        };
+        download.SaveCleanState(Local("baseline"), "\"e1\"");
+        download.Core.Decision = new SyncDecisionDto { Action = "download" };
+        byte[] userEdit = Local("user-edit");
+        download.Remote.OnDownload =
+            () => download.Document.ReplaceAsync(userEdit).GetAwaiter().GetResult();
+
+        SyncReport report = download.RunAsync().GetAwaiter().GetResult();
+        check("sync: a save during a download pauses instead of being overwritten",
+            report.Outcome == SyncOutcome.ConflictPaused &&
+            report.Notice == SyncNotice.LocalChangedWhileSyncing &&
+            download.Document.Bytes.SequenceEqual(userEdit) &&
+            download.Document.Writes.Count == 1 && download.State.LocalDirty,
+            report.Notice.ToString());
+        check("sync: the paused download uploads nothing and says why",
+            download.Remote.Uploaded.Count == 0 && download.LastStatus == "Local changed",
+            download.LastStatus);
+
+        // Same race while a merge result is being prepared.
+        Harness merge = new(dataDirectory, "edit-during-merge", Local("baseline"));
+        merge.Remote.Bytes = Local("remote");
+        merge.SaveCleanState(Local("baseline"), "\"e1\"");
+        merge.Core.Decision = new SyncDecisionDto { Action = "download_and_merge" };
+        merge.Core.MergeResult = new SyncMergeResult(Local("merged"),
+            new List<SyncConflictDto>());
+        merge.Document.MergeResult = merge.Core.MergeResult;
+        byte[] mergeEdit = Local("merge-user-edit");
+        merge.Remote.OnDownload =
+            () => merge.Document.ReplaceAsync(mergeEdit).GetAwaiter().GetResult();
+
+        SyncReport mergeReport = merge.RunAsync().GetAwaiter().GetResult();
+        check("sync: a save during a merge pauses instead of applying the older result",
+            mergeReport.Outcome == SyncOutcome.ConflictPaused &&
+            mergeReport.Notice == SyncNotice.LocalChangedWhileSyncing &&
+            merge.Document.Bytes.SequenceEqual(mergeEdit) &&
+            merge.Document.Writes.Count == 1 && merge.State.LocalDirty,
+            mergeReport.Notice.ToString());
+    }
+
     private static void NothingQueued(TestCheck check, string dataDirectory)
     {
         Harness offline = new(dataDirectory, "offline", Local("local-offline"));
@@ -556,6 +608,9 @@ internal static class SyncCoordinatorTests
 
         public int Downloads { get; private set; }
 
+        /// <summary>Hook to simulate a local save while the download is in flight.</summary>
+        public Action? OnDownload { get; set; }
+
         public Task<WebDavFileInfo?> GetMetadataAsync(CancellationToken cancellationToken = default)
             => Task.FromResult(Missing ? null : Metadata);
 
@@ -563,6 +618,7 @@ internal static class SyncCoordinatorTests
         {
             Downloads++;
             Events?.Add("download");
+            OnDownload?.Invoke();
             return Task.FromResult(Bytes);
         }
 

@@ -52,7 +52,9 @@ planned for v1.x and is expected to consume the same core directly.
   and the expanded `ICoreClient`. The window keeps only the connection, the conflict dialog and
   the toasts. This is the part of the sync path where ordering decides whether data survives a
   crash, so it is tested headlessly with fakes (`SyncCoordinatorTests`) instead of living in the
-  6k-line window.
+  6k-line window. The coordinator records the local file hash for the run (updated whenever it
+  writes the file itself) and pauses before replacing or uploading when the file changed in the
+  meantime, so a save during a download or merge is merged later instead of being undone.
 
 ## Data safety
 

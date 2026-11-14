@@ -1854,6 +1854,11 @@ public sealed partial class MainWindow : Window
                 ShowToast(Loc.T("Remote changed again; local version kept, will retry next sync."),
                     InfoBarSeverity.Warning);
                 break;
+            case SyncNotice.LocalChangedWhileSyncing:
+                ShowToast(Loc.T("The vault changed while syncing; the sync paused and " +
+                                "nothing was overwritten."),
+                    InfoBarSeverity.Warning);
+                break;
         }
     }
 

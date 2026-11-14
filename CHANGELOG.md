@@ -17,6 +17,13 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **A save during a sync is no longer overwritten:** a background sync captured the local file
+  when it started and then replaced it with downloaded or merged bytes after the network round
+  trip, so a save that landed in between could be silently undone and the reloaded window would
+  show the reverted data. The coordinator now remembers the run's local file hash (updated when it
+  writes the file itself) and pauses before replacing or uploading when the file changed
+  meanwhile: the newer local save is kept, the vault stays dirty and the next sync merges both
+  sides. Fake-network scenarios cover the download and merge paths.
 - **Diagnostics exports are durable, unique and bounded:** two exports in the same second collided
   on the archive name (the second one failed), the finished zip was moved into place without a
   disk flush, and every export stayed in the data folder forever. The archive now carries a

@@ -50,6 +50,7 @@
   "Language": "语言",
   "License: GNU General Public License, version 3 or later (GPL-3.0-or-later).": "许可证：GNU 通用公共许可证第 3 版或更新版本（GPL-3.0-or-later）。",
   "Light": "浅色",
+  "Local changed": "本地已更改",
   "Local files are read and written through the Keepassity core. Databases opened from WebDAV keep a local working copy and sync back on save.": "本地文件通过 Keepassity 核心读写。从 WebDAV 打开的数据库会保留本地工作副本，并在保存时同步回去。",
   "Local only": "仅本地",
   "Local working copy: {0}": "本地工作副本：{0}",

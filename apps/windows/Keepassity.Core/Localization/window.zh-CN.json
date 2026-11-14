@@ -194,6 +194,7 @@
   "The remote database file was not found. Check the WebDAV file URL.": "未找到远程数据库文件。请检查 WebDAV 文件地址。",
   "The remote file already exists. Choose another URL or open it from WebDAV.": "远程文件已存在。请选择其他地址，或从 WebDAV 打开它。",
   "The vault is locked; sync cannot replace it.": "密码库已锁定，同步无法替换密码库文件。",
+  "The vault changed while syncing; the sync paused and nothing was overwritten.": "同步期间密码库发生更改，已暂停同步，未覆盖任何内容。",
   "Title": "标题",
   "Top level (no folder)": "顶层（无文件夹）",
   "Trust": "信任",

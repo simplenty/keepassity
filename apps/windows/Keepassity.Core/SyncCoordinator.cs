@@ -55,6 +55,7 @@ public enum SyncNotice
     ConflictPaused,
     MergedRemoteChanged,
     KeptLocalRemoteChanged,
+    LocalChangedWhileSyncing,
 }
 
 /// <summary>Result of a sync run: what happened and which notice to surface.</summary>
@@ -162,11 +163,26 @@ public sealed class SyncCoordinator
         string Username,
         string? MasterPassword,
         Action<SyncStatusUpdate>? Status,
-        CancellationToken Cancellation);
+        CancellationToken Cancellation)
+    {
+        /// <summary>
+        /// Hash of the local file when this run started. A save that lands while
+        /// the run downloads, merges or verifies must not be overwritten by the
+        /// older result the decision was based on.
+        /// </summary>
+        public string? LocalShaAtStart { get; set; }
+    }
 
     private async Task<SyncReport> ExecuteAsync(SyncRun run)
     {
         SyncState state = _states.Load(run.Url, run.Username, run.Document.Path);
+        byte[]? localAtStart = File.Exists(run.Document.Path)
+            ? await run.Document.ReadBytesAsync()
+            : null;
+        if (localAtStart is not null)
+        {
+            run.LocalShaAtStart = Sha256Hex(localAtStart);
+        }
         if (!string.IsNullOrEmpty(state.Sha256))
         {
             await run.Core.SyncCommitAsync(state.Etag, state.Sha256);
@@ -174,16 +190,13 @@ public sealed class SyncCoordinator
             // were synced. A crash between the database write and the sidecar
             // write leaves the old sidecar behind; treat the vault as dirty
             // instead of letting the next sync no-op and lose the upload.
-            if (File.Exists(run.Document.Path))
+            if (localAtStart is not null &&
+                !string.Equals(run.LocalShaAtStart, state.Sha256,
+                    StringComparison.OrdinalIgnoreCase))
             {
-                byte[] localBytes = await run.Document.ReadBytesAsync();
-                if (!string.Equals(Sha256Hex(localBytes), state.Sha256,
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    AppLog.Warn(
-                        "sync: local database differs from the synced baseline; treating it as dirty");
-                    state.LocalDirty = true;
-                }
+                AppLog.Warn(
+                    "sync: local database differs from the synced baseline; treating it as dirty");
+                state.LocalDirty = true;
             }
         }
 
@@ -293,6 +306,9 @@ public sealed class SyncCoordinator
     {
         byte[] bytes = await run.Core.SaveBytesAsync();
         await run.Document.ReplaceAsync(bytes);
+        // The coordinator itself just wrote the file; remember it so the
+        // during-run edit guard only reacts to changes made after this point.
+        run.LocalShaAtStart = Sha256Hex(bytes);
         string? etag = await run.Remote.UploadAsync(bytes, state.Etag, run.Cancellation);
         string sha = Sha256Hex(bytes);
         await run.Core.SyncCommitAsync(etag, sha);
@@ -311,6 +327,10 @@ public sealed class SyncCoordinator
         WebDavFileInfo metadata)
     {
         byte[] bytes = await run.Remote.DownloadAsync(run.Cancellation);
+        if (await LocalChangedSinceStartAsync(run))
+        {
+            return LocalChangedWhileSyncing(run, state);
+        }
         string sha = Sha256Hex(bytes);
         bool contentChanged = true;
         if (!string.IsNullOrEmpty(state.Sha256))
@@ -331,6 +351,7 @@ public sealed class SyncCoordinator
             RequireMasterPassword(run);
             await run.Core.VerifyAsync(bytes, run.MasterPassword!);
             await run.Document.ReplaceAsync(bytes);
+            run.LocalShaAtStart = sha;
             await run.Document.ReloadAsync();
         }
         await run.Core.SyncCommitAsync(metadata.ETag, sha);
@@ -387,8 +408,13 @@ public sealed class SyncCoordinator
         WebDavFileInfo metadata, SyncMergeResult merged, string? localCopy,
         string? remoteCopy)
     {
+        if (await LocalChangedSinceStartAsync(run))
+        {
+            return LocalChangedWhileSyncing(run, state);
+        }
         bool autoMerged = merged.Conflicts.Count == 0;
         await run.Document.ReplaceAsync(merged.Bytes);
+        run.LocalShaAtStart = Sha256Hex(merged.Bytes);
         await run.Document.ReloadAsync();
         string? etag;
         try
@@ -434,9 +460,14 @@ public sealed class SyncCoordinator
     private async Task<SyncReport> KeepRemoteAsync(SyncRun run, SyncState state,
         WebDavFileInfo metadata, byte[] remote, string? localCopy, string? remoteCopy)
     {
+        if (await LocalChangedSinceStartAsync(run))
+        {
+            return LocalChangedWhileSyncing(run, state);
+        }
         RequireMasterPassword(run);
         await run.Core.VerifyAsync(remote, run.MasterPassword!);
         await run.Document.ReplaceAsync(remote);
+        run.LocalShaAtStart = Sha256Hex(remote);
         await run.Document.ReloadAsync();
         await CommitSyncedAsync(run, state, remote, metadata.ETag, metadata, "Synced");
         return new SyncReport(SyncOutcome.Synced, SyncNotice.KeptRemote, localCopy,
@@ -538,6 +569,36 @@ public sealed class SyncCoordinator
         }
         AtomicFile.Write(path, remote);
         return path;
+    }
+
+    /// <summary>
+    /// True when the local file no longer has the bytes this run started with:
+    /// a save landed after the decision, so applying the older sync result would
+    /// silently undo it.
+    /// </summary>
+    private static async Task<bool> LocalChangedSinceStartAsync(SyncRun run)
+    {
+        if (run.LocalShaAtStart is null || !File.Exists(run.Document.Path))
+        {
+            return false;
+        }
+        byte[] current = await run.Document.ReadBytesAsync();
+        return !string.Equals(Sha256Hex(current), run.LocalShaAtStart,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Stop before replacing or uploading: keep the newer local save, mark the
+    /// vault dirty and let the next sync merge the two sides.
+    /// </summary>
+    private SyncReport LocalChangedWhileSyncing(SyncRun run, SyncState state)
+    {
+        AppLog.Info("sync: the local database changed during the run; pausing");
+        state.LocalDirty = true;
+        SaveState(run, state);
+        Report(run.Status, "Local changed");
+        return new SyncReport(SyncOutcome.ConflictPaused,
+            SyncNotice.LocalChangedWhileSyncing);
     }
 
     private static void RequireMasterPassword(SyncRun run)
