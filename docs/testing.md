@@ -53,6 +53,8 @@ manifest, Windows build, headless service tests; `-Full` adds the application se
   paths/URLs/usernames, newest ten retained, crash-left temporaries removed),
   crash-residue cleanup (save/restore/backup temporaries at unlock and across the application
   data tree, fresh files and unrelated files kept),
+  log bounds (two writers on one day file, read-while-writing, size-cap rotation, retention and
+  the total-size ceiling),
   recovery candidate selection: newest decryptable backup wins while corrupt, unreadable and
   wrong-password candidates are skipped, verified against the real core as well),
   diagnostics archive and logging.

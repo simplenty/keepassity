@@ -194,6 +194,7 @@ try
     RunStateStoreTests.Run(Check, dataDirectory);
     RemoteCacheCleanerTests.Run(Check, dataDirectory);
     DiagnosticsServiceTests.Run(Check, dataDirectory);
+    LogFileTests.Run(Check, dataDirectory);
     NewDatabasePreparerTests.Run(Check, dataDirectory);
     RecentDatabaseTests.Run(Check, dataDirectory);
     SyncStateStoreTests.Run(Check, dataDirectory);

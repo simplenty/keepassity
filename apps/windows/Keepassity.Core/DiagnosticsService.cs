@@ -209,7 +209,10 @@ public static class DiagnosticsService
         {
             ZipArchiveEntry entry = zip.CreateEntry(name, CompressionLevel.Optimal);
             using Stream target = entry.Open();
-            using FileStream source = File.OpenRead(path);
+            // The app may be appending to the newest log while diagnostics are
+            // exported; share read/write/delete instead of failing the export.
+            using var source = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
             source.CopyTo(target);
         }
         catch

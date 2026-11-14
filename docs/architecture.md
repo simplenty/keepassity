@@ -88,6 +88,9 @@ planned for v1.x and is expected to consume the same core directly.
   temporaries next to it, and the first launch removes stale protocol temporaries across the
   application data folder. Both passes use age thresholds and only touch files whose names carry
   the protocol infixes, so an active write is never disturbed.
+- Logs are bounded: a day file rotates to one `.1` sibling at 5 MB, pruning enforces the
+  fourteen-day window and a 50 MB folder ceiling, and all handles share read/write/delete so a
+  second writer or a diagnostics export never loses a line to a sharing violation.
 - A newly created database goes through the same protocol from its first byte:
   `AtomicFile.WriteNew` flushes a temporary and performs a create-only move, so it never replaces
   a file another program created in the race, and `NewDatabasePreparer` writes a WebDAV working

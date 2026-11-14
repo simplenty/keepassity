@@ -13,6 +13,7 @@ public static class AppLog
     private static readonly object Gate = new();
     private static bool _initialized;
     private static string? _directory;
+    private static LogFile? _log;
 
     public static string DirectoryPath
     {
@@ -38,11 +39,13 @@ public static class AppLog
         {
             Directory.CreateDirectory(directory);
             _directory = directory;
-            Prune(directory);
+            _log = new LogFile(directory);
+            _log.Prune(DateTimeOffset.Now, RetentionDays);
         }
         catch
         {
             _directory = null;
+            _log = null;
         }
         Info($"application started (pid {Environment.ProcessId})");
     }
@@ -61,7 +64,8 @@ public static class AppLog
             Initialize();
         }
         string? directory = _directory;
-        if (directory is null)
+        LogFile? log = _log;
+        if (directory is null || log is null)
         {
             return;
         }
@@ -77,33 +81,12 @@ public static class AppLog
         {
             lock (Gate)
             {
-                string path = Path.Combine(
-                    directory, $"app-{DateTime.Now:yyyyMMdd}.log");
-                File.AppendAllText(path, line.ToString() + Environment.NewLine, Encoding.UTF8);
+                log.Append(line.ToString(), DateTimeOffset.Now);
             }
         }
         catch
         {
             // Logging must never break the application.
-        }
-    }
-
-    private static void Prune(string directory)
-    {
-        try
-        {
-            DateTime cutoff = DateTime.Now.AddDays(-RetentionDays);
-            foreach (string file in Directory.EnumerateFiles(directory, "app-*.log"))
-            {
-                if (File.GetLastWriteTime(file) < cutoff)
-                {
-                    File.Delete(file);
-                }
-            }
-        }
-        catch
-        {
-            // Best effort.
         }
     }
 }

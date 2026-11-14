@@ -17,6 +17,12 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **Logs are bounded and no longer lose lines to sharing:** one day's log could grow without
+  limit (an error loop could fill the disk), a second instance's append failed on a sharing
+  violation, and the diagnostics exporter could fail to read the newest log while the app was
+  writing it. Daily logs now rotate to a single `.1` sibling at 5 MB, pruning enforces both the
+  fourteen-day window and a 50 MB folder ceiling, and every handle shares read/write/delete so
+  appends and diagnostics exports always see the current file.
 - **Crash residue is cleaned up:** a crash during a backup copy, a backup restore or a sidecar
   write could leave `.tmp-` / `.keepassity-tmp-` files behind forever; only the save temporaries
   next to the database were cleaned when a vault was opened. Opening a vault now also removes
