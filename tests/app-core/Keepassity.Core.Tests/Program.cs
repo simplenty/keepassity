@@ -188,6 +188,7 @@ try
     AtomicFileTests.Run(Check, dataDirectory);
     VaultGuardTests.Run(Check, dataDirectory);
     VaultWriteGateTests.Run(Check);
+    VaultSessionTests.Run(Check, dataDirectory);
     RecentDatabaseTests.Run(Check, dataDirectory);
     SyncStateStoreTests.Run(Check, dataDirectory);
     RemoteVaultOpenerTests.Run(Check, dataDirectory);

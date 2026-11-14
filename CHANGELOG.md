@@ -5,6 +5,14 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Vault writes share one guard:** `VaultSession` in `Keepassity.Core` now owns the
+  cross-process lock, the in-process write gate and the content fingerprint, and exposes save,
+  sync-replace and backup-restore as the only write paths. The window no longer composes the
+  three guards by hand at each call site, so a save, a merge download and a restore cannot drift
+  into different safety rules. A locked vault also skips background sync instead of failing
+  against a locked core. The headless suite covers lock ownership, external-change refusal,
+  save serialization, atomic replacement with backup, restore ordering and release semantics
+  (29 checks).
 - **A WebDAV download never replaces the vault before it is verified:** opening a database from
   WebDAV now downloads the bytes into memory and keeps them pending; the master password opens
   those exact bytes, and only then does `RemoteVaultOpener` write them to the local working copy

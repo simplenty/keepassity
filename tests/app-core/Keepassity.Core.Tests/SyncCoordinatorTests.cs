@@ -628,6 +628,10 @@ internal static class SyncCoordinatorTests
 
         public Task<byte[]> SaveBytesAsync() => Task.FromResult(ModelBytes);
 
+        public Task SaveAsync(string path, int backupRetention = 20,
+            Func<bool>? databaseChanged = null)
+            => throw new NotSupportedException();
+
         public Task VerifyAsync(byte[] bytes, string password)
         {
             if (VerifyFails)

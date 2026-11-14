@@ -77,9 +77,7 @@ public sealed partial class MainWindow : Window
     private EntryRowPresenter? _currentSummary;
     private string? _lastClipboardText;
     private string? _masterPassword;
-    private VaultFileLock? _vaultLock;
-    private readonly VaultWriteGate _vaultWriteGate = new();
-    private VaultFingerprint? _vaultFingerprint;
+    private readonly VaultSession _vault = new();
     private TrayIcon? _trayIcon;
     private bool _exitRequested;
     private bool _trayHintShown;
@@ -227,9 +225,7 @@ public sealed partial class MainWindow : Window
             _sessionLockMonitor = null;
             _singleInstanceRelay?.Dispose();
             _singleInstanceRelay = null;
-            _vaultLock?.Dispose();
-            _vaultLock = null;
-            _vaultWriteGate.Dispose();
+            _vault.Dispose();
             _networkReplayTimer?.Stop();
             NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
             _trayIcon?.Dispose();
@@ -1534,8 +1530,10 @@ public sealed partial class MainWindow : Window
         }
         try
         {
-            if (!_core.IsOpen || _dbPath is null)
+            if (!_core.IsOpen || _dbPath is null || string.IsNullOrEmpty(_masterPassword))
             {
+                // A locked vault keeps the core handle, but saving or verifying
+                // remote bytes needs the master password; nothing to sync yet.
                 return;
             }
             if (!IsSyncConfigured)
@@ -1809,28 +1807,29 @@ public sealed partial class MainWindow : Window
         => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
     /// <summary>
-    /// Durable, gated write of database bytes (sync/restore paths). The sync
-    /// coordinator's <see cref="IVaultDocument.ReplaceAsync"/> adapter calls this.
+    /// Durable, gated write of database bytes (sync merge/download). The sync
+    /// coordinator's <see cref="IVaultDocument.ReplaceAsync"/> adapter calls this;
+    /// it only accepts the open vault and refuses when the file changed outside
+    /// the application.
     /// </summary>
     internal async Task WriteLocalBytesAsync(string path, byte[] bytes)
     {
-        using IDisposable vaultWrite = await _vaultWriteGate.EnterAsync();
-        bool isLiveDatabase = _dbPath is not null &&
-            string.Equals(Path.GetFullPath(path), Path.GetFullPath(_dbPath),
-                StringComparison.OrdinalIgnoreCase);
-        if (isLiveDatabase && VaultChangedOnDisk())
+        if (_dbPath is null ||
+            !string.Equals(Path.GetFullPath(path), Path.GetFullPath(_dbPath),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "a sync write may only replace the database that is currently open");
+        }
+        try
+        {
+            await _vault.ReplaceAsync(bytes, Settings.BackupRetention, "sync");
+        }
+        catch (CoreException ex) when (ex.Code == "VaultChanged")
         {
             throw new InvalidOperationException(Loc.T(
                 "The database was changed outside Keepassity. Reopen it before " +
                 "saving; nothing was overwritten."));
-        }
-        // Remote bytes were verified by the caller; place them with the same
-        // durable protocol the save path uses (backup, flush, atomic replace).
-        int retention = Settings.BackupRetention;
-        await Task.Run(() => AtomicFile.Replace(path, bytes, retention, "sync"));
-        if (isLiveDatabase)
-        {
-            RememberVaultFingerprint();
         }
     }
 
@@ -1897,18 +1896,22 @@ public sealed partial class MainWindow : Window
                 await probe.LockAsync();
             }
             await SaveAsync(silent: true, syncAfterSave: false);
-            using (IDisposable vaultWrite = await _vaultWriteGate.EnterAsync())
-            {
-                BackupService.RestoreBytes(_dbPath, selectedBytes, Settings.BackupRetention);
-                await ReopenFromLocalAsync();
-                RememberVaultFingerprint();
-            }
+            // The session keeps the write gate across the restore and the core
+            // reopen, so a concurrent sync write cannot land in between.
+            await _vault.RestoreAsync(selectedBytes, Settings.BackupRetention,
+                ReopenFromLocalAsync);
             MarkLocalDirty();
             ShowToast(Loc.T("Backup restored"), InfoBarSeverity.Success);
             if (IsSyncConfigured)
             {
                 _ = SyncAsync();
             }
+        }
+        catch (CoreException ex) when (ex.Code == "VaultChanged")
+        {
+            ShowToast(Loc.T("The database was changed outside Keepassity. Reopen it " +
+                            "before saving; nothing was overwritten."),
+                InfoBarSeverity.Error);
         }
         catch (Exception ex)
         {
@@ -5278,77 +5281,19 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private bool TryAcquireVaultLock(string path)
     {
-        string full;
-        try
-        {
-            full = Path.GetFullPath(path);
-        }
-        catch (Exception ex)
-        {
-            AppLog.Warn($"cannot resolve the database path for locking: {ex.Message}");
-            return false;
-        }
-        if (_vaultLock is not null &&
-            string.Equals(_vaultLock.DatabasePath, full, StringComparison.OrdinalIgnoreCase))
+        if (_vault.TryAcquire(path, out string? error))
         {
             return true;
         }
-        _vaultLock?.Dispose();
-        _vaultLock = VaultFileLock.TryAcquire(full, out string? error);
-        if (_vaultLock is null)
-        {
-            AppLog.Warn($"vault lock unavailable: {error}");
-        }
-        return _vaultLock is not null;
+        AppLog.Warn($"vault lock unavailable: {error}");
+        return false;
     }
 
-    private void ReleaseVaultLock()
-    {
-        _vaultLock?.Dispose();
-        _vaultLock = null;
-        _vaultFingerprint = null;
-    }
+    private void ReleaseVaultLock() => _vault.Release();
 
     /// <summary>Record the database bytes the in-memory model is based on.</summary>
     private void RememberVaultFingerprint(string? path = null)
-    {
-        string? target = path ?? _dbPath;
-        if (target is null)
-        {
-            _vaultFingerprint = null;
-            return;
-        }
-        try
-        {
-            _vaultFingerprint = VaultFingerprint.Capture(target);
-        }
-        catch (Exception ex)
-        {
-            AppLog.Warn($"cannot fingerprint the database: {ex.Message}");
-            _vaultFingerprint = null;
-        }
-    }
-
-    /// <summary>
-    /// True when the file on disk no longer matches the bytes this window's
-    /// model was opened from. A missing or unreadable file also counts as
-    /// changed so a save cannot recreate a file that another program moved.
-    /// </summary>
-    private bool VaultChangedOnDisk()
-    {
-        if (_dbPath is null || _vaultFingerprint is not VaultFingerprint expected)
-        {
-            return false;
-        }
-        try
-        {
-            return !VaultFingerprint.Capture(_dbPath).Matches(expected);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return true;
-        }
-    }
+        => _vault.CaptureFingerprint(path ?? _dbPath);
 
     private async Task<bool> SaveAsync(bool silent = false, bool syncAfterSave = true)
     {
@@ -5356,19 +5301,9 @@ public sealed partial class MainWindow : Window
         {
             return false;
         }
-        using IDisposable vaultWrite = await _vaultWriteGate.EnterAsync();
-        if (VaultChangedOnDisk())
-        {
-            AppLog.Warn("save refused: the database changed outside this window");
-            ShowToast(Loc.T("The database was changed outside Keepassity. Reopen it " +
-                            "before saving; nothing was overwritten."),
-                InfoBarSeverity.Error);
-            return false;
-        }
         try
         {
-            await _core.SaveAsync(_dbPath, Settings.BackupRetention, VaultChangedOnDisk);
-            RememberVaultFingerprint();
+            await _vault.SaveAsync(_core, Settings.BackupRetention);
             MarkLocalDirty();
             if (!silent)
             {

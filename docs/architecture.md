@@ -76,9 +76,12 @@ planned for v1.x and is expected to consume the same core directly.
   trusting a half-finished sync.
 - One process writes a vault: opening it takes a cross-process lock, and a save compares the
   file's SHA-256 with the bytes the in-memory model came from. An external change blocks the
-  save instead of being overwritten. The new ciphertext is decrypted and parsed with the cached
-  KDF key before it can replace the file. Inside the process a `VaultWriteGate` serializes save,
-  sync-copy and restore replacements so an older async snapshot cannot land last.
+  save instead of being overwritten. `VaultSession` owns those three guards (lock, in-process
+  write gate, fingerprint) and is the only path for saves, sync replacements and backup
+  restores, so the window cannot compose them differently per call site. The new ciphertext is
+  decrypted and parsed with the cached KDF key before it can replace the file; the write gate
+  serializes save, sync-copy and restore replacements so an older async snapshot cannot land
+  last.
 - The real database, credentials and WebDAV working copies never enter a git repository.
 - Test fixtures are synthetic or public samples; see `tests/fixtures/README.md`.
 

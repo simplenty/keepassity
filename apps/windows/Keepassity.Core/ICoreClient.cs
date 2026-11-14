@@ -44,6 +44,15 @@ public interface ICoreClient : IDisposable
     /// </summary>
     Task VerifyAsync(byte[] bytes, string password);
 
+    /// <summary>
+    /// Serialize the current model and write it durably. <paramref name="databaseChanged"/>
+    /// is consulted once more after serialization; when it returns true nothing is
+    /// written and a <see cref="CoreException"/> with code <c>VaultChanged</c> is
+    /// thrown.
+    /// </summary>
+    Task SaveAsync(string path, int backupRetention = 20,
+        Func<bool>? databaseChanged = null);
+
     /// <summary>Ask the core's sync state machine what to do with the remote copy.</summary>
     Task<SyncDecisionDto> SyncDecideAsync(string remoteMetaJson, bool localDirty);
 

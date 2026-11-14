@@ -149,6 +149,10 @@ internal static class RemoteVaultOpenIntegrationTests
 
         public Task<byte[]> SaveBytesAsync() => throw new NotSupportedException();
 
+        public Task SaveAsync(string path, int backupRetention = 20,
+            Func<bool>? databaseChanged = null)
+            => throw new NotSupportedException();
+
         public Task VerifyAsync(byte[] bytes, string password)
             => throw new NotSupportedException();
 
