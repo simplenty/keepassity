@@ -17,6 +17,14 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **Locking waits for an in-flight save:** lock (manual button, tray menu, inactivity timer or a
+  Windows session event) used to lock the core immediately; a save that was already queued or
+  running then failed, leaving the previous complete file and losing the edit being written. Lock
+  now waits up to ten seconds for the vault session to finish writing; a manual or inactivity
+  lock stops with an informational message if the write is still stuck, while a session lock
+  proceeds anyway so a locked workstation never keeps an unlocked vault. A sync that reaches its
+  local replace phase after the vault locked now fails without touching the file instead of
+  replacing the database under a locked core.
 - **A failed save keeps the session alive:** a disk or permission error no longer escapes the
   save path (from an `async void` caller it could take the process down and with it the only
   in-memory copy of the edit). The failure is logged and shown as an error toast, the in-memory

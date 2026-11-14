@@ -509,7 +509,10 @@ public sealed partial class MainWindow : Window
                 return;
             }
             AppLog.Info($"session event ({reason}): locking vault");
-            await LockVaultAsync();
+            // A session lock must win over an unusually slow write; the vault
+            // being visible on a locked workstation is worse than a failed save
+            // that the error path reports.
+            await LockVaultAsync(forceWhenBusyWriting: true);
         }
         catch (Exception ex)
         {
@@ -1883,6 +1886,14 @@ public sealed partial class MainWindow : Window
         {
             throw new InvalidOperationException(
                 "a sync write may only replace the database that is currently open");
+        }
+        if (!_core.IsOpen)
+        {
+            // The window locked while a sync was still in its download/merge
+            // phase. The verified bytes can wait for the next unlock; replacing
+            // the file now would change the database under a locked vault.
+            throw new InvalidOperationException(
+                Loc.T("The vault is locked; sync cannot replace it."));
         }
         try
         {
@@ -5436,17 +5447,43 @@ public sealed partial class MainWindow : Window
     private async void LockButton_Click(object sender, RoutedEventArgs e)
         => await LockVaultAsync();
 
-    private async Task LockVaultAsync()
+    /// <summary>
+    /// Lock the vault (manual button, tray menu, inactivity timer or a Windows
+    /// session event). The parameter only decides what a session event does when
+    /// a save is still stuck after the bounded wait: it locks anyway so a locked
+    /// workstation never keeps an unlocked vault, while a manual lock leaves the
+    /// vault open so the write can finish.
+    /// </summary>
+    private async Task LockVaultAsync(bool forceWhenBusyWriting = false)
     {
         if (_busy)
         {
             return;
         }
-        ClearPendingRemoteDownload();
-        ClosePanels();
         _busy = true;
         try
         {
+            // A save may be queued or running. Locking the core handle under it
+            // would make that save fail: the file would stay at the previous
+            // version and the edit being written would be lost.
+            if (_vault.IsWriting)
+            {
+                AppLog.Info("lock: waiting for the in-flight vault write");
+                await _vault.WaitForIdleAsync(TimeSpan.FromSeconds(10));
+            }
+            if (_vault.IsWriting && !forceWhenBusyWriting)
+            {
+                _busy = false;
+                ShowToast(Loc.T("Vault is still saving. Lock again in a moment."),
+                    InfoBarSeverity.Informational);
+                return;
+            }
+            if (_vault.IsWriting)
+            {
+                AppLog.Warn("locking while a vault write is still in flight");
+            }
+            ClearPendingRemoteDownload();
+            ClosePanels();
             if (_core.IsOpen)
             {
                 // Every edit path saves the database immediately. Saving again
