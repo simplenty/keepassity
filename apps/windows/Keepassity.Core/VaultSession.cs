@@ -246,7 +246,8 @@ public sealed class VaultSession : IDisposable
             string path = AcquiredPath();
             using IDisposable write = await _writes.EnterAsync().ConfigureAwait(false);
             EnsureUnchanged(path);
-            await Task.Run(() => AtomicFile.Replace(path, bytes, backupRetention, reason))
+            await Task.Run(() => AtomicFile.Replace(path, bytes, backupRetention, reason,
+                    () => ChangedOnDisk(path)))
                 .ConfigureAwait(false);
             CaptureFingerprint(path);
         }
@@ -271,7 +272,8 @@ public sealed class VaultSession : IDisposable
             string path = AcquiredPath();
             using IDisposable write = await _writes.EnterAsync().ConfigureAwait(false);
             EnsureUnchanged(path);
-            await Task.Run(() => BackupService.RestoreBytes(path, content, backupRetention))
+            await Task.Run(() => BackupService.RestoreBytes(path, content, backupRetention,
+                    () => ChangedOnDisk(path)))
                 .ConfigureAwait(false);
             if (afterReplace is not null)
             {

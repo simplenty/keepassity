@@ -163,5 +163,27 @@ internal static class AtomicFileTests
         check("application-data cleanup keeps fresh temporaries and real files",
             File.Exists(fresh) && File.Exists(unrelated) &&
             File.ReadAllText(unrelated) == "{}");
+
+        string guarded = Path.Combine(directory, "guarded.kdbx");
+        byte[] guardedOld = "guard-old"u8.ToArray();
+        File.WriteAllBytes(guarded, guardedOld);
+        bool aborted = false;
+        try
+        {
+            AtomicFile.Replace(guarded, "guard-new"u8.ToArray(), backupRetention: 5,
+                reason: "test", changedBeforeReplace: () => true);
+        }
+        catch (CoreException ex)
+        {
+            aborted = ex.Code == "VaultChanged";
+        }
+        check("replace guard aborts without touching a changed database",
+            aborted && File.ReadAllBytes(guarded).SequenceEqual(guardedOld) &&
+            Directory.GetFiles(directory, "guarded.kdbx.keepassity-tmp-*").Length == 0,
+            aborted.ToString());
+        AtomicFile.Replace(guarded, "guard-new"u8.ToArray(), backupRetention: 5,
+            reason: "test", changedBeforeReplace: () => false);
+        check("replace guard proceeds when the database is unchanged",
+            File.ReadAllBytes(guarded).SequenceEqual("guard-new"u8.ToArray()));
     }
 }

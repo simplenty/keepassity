@@ -17,6 +17,12 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **The last write is guarded too:** a save, sync replacement or backup restore checked that
+  the file had not changed outside Keepassity, then wrote it; another program changing the file in
+  the gap (core serialization, KDF, temporary write, backup copy — seconds for a large vault) could
+  still be overwritten. The replace step now takes a last-moment check after the backup is taken
+  and immediately before the rename: a changed database aborts with `VaultChanged`, the temporary
+  is removed, and the live file plus the fresh recovery backup are kept.
 - **Logs are bounded and no longer lose lines to sharing:** one day's log could grow without
   limit (an error loop could fill the disk), a second instance's append failed on a sharing
   violation, and the diagnostics exporter could fail to read the newest log while the app was

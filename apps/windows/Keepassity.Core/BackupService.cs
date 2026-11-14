@@ -149,7 +149,8 @@ public static class BackupService
         RestoreBytes(databasePath, content, retention);
     }
 
-    public static void RestoreBytes(string databasePath, byte[] content, int retention = 20)
+    public static void RestoreBytes(string databasePath, byte[] content, int retention = 20,
+        Func<bool>? changedBeforeReplace = null)
     {
         if (content is null || content.Length == 0)
         {
@@ -166,6 +167,11 @@ public static class BackupService
         {
             if (File.Exists(databasePath))
             {
+                if (changedBeforeReplace?.Invoke() == true)
+                {
+                    throw new CoreException("VaultChanged",
+                        "the database changed outside this window");
+                }
                 // The pre-restore backup above is the recovery point; a second
                 // ".bak" file next to the database would only be clutter.
                 AtomicFile.ReplaceFlushedTemp(temp, databasePath);

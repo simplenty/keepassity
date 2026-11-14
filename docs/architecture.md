@@ -68,7 +68,10 @@ planned for v1.x and is expected to consume the same core directly.
   with the backup hook delegated to `BackupService`. The final placement uses `File.Replace`
   (metadata errors ignored) and falls back to a same-volume rename on volumes without that
   primitive (FAT/exFAT, some network shares); both are renames, so a crash still leaves the old or
-  new complete file, and the backup taken just before is the recovery point.
+  new complete file, and the backup taken just before is the recovery point. The placement is
+  guarded at the last moment (after the backup, immediately before the rename): a database changed
+  outside the application aborts the write with `VaultChanged`, so the newer external file is never
+  overwritten.
 - A damaged database can be replaced from the unlock screen by the newest local backup that the
   entered master password opens (`VaultRecovery`); the damaged file is kept as a before-restore
   backup, and the normal in-app restore list still requires the restored vault to be open.

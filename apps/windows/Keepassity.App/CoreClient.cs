@@ -419,7 +419,8 @@ public sealed class CoreClient : ICoreClient
         // The bytes come from the core writer; AtomicFile makes the placement
         // durable (write-through, flush, backup, atomic replace) and leaves no
         // partial database if the process dies mid-save.
-        await Task.Run(() => AtomicFile.Replace(path, bytes, backupRetention, "save"))
+        await Task.Run(() => AtomicFile.Replace(path, bytes, backupRetention, "save",
+                databaseChanged))
             .ConfigureAwait(false);
         DatabasePath = path;
     }

@@ -28,6 +28,33 @@ internal static class BackupServiceTests
         RunRestore(check, rootDirectory);
         RunCorruptedRestoreRejected(check, rootDirectory);
         RunResidualTempCleanup(check, rootDirectory);
+        RunRestoreGuard(check, rootDirectory);
+    }
+
+    private static void RunRestoreGuard(TestCheck check, string root)
+    {
+        string directory = NewDirectory(root, "backup-restore-guard");
+        string database = Path.Combine(directory, "vault.kdbx");
+        byte[] original = File.ReadAllBytes(TestEnvironment.Fixture(FixtureName));
+        byte[] restored = File.ReadAllBytes(TestEnvironment.Fixture("test_db_few_rounds.kdbx"));
+        File.WriteAllBytes(database, original);
+
+        bool aborted = false;
+        try
+        {
+            BackupService.RestoreBytes(database, restored,
+                changedBeforeReplace: () => true);
+        }
+        catch (CoreException ex)
+        {
+            aborted = ex.Code == "VaultChanged";
+        }
+        check("restore guard aborts without touching a changed database",
+            aborted && File.ReadAllBytes(database).SequenceEqual(original) &&
+            Directory.GetFiles(directory, ".vault.kdbx.restore-tmp-*").Length == 0,
+            aborted.ToString());
+        check("restore guard leaves a pre-restore backup as the recovery point",
+            BackupService.ListBackups(database).Count >= 1);
     }
 
     private static void RunResidualTempCleanup(TestCheck check, string root)

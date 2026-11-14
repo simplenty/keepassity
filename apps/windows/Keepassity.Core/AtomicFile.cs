@@ -47,9 +47,13 @@ public static class AtomicFile
     /// <summary>
     /// Replace <paramref name="path"/> with <paramref name="content"/>, keeping
     /// a backup of the previous file when it exists.
+    /// <paramref name="changedBeforeReplace"/> runs after the backup and
+    /// immediately before the rename: returning true aborts with a
+    /// <see cref="CoreException"/> so a file that another program changed during
+    /// the save is not silently overwritten.
     /// </summary>
     public static void Replace(string path, byte[] content, int backupRetention = 20,
-        string reason = "save")
+        string reason = "save", Func<bool>? changedBeforeReplace = null)
     {
         if (content is null || content.Length == 0)
         {
@@ -71,6 +75,11 @@ public static class AtomicFile
             if (File.Exists(fullPath))
             {
                 BackupService.CreateBackup(fullPath, backupRetention, reason);
+                if (changedBeforeReplace?.Invoke() == true)
+                {
+                    throw new CoreException("VaultChanged",
+                        "the database changed outside this window");
+                }
                 ReplaceFlushedTemp(temp, fullPath);
             }
             else
