@@ -145,6 +145,14 @@ The release workflow (`.github/workflows/release.yml`) additionally runs `cargo 
 --workspace`, the `tests/app-core` suite and `scripts/verify-fixtures.ps1` before packaging,
 then self-tests the published application and builds the installer.
 
+On a machine with Inno Setup, `scripts/verify-installer-runtime.ps1 -Version <v> -SourceDir
+<published folder>` builds a throwaway installer with its own AppId and mutex (`TestMode`: no
+shortcuts, no file-association registry writes, no Run entry), installs it, upgrades it, runs the
+installed app's `--selftest` against a temporary data directory and uninstalls it. It asserts that
+a file a user put next to the executable and the application data directory survive the
+uninstall, while the real installation under `%LOCALAPPDATA%\Programs\keepassity` and the real
+HKCU associations are unchanged.
+
 ## Fuzzing
 
 `.github/workflows/fuzz.yml` is a separate scheduled workflow (03:00 UTC plus manual

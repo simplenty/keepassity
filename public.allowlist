@@ -39,6 +39,7 @@ scripts/make-checksums.ps1
 scripts/verify-checksums.ps1
 scripts/test.ps1
 scripts/build-installer.ps1
+scripts/verify-installer-runtime.ps1
 installer/**
 .github/workflows/release.yml
 .github/dependabot.yml

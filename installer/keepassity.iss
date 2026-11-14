@@ -8,10 +8,22 @@
 #ifndef OutputDir
   #define OutputDir "..\..\out\dist"
 #endif
-#define AppExe "Keepassity.exe"
+#ifndef AppExe
+  #define AppExe "Keepassity.exe"
+#endif
+; Overridable so scripts/verify-installer-runtime.ps1 can build a throwaway
+; installer with its own AppId/mutex and without shell integration, exercising
+; install -> upgrade -> run -> uninstall against a temporary folder while the
+; real installed copy stays untouched.
+#ifndef AppId
+  #define AppId "{{A7E3B1F2-9D44-4C7A-A1B2-6F5E8D9C0123}"
+#endif
+#ifndef AppMutexName
+  #define AppMutexName "Local\keepassity-windows-app"
+#endif
 
 [Setup]
-AppId={{A7E3B1F2-9D44-4C7A-A1B2-6F5E8D9C0123}
+AppId={#AppId}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
@@ -43,7 +55,7 @@ SetupIconFile=..\apps\windows\Keepassity.App\Assets\app.ico
 ; Refuse to install/uninstall while keepassity is running. The name must match
 ; the mutex the app creates at startup (App.xaml.cs, App.OnLaunched:
 ; new Mutex(true, @"Local\keepassity-windows-app")).
-AppMutex=Local\keepassity-windows-app
+AppMutex={#AppMutexName}
 ; GPL-3.0-or-later license page in the wizard.
 LicenseFile=..\LICENSE
 VersionInfoVersion={#AppVersion}
@@ -55,6 +67,7 @@ VersionInfoCopyright=Copyright (C) 2026 the keepassity contributors
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
+#ifndef TestMode
 [Icons]
 Name: "{autoprograms}\keepassity"; Filename: "{app}\{#AppExe}"
 Name: "{autodesktop}\keepassity"; Filename: "{app}\{#AppExe}"
@@ -80,6 +93,7 @@ Root: HKCU; Subkey: "Software\Classes\Applications\{#AppExe}"; ValueType: string
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Launch Keepassity"; Flags: nowait postinstall skipifsilent
+#endif
 
 [InstallDelete]
 ; Remove the pre-1.0 binary name so an upgrade does not leave a stale executable
