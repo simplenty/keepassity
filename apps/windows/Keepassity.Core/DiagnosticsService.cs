@@ -15,17 +15,26 @@ public static class DiagnosticsService
 {
     /// <summary>
     /// Builds the diagnostics archive on a worker thread; the UI calls this
-    /// without blocking while the logs are zipped.
+    /// without blocking while the logs are zipped. Older archives beyond the
+    /// newest <see cref="KeepArchives"/> are removed so repeated exports cannot
+    /// grow the data folder without bound.
     /// </summary>
     public static Task<string> ExportAsync(AppSettings settings)
-        => Task.Run(() => ExportCore(settings));
+        => Task.Run(() => ExportCore(settings, null, null));
 
-    private static string ExportCore(AppSettings settings)
+    /// <summary>Archive retention: the newest exports are kept, older ones removed.</summary>
+    internal const int KeepArchives = 10;
+
+    internal static string ExportCore(AppSettings settings, string? outputDirectory,
+        DateTimeOffset? now)
     {
-        string directory = Path.Combine(ApplicationPaths.Root, "diagnostics");
+        string directory = outputDirectory ??
+                           Path.Combine(ApplicationPaths.Root, "diagnostics");
         Directory.CreateDirectory(directory);
-        string path = Path.Combine(
-            directory, $"keepassity-diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.zip");
+        DateTimeOffset stampTime = now ?? DateTimeOffset.Now;
+        string stamp = stampTime.ToString("yyyyMMdd-HHmmss-fff",
+            System.Globalization.CultureInfo.InvariantCulture);
+        string path = UniqueArchivePath(directory, stamp);
         string temp = path + ".tmp";
         if (File.Exists(temp))
         {
@@ -33,30 +42,100 @@ public static class DiagnosticsService
         }
         try
         {
-            using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write))
-            using (var zip = new ZipArchive(stream, ZipArchiveMode.Create))
+            using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write,
+                       FileShare.None, 4096, FileOptions.WriteThrough))
             {
-                AddText(zip, "summary.txt", BuildSummary(settings));
-                AddText(zip, "settings.json", BuildSettingsSnapshot(settings));
-                foreach (string log in Directory
-                             .EnumerateFiles(AppLog.DirectoryPath, "app-*.log")
-                             .OrderByDescending(File.GetLastWriteTime)
-                             .Take(3))
+                // leaveOpen so the finished archive can be flushed to disk before
+                // the rename: a crash must not leave a truncated archive under a
+                // real diagnostics name.
+                using (var zip = new ZipArchive(stream, ZipArchiveMode.Create,
+                           leaveOpen: true))
                 {
-                    AddFile(zip, "logs/" + Path.GetFileName(log), log);
+                    AddText(zip, "summary.txt", BuildSummary(settings));
+                    AddText(zip, "settings.json", BuildSettingsSnapshot(settings));
+                    foreach (string log in Directory
+                                 .EnumerateFiles(AppLog.DirectoryPath, "app-*.log")
+                                 .OrderByDescending(File.GetLastWriteTime)
+                                 .Take(3))
+                    {
+                        AddFile(zip, "logs/" + Path.GetFileName(log), log);
+                    }
                 }
+                stream.Flush(flushToDisk: true);
             }
             File.Move(temp, path);
+            Prune(directory);
             AppLog.Info("diagnostics exported");
             return path;
         }
         catch
         {
-            if (File.Exists(temp))
+            try
             {
-                File.Delete(temp);
+                if (File.Exists(temp))
+                {
+                    File.Delete(temp);
+                }
+            }
+            catch
+            {
+                // Best effort: the temporary name is clearly not an archive.
             }
             throw;
+        }
+    }
+
+    private static string UniqueArchivePath(string directory, string stamp)
+    {
+        string path = Path.Combine(directory, $"keepassity-diagnostics-{stamp}.zip");
+        int suffix = 2;
+        while (File.Exists(path) || File.Exists(path + ".tmp"))
+        {
+            path = Path.Combine(directory,
+                $"keepassity-diagnostics-{stamp}-{suffix++}.zip");
+        }
+        return path;
+    }
+
+    private static void Prune(string directory)
+    {
+        try
+        {
+            // A crash-left temporary file has no value; remove it with the
+            // retention pass instead of leaving it forever.
+            foreach (string temp in Directory.EnumerateFiles(directory, "*.tmp"))
+            {
+                try
+                {
+                    File.Delete(temp);
+                }
+                catch
+                {
+                    // A file still being written by another export is kept.
+                }
+            }
+            var archives = Directory.EnumerateFiles(directory,
+                    "keepassity-diagnostics-*.zip")
+                .Select(path => new FileInfo(path))
+                .OrderByDescending(file => file.LastWriteTimeUtc)
+                .ThenByDescending(file => file.Name, StringComparer.Ordinal)
+                .Skip(KeepArchives)
+                .ToList();
+            foreach (FileInfo archive in archives)
+            {
+                try
+                {
+                    archive.Delete();
+                }
+                catch
+                {
+                    // Retention is best effort; the next export retries.
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppLog.Warn($"diagnostics retention failed: {ex.Message}");
         }
     }
 

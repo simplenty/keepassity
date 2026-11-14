@@ -77,6 +77,9 @@ planned for v1.x and is expected to consume the same core directly.
   backups/metadata/sync state whose working copy vanished. Dirty copies, hash-mismatched copies,
   unknown-provenance copies and the current target are kept; the pass runs only while this process
   owns the single-instance mutex, before any window can open a cache file.
+- Diagnostics archives are written through the flushed-temporary/rename protocol, exported names
+  are unique even within one millisecond, only the newest ten are kept, and the archive never
+  contains database paths, WebDAV URLs or usernames.
 - A newly created database goes through the same protocol from its first byte:
   `AtomicFile.WriteNew` flushes a temporary and performs a create-only move, so it never replaces
   a file another program created in the race, and `NewDatabasePreparer` writes a WebDAV working

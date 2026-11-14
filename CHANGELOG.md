@@ -17,6 +17,11 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **Diagnostics exports are durable, unique and bounded:** two exports in the same second collided
+  on the archive name (the second one failed), the finished zip was moved into place without a
+  disk flush, and every export stayed in the data folder forever. The archive now carries a
+  millisecond timestamp with a unique fallback suffix, is written to a flushed temporary and moved
+  atomically, crash-left `.tmp` files are removed, and only the newest ten archives are kept.
 - **The WebDAV cache stays bounded:** every remote database ever opened left its working copy and
   up to twenty backups under the application data folder, and nothing removed them. A startup pass
   now drops clean working copies that have not been touched for ninety days (they can be downloaded
