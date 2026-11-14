@@ -17,6 +17,14 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **A failed save keeps the session alive:** a disk or permission error no longer escapes the
+  save path (from an `async void` caller it could take the process down and with it the only
+  in-memory copy of the edit). The failure is logged and shown as an error toast, the in-memory
+  model keeps the change, the write gate is released, and the next successful save persists it.
+  Callers check the result so a success toast is not shown after a failed write, and the
+  backup-restore flow aborts instead of replacing the file when its pre-restore save fails.
+  Recording the dirty sync marker is best-effort now, so a sidecar IO error cannot turn a
+  successful save into a reported failure.
 - **Closing the window waits for an in-flight vault write:** `VaultSession` now tracks queued and
   running saves, sync replacements and restores, and the shell drains them (bounded to ten
   seconds) before the closed handler releases the lock, disposes the write gate and the core. An

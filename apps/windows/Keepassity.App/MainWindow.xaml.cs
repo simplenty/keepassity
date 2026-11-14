@@ -1902,11 +1902,20 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        SyncState state = _syncStates.Load(Settings.WebDavUrl!.Trim(),
-            Settings.WebDavUsername!.Trim(), _dbPath);
-        state.LocalDirty = true;
-        _syncStates.Save(Settings.WebDavUrl!.Trim(), Settings.WebDavUsername!.Trim(), _dbPath,
-            state);
+        // The dirty marker is a hint, not part of the save: a sidecar write
+        // failure must not turn a successful save into a reported failure.
+        try
+        {
+            SyncState state = _syncStates.Load(Settings.WebDavUrl!.Trim(),
+                Settings.WebDavUsername!.Trim(), _dbPath);
+            state.LocalDirty = true;
+            _syncStates.Save(Settings.WebDavUrl!.Trim(), Settings.WebDavUsername!.Trim(),
+                _dbPath, state);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"could not record the dirty sync state: {ex.Message}");
+        }
         SetSyncStatus("Not synced");
     }
 
@@ -1958,7 +1967,12 @@ public sealed partial class MainWindow : Window
                 await probe.OpenAsync(selected.Path, _masterPassword);
                 await probe.LockAsync();
             }
-            await SaveAsync(silent: true, syncAfterSave: false);
+            if (!await SaveAsync(silent: true, syncAfterSave: false))
+            {
+                // Restoring replaces the file; never continue when the current
+                // state could not be written to disk first.
+                return;
+            }
             // The session keeps the write gate across the restore and the core
             // reopen, so a concurrent sync write cannot land in between.
             await _vault.RestoreAsync(selectedBytes, Settings.BackupRetention,
@@ -3285,10 +3299,13 @@ public sealed partial class MainWindow : Window
             return;
         }
         string uuid = await _core.CreateGroupAsync(_rootGroupUuid, name);
-        await SaveAsync();
+        bool saved = await SaveAsync();
         _selectedGroupUuid = uuid;
         await ReloadVaultAsync(null, preserveScroll: false);
-        ShowToast(Loc.T("Group \"{0}\" created", name), InfoBarSeverity.Success);
+        if (saved)
+        {
+            ShowToast(Loc.T("Group \"{0}\" created", name), InfoBarSeverity.Success);
+        }
     }
 
     private async Task RenameGroupPromptAsync(GroupNavItem group)
@@ -3304,9 +3321,12 @@ public sealed partial class MainWindow : Window
             return;
         }
         await _core.RenameGroupAsync(group.Uuid, name);
-        await SaveAsync();
+        bool saved = await SaveAsync();
         await ReloadVaultAsync(_selectedGroupUuid);
-        ShowToast(Loc.T("Group renamed"), InfoBarSeverity.Success);
+        if (saved)
+        {
+            ShowToast(Loc.T("Group renamed"), InfoBarSeverity.Success);
+        }
     }
 
     private async Task DeleteGroupAsync(GroupNavItem group)
@@ -3340,12 +3360,15 @@ public sealed partial class MainWindow : Window
         {
             _selectedGroupUuid = null;
         }
-        await SaveAsync();
+        bool saved = await SaveAsync();
         await ReloadVaultAsync(null, preserveScroll: false);
-        ShowToast(recycled
-                ? Loc.T("Group moved to the Recycle Bin")
-                : Loc.T("Group deleted"),
-            InfoBarSeverity.Success);
+        if (saved)
+        {
+            ShowToast(recycled
+                    ? Loc.T("Group moved to the Recycle Bin")
+                    : Loc.T("Group deleted"),
+                InfoBarSeverity.Success);
+        }
     }
 
     private async Task<string?> PromptForNameAsync(string title, string label,
@@ -3512,7 +3535,10 @@ public sealed partial class MainWindow : Window
         try
         {
             await _core.MoveEntryAsync(entryUuid, targetGroupUuid);
-            await SaveAsync();
+            if (!await SaveAsync())
+            {
+                return;
+            }
             // Capture the wheel position right before the list changes. The move
             // and the save (including its sync/merge tail) take long enough that
             // a position captured before them is stale: restoring it afterwards
@@ -4519,9 +4545,12 @@ public sealed partial class MainWindow : Window
                 editor.CreateTitle(Loc.T("Untitled entry")),
                 editor.NormalizedUsername(), editor.Password, editor.NormalizedUrl(),
                 editor.Notes);
-            await SaveAsync();
+            bool saved = await SaveAsync();
             await ReloadVaultAsync(uuid, preserveScroll: false);
-            ShowToast(Loc.T("Entry created and saved"), InfoBarSeverity.Success);
+            if (saved)
+            {
+                ShowToast(Loc.T("Entry created and saved"), InfoBarSeverity.Success);
+            }
         }
         catch (Exception ex)
         {
@@ -4669,9 +4698,12 @@ public sealed partial class MainWindow : Window
                     Encoder = "totp",
                 });
             }
-            await SaveAsync();
+            bool saved = await SaveAsync();
             await ReloadVaultAsync(uuid);
-            ShowToast(Loc.T("Entry updated and saved"), InfoBarSeverity.Success);
+            if (saved)
+            {
+                ShowToast(Loc.T("Entry updated and saved"), InfoBarSeverity.Success);
+            }
         }
         catch (Exception ex)
         {
@@ -4731,10 +4763,13 @@ public sealed partial class MainWindow : Window
         try
         {
             await _core.MoveEntryAsync(uuid, target.Uuid);
-            await SaveAsync();
+            bool saved = await SaveAsync();
             _selectedGroupUuid = toTopLevel ? null : target.Uuid;
             await ReloadVaultAsync(uuid);
-            ShowToast(Loc.T("Moved to {0}", targetLabel), InfoBarSeverity.Success);
+            if (saved)
+            {
+                ShowToast(Loc.T("Moved to {0}", targetLabel), InfoBarSeverity.Success);
+            }
         }
         catch (Exception ex)
         {
@@ -4766,9 +4801,12 @@ public sealed partial class MainWindow : Window
         try
         {
             await _core.DeleteEntryAsync(uuid);
-            await SaveAsync();
+            bool saved = await SaveAsync();
             await ReloadVaultAsync(null);
-            ShowToast(Loc.T("Entry moved to the recycle bin"), InfoBarSeverity.Informational);
+            if (saved)
+            {
+                ShowToast(Loc.T("Entry moved to the recycle bin"), InfoBarSeverity.Informational);
+            }
         }
         catch (Exception ex)
         {
@@ -5291,9 +5329,12 @@ public sealed partial class MainWindow : Window
             try
             {
                 await _core.TotpDeleteAsync(current.Uuid);
-                await SaveAsync();
+                bool saved = await SaveAsync();
                 await ReloadVaultAsync(current.Uuid);
-                ShowToast(Loc.T("TOTP removed"), InfoBarSeverity.Informational);
+                if (saved)
+                {
+                    ShowToast(Loc.T("TOTP removed"), InfoBarSeverity.Informational);
+                }
             }
             catch (Exception ex)
             {
@@ -5317,9 +5358,12 @@ public sealed partial class MainWindow : Window
                 Period = (int)Math.Clamp(period.Value, 1, 300),
                 Encoder = "totp",
             });
-            await SaveAsync();
+            bool saved = await SaveAsync();
             await ReloadVaultAsync(current.Uuid);
-            ShowToast(Loc.T("TOTP saved"), InfoBarSeverity.Success);
+            if (saved)
+            {
+                ShowToast(Loc.T("TOTP saved"), InfoBarSeverity.Success);
+            }
         }
         catch (Exception ex)
         {
@@ -5379,8 +5423,13 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            // A transient disk error must not terminate the only process that
+            // still holds the user's edits: the file on disk is the previous
+            // complete database, the in-memory model keeps the change, and the
+            // next successful save (or the user retrying) persists it.
+            AppLog.Error("save failed", ex);
             ShowToast(Loc.T("Save failed: {0}", ex.Message), InfoBarSeverity.Error);
-            throw;
+            return false;
         }
     }
 

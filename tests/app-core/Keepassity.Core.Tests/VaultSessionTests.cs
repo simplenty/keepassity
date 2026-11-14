@@ -20,6 +20,7 @@ internal static class VaultSessionTests
         ReplaceRefusesAnExternalChange(check, dataDirectory);
         RestoreBacksUpOldBytes(check, dataDirectory);
         WriteTrackingDrainsBeforeExit(check, dataDirectory);
+        FailedSaveLeavesTheSessionUsable(check, dataDirectory);
         ReleaseForgetsTheFingerprint(check, dataDirectory);
     }
 
@@ -289,6 +290,46 @@ internal static class VaultSessionTests
         }
         check("disposing during a save lets the writer finish",
             writerSurvived && File.ReadAllBytes(path).SequenceEqual(Bytes(6, 6)));
+    }
+
+    private static void FailedSaveLeavesTheSessionUsable(TestCheck check, string dataDirectory)
+    {
+        (_, string path) = NewVault(dataDirectory, "save-failed", Bytes(1));
+        using var session = new VaultSession();
+        _ = session.TryAcquire(path, out _);
+        session.CaptureFingerprint();
+        int calls = 0;
+        var core = new FakeCore
+        {
+            ModelBytes = Bytes(3, 3),
+            OnSave = () =>
+            {
+                calls++;
+                if (calls == 1)
+                {
+                    throw new IOException("the disk is full");
+                }
+                return Task.CompletedTask;
+            },
+        };
+
+        bool failed = false;
+        try
+        {
+            session.SaveAsync(core).GetAwaiter().GetResult();
+        }
+        catch (IOException)
+        {
+            failed = true;
+        }
+
+        check("a failed save reports the error instead of being silent", failed);
+        check("a failed save releases the write gate", !session.IsWriting);
+        check("the file keeps the last complete bytes after a failed save",
+            File.ReadAllBytes(path).SequenceEqual(Bytes(1)));
+        session.SaveAsync(core).GetAwaiter().GetResult();
+        check("a retry after a failed save succeeds", !session.IsWriting &&
+            File.ReadAllBytes(path).SequenceEqual(Bytes(3, 3)));
     }
 
     private static void ReleaseForgetsTheFingerprint(TestCheck check, string dataDirectory)
