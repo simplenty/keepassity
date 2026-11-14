@@ -30,6 +30,7 @@ internal static class SyncCoordinatorTests
         ConflictChoices(check, dataDirectory);
         ConflictCopiesAreReused(check, dataDirectory);
         LocalEditDuringSync(check, dataDirectory);
+        LocalEditDuringUpload(check, dataDirectory);
         NothingQueued(check, dataDirectory);
     }
 
@@ -441,6 +442,26 @@ internal static class SyncCoordinatorTests
             mergeReport.Notice.ToString());
     }
 
+    private static void LocalEditDuringUpload(TestCheck check, string dataDirectory)
+    {
+        // A save that lands while the core is serializing the upload snapshot
+        // must not be overwritten by that older snapshot.
+        Harness harness = new(dataDirectory, "edit-during-upload", Local("baseline"));
+        harness.Remote.Missing = true;
+        harness.Core.ModelBytes = Local("model");
+        byte[] userEdit = Local("upload-user-edit");
+        harness.Core.OnSaveBytes =
+            () => harness.Document.ReplaceAsync(userEdit).GetAwaiter().GetResult();
+
+        SyncReport report = harness.RunAsync().GetAwaiter().GetResult();
+        check("sync: a save during the upload snapshot pauses instead of being overwritten",
+            report.Outcome == SyncOutcome.ConflictPaused &&
+            report.Notice == SyncNotice.LocalChangedWhileSyncing &&
+            harness.Document.Bytes.SequenceEqual(userEdit) &&
+            harness.Remote.Uploaded.Count == 0 && harness.State.LocalDirty,
+            report.Notice.ToString());
+    }
+
     private static void NothingQueued(TestCheck check, string dataDirectory)
     {
         Harness offline = new(dataDirectory, "offline", Local("local-offline"));
@@ -682,7 +703,14 @@ internal static class SyncCoordinatorTests
 
         public Task LockAsync() => Task.CompletedTask;
 
-        public Task<byte[]> SaveBytesAsync() => Task.FromResult(ModelBytes);
+        public Task<byte[]> SaveBytesAsync()
+        {
+            OnSaveBytes?.Invoke();
+            return Task.FromResult(ModelBytes);
+        }
+
+        /// <summary>Hook to simulate a local save while the snapshot is taken.</summary>
+        public Action? OnSaveBytes { get; set; }
 
         public Task SaveAsync(string path, int backupRetention = 20,
             Func<bool>? databaseChanged = null)

@@ -305,10 +305,24 @@ public sealed class SyncCoordinator
     private async Task<SyncReport> UploadAsync(SyncRun run, SyncState state)
     {
         byte[] bytes = await run.Core.SaveBytesAsync();
+        string bytesSha = Sha256Hex(bytes);
+        // The snapshot above can be older than a save that landed while the core
+        // was serializing it; writing the snapshot would then undo that save.
+        if (run.LocalShaAtStart is not null && File.Exists(run.Document.Path))
+        {
+            byte[] current = await run.Document.ReadBytesAsync();
+            string currentSha = Sha256Hex(current);
+            if (!string.Equals(currentSha, run.LocalShaAtStart,
+                    StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(currentSha, bytesSha, StringComparison.OrdinalIgnoreCase))
+            {
+                return LocalChangedWhileSyncing(run, state);
+            }
+        }
         await run.Document.ReplaceAsync(bytes);
         // The coordinator itself just wrote the file; remember it so the
         // during-run edit guard only reacts to changes made after this point.
-        run.LocalShaAtStart = Sha256Hex(bytes);
+        run.LocalShaAtStart = bytesSha;
         string? etag = await run.Remote.UploadAsync(bytes, state.Etag, run.Cancellation);
         string sha = Sha256Hex(bytes);
         await run.Core.SyncCommitAsync(etag, sha);
