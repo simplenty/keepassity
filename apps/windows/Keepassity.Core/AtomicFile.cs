@@ -124,10 +124,25 @@ public static class AtomicFile
     }
 
     /// <summary>
+    /// Write a brand-new file without ever overwriting: the flushed temporary
+    /// sibling is moved into place only when the target does not exist, so a
+    /// file created by another program in the meantime is not replaced.
+    /// </summary>
+    public static void WriteNew(string path, byte[] content)
+    {
+        WriteCore(path, content, overwrite: false);
+    }
+
+    /// <summary>
     /// Write small configuration/state files durably without creating a backup.
     /// Uses the same flushed temporary file and atomic move as a database save.
     /// </summary>
     public static void Write(string path, byte[] content)
+    {
+        WriteCore(path, content, overwrite: true);
+    }
+
+    private static void WriteCore(string path, byte[] content, bool overwrite)
     {
         if (content is null || content.Length == 0)
         {
@@ -146,7 +161,16 @@ public static class AtomicFile
                 stream.Write(content);
                 stream.Flush(flushToDisk: true);
             }
-            File.Move(temp, fullPath, true);
+            if (overwrite)
+            {
+                File.Move(temp, fullPath, true);
+            }
+            else
+            {
+                // No overwrite flag: an existing target fails the move instead
+                // of being replaced.
+                File.Move(temp, fullPath);
+            }
         }
         finally
         {

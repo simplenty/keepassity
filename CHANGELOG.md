@@ -5,6 +5,18 @@ KDBX write-path changes must state the compatibility impact.
 
 ## [Unreleased]
 
+- **Creating a database uses the durable write protocol, and creating one on WebDAV works
+  again:** a new local database is written through a flushed temporary file and a create-only
+  move, so a file another program creates in the same moment is never replaced; a WebDAV create
+  claims the local working copy before the remote file exists, then writes the working copy
+  durably and records the clean sync baseline through `NewDatabasePreparer`. The flow had been
+  routed through the sync write guard with a path that was not the open vault (introduced with
+  the `VaultSession` consolidation), which made a WebDAV create fail after the upload.
+- **Release builds no longer leave the repository dirty:** the two library projects stopped
+  generating their own `packages.lock.json`; their package graph is already pinned by the
+  application and test lock files, and the duplicated library locks flipped between a RID and a
+  non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
+  restore reported them as modified again because of line endings).
 - **The WinUI shell project is `Keepassity.App`:** the prototype name `Keepassity.Mock` is gone
   from the project folder, namespace, XAML classes, solution, publish/self-test scripts,
   installer icon path, CI and docs; the shipped binary stays `Keepassity.exe`, and the pre-1.0

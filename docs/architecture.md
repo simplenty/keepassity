@@ -63,6 +63,10 @@ planned for v1.x and is expected to consume the same core directly.
   core's IO-free `save_atomic` protocol; an unlock removes leftover temps before opening. The
   Windows path therefore matches the core protocol's ordering (verify → temp → backup → replace),
   with the backup hook delegated to `BackupService`.
+- A newly created database goes through the same protocol from its first byte:
+  `AtomicFile.WriteNew` flushes a temporary and performs a create-only move, so it never replaces
+  a file another program created in the race, and `NewDatabasePreparer` writes a WebDAV working
+  copy before recording the clean sync baseline.
 - Remote downloads are decrypted with the current master password before they replace the
   live database; download and upload redirects are rejected rather than followed, and a sync
   baseline without a content hash is refused. A corrupt sync sidecar makes the vault dirty

@@ -14,8 +14,6 @@ using System.ComponentModel;
 using System.Net.NetworkInformation;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
-using System.Text.Json;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.Storage;
@@ -58,6 +56,7 @@ public sealed partial class MainWindow : Window
     // A WebDAV download is held here until the master password opens its bytes;
     // only then is the working copy replaced (see RemoteVaultOpener).
     private readonly RemoteVaultOpener _remoteOpener;
+    private readonly NewDatabasePreparer _newDatabase;
     private PendingRemoteDatabase? _pendingRemoteDownload;
     private readonly DispatcherTimer _totpTimer = new();
     private readonly DispatcherTimer _toastTimer = new();
@@ -143,6 +142,7 @@ public sealed partial class MainWindow : Window
         // attached localization properties apply the right strings on first load.
         Loc.Initialize(Settings.Language);
         _remoteOpener = new RemoteVaultOpener(_syncStates);
+        _newDatabase = new NewDatabasePreparer(_syncStates);
         Unlock = new UnlockViewModel(_core, LocText.Instance, _remoteOpener);
         SyncStatus = new SyncStatusViewModel(LocText.Instance);
         Detail = new EntryDetailViewModel();
@@ -1802,10 +1802,6 @@ public sealed partial class MainWindow : Window
         await ReloadVaultAsync(_currentFull?.Uuid);
     }
 
-    /// <summary>Lowercase hex SHA-256, the same shape the core's sync baseline uses.</summary>
-    private static string Sha256Hex(byte[] bytes)
-        => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-
     /// <summary>
     /// Durable, gated write of database bytes (sync merge/download). The sync
     /// coordinator's <see cref="IVaultDocument.ReplaceAsync"/> adapter calls this;
@@ -2698,6 +2694,15 @@ public sealed partial class MainWindow : Window
             if (useWebDav)
             {
                 string workingPath = RemoteDatabaseStore.PathFor(remoteUrl, remoteUsername);
+                // Claim the local working copy before creating the remote file:
+                // when another window owns this path, no database may be created
+                // on the server that this window then cannot open.
+                if (!TryAcquireVaultLock(workingPath))
+                {
+                    throw new InvalidOperationException(Loc.T(
+                        "The database is open in another Keepassity window. " +
+                        "Close it there first."));
+                }
                 string? etag;
                 using (var dav = await CreateWebDavClientAsync(remoteUrl, remoteUsername, remotePassword))
                 {
@@ -2716,25 +2721,12 @@ public sealed partial class MainWindow : Window
                 {
                     _credentials.SavePassword(remoteUrl, remoteUsername, remotePassword);
                 }
-                // Claim the working copy before writing it: another window may
-                // own the same deterministic path even though this database is
-                // new to this process.
-                if (!TryAcquireVaultLock(workingPath))
-                {
-                    throw new InvalidOperationException(Loc.T(
-                        "The database is open in another Keepassity window. " +
-                        "Close it there first."));
-                }
-                await WriteLocalBytesAsync(workingPath, bytes);
+                // The remote file exists now; the local working copy must be
+                // durable and carry a clean baseline, so it goes through the
+                // same write ordering as a save instead of a direct file write.
+                await _newDatabase.CommitRemoteAsync(remoteUrl, remoteUsername, bytes, etag,
+                    Settings.BackupRetention);
                 ApplyWebDavSource(remoteUrl, remoteUsername, workingPath);
-                SyncState state = _syncStates.Load(remoteUrl, remoteUsername, workingPath);
-                state.Etag = etag;
-                state.Sha256 = Sha256Hex(bytes);
-                state.Size = bytes.Length;
-                state.RemoteModifiedUnix = null;
-                state.LocalDirty = false;
-                state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-                _syncStates.Save(remoteUrl, remoteUsername, workingPath, state);
                 RememberVaultFingerprint(workingPath);
                 await _core.OpenAsync(workingPath, password);
                 _masterPassword = password;
@@ -2749,28 +2741,23 @@ public sealed partial class MainWindow : Window
             }
             else
             {
-                string? directory = Path.GetDirectoryName(path);
-                if (!string.IsNullOrEmpty(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
                 if (File.Exists(path))
                 {
                     throw new InvalidOperationException(
                         Loc.T("That file already exists. Choose another path."));
                 }
-                string temp = path + ".keepassity-new-tmp";
-                await File.WriteAllBytesAsync(temp, bytes);
-                File.Move(temp, path);
-                _dbPath = path;
-                _webDavSource = false;
-                _sourceWebDavUrl = null;
                 if (!TryAcquireVaultLock(path))
                 {
                     throw new InvalidOperationException(Loc.T(
                         "The database is open in another Keepassity window. " +
                         "Close it there first."));
                 }
+                // Flushed temporary + create-only move: the file is either the
+                // complete new database or it does not exist yet.
+                _newDatabase.CreateLocal(path, bytes);
+                _dbPath = path;
+                _webDavSource = false;
+                _sourceWebDavUrl = null;
                 RememberVaultFingerprint(path);
                 await _core.OpenAsync(path, password);
                 _masterPassword = password;

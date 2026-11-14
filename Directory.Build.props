@@ -11,6 +11,12 @@
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- The library projects are restored through the app and the test
+         harnesses; their package graph is already pinned by those lock files.
+         Their own empty/duplicated lock files used to flip between a RID and a
+         non-RID restore, which left the repository dirty after every publish. -->
+    <RestorePackagesWithLockFile
+      Condition="'$(MSBuildProjectName)' == 'Keepassity.Core' or '$(MSBuildProjectName)' == 'Keepassity.ViewModels'">false</RestorePackagesWithLockFile>
     <NuGetLockFilePath Condition="'$(NuGetLockFilePath)' == ''">$(MSBuildProjectDirectory)\packages.lock.json</NuGetLockFilePath>
   </PropertyGroup>
 </Project>

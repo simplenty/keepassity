@@ -63,6 +63,29 @@ internal static class AtomicFileTests
             Directory.GetFiles(directory, "*.keepassity-bak").Length == 0 &&
             Directory.GetFiles(directory, "*.keepassity-tmp-*").Length == 0);
 
+        string created = Path.Combine(directory, "created.kdbx");
+        byte[] createdBytes = "new-database"u8.ToArray();
+        AtomicFile.WriteNew(created, createdBytes);
+        check("create-only write creates the file",
+            File.ReadAllBytes(created).SequenceEqual(createdBytes));
+        check("create-only write leaves no temporary file",
+            Directory.GetFiles(directory, "created.kdbx.keepassity-tmp-*").Length == 0);
+        File.WriteAllBytes(created, "existing"u8.ToArray());
+        bool createOnlyRefused = false;
+        try
+        {
+            AtomicFile.WriteNew(created, "replacement"u8.ToArray());
+        }
+        catch (IOException)
+        {
+            createOnlyRefused = true;
+        }
+        check("create-only write refuses an existing file", createOnlyRefused);
+        check("a refused create-only write keeps the existing bytes",
+            File.ReadAllBytes(created).SequenceEqual("existing"u8.ToArray()));
+        check("a refused create-only write leaves no temporary file",
+            Directory.GetFiles(directory, "created.kdbx.keepassity-tmp-*").Length == 0);
+
         string live = Path.Combine(directory, "vault.kdbx");
         File.WriteAllBytes(live, "live"u8.ToArray());
         string temp = live + AtomicFile.TempInfix + "abc";
