@@ -83,7 +83,11 @@ planned for v1.x and is expected to consume the same core directly.
   trusting a half-finished sync.
 - One process writes a vault: opening it takes a cross-process lock, and a save compares the
   file's SHA-256 with the bytes the in-memory model came from. An external change blocks the
-  save instead of being overwritten. `VaultSession` owns those three guards (lock, in-process
+  save instead of being overwritten. The lock has two layers: the account-scoped file under the
+  application data folder, plus (for a writable vault folder) an exclusive `.keepassity/locks`
+  file next to the database, which also coordinates different Windows accounts or machines
+  opening the same shared folder; a read-only folder degrades to the account-scoped layer.
+  `VaultSession` owns those three guards (lock, in-process
   write gate, fingerprint) and is the only path for saves, sync replacements and backup
   restores, so the window cannot compose them differently per call site. The new ciphertext is
   decrypted and parsed with the cached KDF key before it can replace the file; the write gate

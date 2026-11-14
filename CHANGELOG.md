@@ -17,6 +17,12 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **Shared-folder vaults coordinate across machines and Windows accounts:** the lock lived only
+  under the per-account application data folder, so two machines or two Windows users opening the
+  same database on a network share could both hold it and silently overwrite each other's saves.
+  A writable vault folder now also holds an exclusive `<database>.lock` inside its
+  `.keepassity/locks` folder; a lock held there refuses the open, releasing removes it, and the
+  OS drops it on a crash. A read-only folder keeps the account-only lock with a log entry.
 - **A damaged database can be recovered from the unlock screen:** opening a corrupt database used
   to leave only the error banner and an external backup-folder button, because the in-app backup
   list needs an open vault. The unlock failure now offers the newest local backup that the entered

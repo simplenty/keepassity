@@ -30,8 +30,10 @@ apps/windows/Keepassity.App/bin/Debug/net10.0-windows10.0.19041.0/win-x64/Keepas
 4. `Edit TOTP` sets/removes TOTP; import from a QR image or clipboard otpauth
    URI, or paste a Base32 secret manually. `Copy` works on passwords and codes.
 5. Changes are saved atomically to the same `.kdbx`; a timestamped backup is
-   copied to `.keepassity\backups\<db>\` before every save. Lock saves and closes
-   the handle.
+   copied to `.keepassity\backups\<db>\` before every save. Opening a writable
+   database folder also takes `.keepassity\locks\<db>.lock`, so another Windows
+   account or machine opening the same shared folder is refused instead of
+   writing over it. Lock saves and closes the handle.
 
 `--db <path>` pre-fills the database, and a bare `.kdbx` path (file association /
 "Open with") is handed to the running instance. The diagnostic overrides are
