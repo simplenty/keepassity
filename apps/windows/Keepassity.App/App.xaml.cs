@@ -123,10 +123,47 @@ public partial class App : Application
                 AppLog.Warn("an instance mutex exists but no window was found; " +
                             "starting a normal window");
             }
+            if (createdNew && _instanceMutex is not null)
+            {
+                // Safe point to drop stale WebDAV cache entries: no other instance
+                // exists and no window has opened a working copy yet.
+                PruneRemoteCache();
+            }
         }
 
         _window = new MainWindow();
         _window.Activate();
+    }
+
+    /// <summary>
+    /// Drop clean WebDAV working copies that have not been touched for a while,
+    /// plus leftovers whose working copy already disappeared. Dirty copies (the
+    /// only copy of unsynced edits) and copies with unknown provenance stay.
+    /// </summary>
+    private static void PruneRemoteCache()
+    {
+        try
+        {
+            var settings = new AppSettingsStore();
+            AppSettings current = settings.Current;
+            var keep = new List<string>();
+            if (!string.IsNullOrWhiteSpace(current.LastDatabasePath) &&
+                !string.IsNullOrWhiteSpace(current.LastWebDavUrl))
+            {
+                keep.Add(RemoteDatabaseStore.PathFor(current.LastWebDavUrl,
+                    current.LastWebDavUsername ?? string.Empty));
+            }
+            RemoteCacheCleanupResult result = new RemoteCacheCleaner(new SyncStateStore())
+                .Prune(keep, TimeSpan.FromDays(90));
+            if (result.TotalRemoved > 0)
+            {
+                AppLog.Info($"remote cache cleanup: {result}");
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"remote cache cleanup failed: {ex.Message}");
+        }
     }
 
     private static bool ActivateExistingInstance()

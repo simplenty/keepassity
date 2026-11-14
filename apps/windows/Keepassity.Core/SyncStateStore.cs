@@ -53,6 +53,27 @@ public sealed class SyncStateStore
     public void Save(string remoteUrl, string username, string localPath, SyncState state)
         => SaveTo(PathFor(remoteUrl, username, localPath), state);
 
+    /// <summary>Sidecar path for one remote source/local path pair.</summary>
+    public string StatePathFor(string remoteUrl, string username, string localPath)
+        => PathFor(remoteUrl, username, localPath);
+
+    /// <summary>Remove the sidecar (used when a cached working copy is deleted).</summary>
+    public void Remove(string remoteUrl, string username, string localPath)
+    {
+        try
+        {
+            string path = PathFor(remoteUrl, username, localPath);
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppLog.Warn($"sync state could not be removed: {ex.Message}");
+        }
+    }
+
     private SyncState LoadFrom(string path)
     {
         if (!Available)

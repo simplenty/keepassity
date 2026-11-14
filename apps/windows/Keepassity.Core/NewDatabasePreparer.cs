@@ -54,6 +54,7 @@ public sealed class NewDatabasePreparer
         state.LocalDirty = false;
         state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         _states.Save(normalizedUrl, normalizedUsername, workingCopy, state);
+        RemoteDatabaseStore.WriteMetadata(normalizedUrl, normalizedUsername);
         return workingCopy;
     }
 

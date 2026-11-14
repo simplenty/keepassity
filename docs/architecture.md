@@ -72,6 +72,11 @@ planned for v1.x and is expected to consume the same core directly.
 - A run marker (`RunStateStore`) separates a clean close from a crash or power loss: the next
   launch reports an unclean previous session on the unlock surface and points at the backups. The
   marker is written atomically, is best effort, and ignores a concurrent test-only second window.
+- The local WebDAV cache is bounded by a startup cleanup (`RemoteCacheCleaner`): clean working
+  copies untouched for ninety days are dropped (a remote re-open downloads them again), along with
+  backups/metadata/sync state whose working copy vanished. Dirty copies, hash-mismatched copies,
+  unknown-provenance copies and the current target are kept; the pass runs only while this process
+  owns the single-instance mutex, before any window can open a cache file.
 - A newly created database goes through the same protocol from its first byte:
   `AtomicFile.WriteNew` flushes a temporary and performs a create-only move, so it never replaces
   a file another program created in the race, and `NewDatabasePreparer` writes a WebDAV working

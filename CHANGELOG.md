@@ -17,6 +17,13 @@ KDBX write-path changes must state the compatibility impact.
   application and test lock files, and the duplicated library locks flipped between a RID and a
   non-RID restore, so every `scripts/publish-windows.ps1` run modified tracked files (and a plain
   restore reported them as modified again because of line endings).
+- **The WebDAV cache stays bounded:** every remote database ever opened left its working copy and
+  up to twenty backups under the application data folder, and nothing removed them. A startup pass
+  now drops clean working copies that have not been touched for ninety days (they can be downloaded
+  again), plus backups, metadata and sync state whose working copy already vanished. Copies with
+  unsynced edits, copies whose hash does not match the recorded baseline, copies without source
+  metadata and the current target are never removed, and the pass only runs when this process owns
+  the single-instance mutex before any window opens.
 - **A crash is noticed on the next launch:** a small run marker is written when the window
   starts and removed on a clean close. When it is still there and its process is gone, the unlock
   surface reports that the previous session ended unexpectedly and points at the backups, so a

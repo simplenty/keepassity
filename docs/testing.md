@@ -45,6 +45,8 @@ manifest, Windows build, headless service tests; `-Full` adds the application se
   the same-volume rename fallback for volumes without `File.Replace`,
   the run marker that reports an unclean previous session (clean close, dead process, live
   process, malformed marker, atomic write),
+  the WebDAV cache cleanup (clean+old copies pruned with their backups/metadata/state, while
+  dirty, recent, unknown-provenance, hash-mismatched and listed copies stay),
   recovery candidate selection: newest decryptable backup wins while corrupt, unreadable and
   wrong-password candidates are skipped, verified against the real core as well),
   diagnostics archive and logging.

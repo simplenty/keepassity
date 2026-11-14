@@ -2367,6 +2367,9 @@ public sealed partial class MainWindow : Window
         _dbPath = workingPath;
         _webDavSource = true;
         _sourceWebDavUrl = url;
+        // Record the remote source for a working copy opened directly (without a
+        // fresh download), so stale cache entries can be pruned safely later.
+        RemoteDatabaseStore.WriteMetadata(url, username);
         Settings.LastDatabaseKind = "webdav";
         Settings.LastWebDavUrl = url;
         Settings.LastWebDavUsername = username;

@@ -92,6 +92,7 @@ public sealed class RemoteVaultOpener
             state.LocalDirty = false;
             state.LastSyncUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             _states.Save(pending.Url, pending.Username, pending.WorkingCopyPath, state);
+            RemoteDatabaseStore.WriteMetadata(pending.Url, pending.Username);
         }
         catch
         {
